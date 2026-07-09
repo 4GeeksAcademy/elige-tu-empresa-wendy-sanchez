@@ -1,0 +1,11 @@
+{
+  "name": "elige-tu-empresa-wendy-sanchez",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
