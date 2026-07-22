@@ -70,3 +70,19 @@ Actúa como **desarrollador full stack y frontend senior**.
 - Las funciones son puras: no dependen de variables externas ni modifican estado global.
 - Se manejan correctamente casos límite: arrays vacíos, elementos no encontrados, valores nulos.
 - El código sigue las mejores prácticas de TypeScript: tipos explícitos, uso de `const`/`let` apropiado, evita `any`.
+
+### 10) Talent Pipeline Tracker
+- La página de listado renderiza correctamente los datos obtenidos de la API.
+- Los filtros por estado y etapa funcionan usando query parameters sin recargas de página.
+- La búsqueda por nombre o email funciona sin recargar la página.
+- La página de detalle carga y muestra todos los campos del candidato correcto por ID.
+- El estado y la etapa se pueden actualizar desde el detalle usando `PATCH`.
+- Las notas se pueden listar, añadir y eliminar desde el detalle.
+- Las nuevas candidaturas se pueden registrar mediante un formulario usando `POST`.
+- Los datos de una candidatura existente se pueden editar mediante un formulario usando `PUT`.
+- Los estados de carga, éxito y error son visibles para el usuario en todas las operaciones asíncronas.
+- Los tipos TypeScript están definidos y se usan para las estructuras de datos de la API.
+- La estructura de carpetas separa componentes, tipos y lógica de acceso a datos.
+- El App Router de Next.js se usa correctamente para navegación y rutas dinámicas.
+- No hay prop drilling: el estado está correctamente acotado a nivel de componente.
+- La implementación refleja el contexto de la empresa asignada (nombres de campo, etiquetas, valores del dominio).
