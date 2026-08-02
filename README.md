@@ -109,3 +109,14 @@ This template was built as part of the 4Geeks Academy AI Engineering Career Prog
 You can find other templates and resources like this at the [4Geeks Academy GitHub page](https://github.com/4geeksacademy).
 
 _This template is maintained by 4Geeks Academy for the AI Engineering track. For exclusive use in the programme._
+
+---
+
+## Project-specific notes (added)
+
+- This repository currently includes a bilingual static website (`index.html`, `index.es.html`, `application.html`, `application.es.html`) and form validation logic in `validation.js`.
+- A Next.js app for Talent Pipeline Tracker exists in `uis/talent-pipeline-tracker`.
+- TypeScript validation commands currently available:
+  - `npm run typecheck`
+  - `cd uis/talent-pipeline-tracker && npm run typecheck`
+- Root license information: **Pending definition**.
