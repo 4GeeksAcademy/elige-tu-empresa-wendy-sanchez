@@ -120,7 +120,7 @@ export const englishContent: WebsiteContent = {
   ],
   whyCardTitle: "Built for modern patient access",
   whyCardBody:
-    "HealthCore combines clinical excellence with practical accessibility: quick availability, coordinated care pathways, and patient-first communication in the languages your family speaks every day.",
+    "HealthCore combines clínical excellence with practical accessibility: quick availability, coordinated care pathways, and patient-first communication in the languages your family speaks every day.",
   whyCardCta: "Go to patient inquiry form",
   locationsTitle: "US Locations",
   locationsNote:
@@ -152,16 +152,16 @@ export const englishContent: WebsiteContent = {
     "Looking to book care? Use our structured patient inquiry form and our reception team will contact you within one business day.",
   contactPrimaryCta: "Open patient inquiry form",
   footerCopyright: "© 2025 HealthCore. All rights reserved.",
-  socialNavLabel: "Social media",
+  socialNavLabel: "Social medía",
 };
 
 export const spanishContent: WebsiteContent = {
   lang: "es",
   title: "HealthCore | Servicios de Salud Ambulatorios",
   description:
-    "HealthCore es una red de salud ambulatoria con 12 clinicas en EE. UU. y Reino Unido, con citas el mismo dia, horarios extendidos y atencion bilingue.",
-  navLabel: "Navegacion principal",
-  mobileNavLabel: "Navegacion movil",
+    "HealthCore es una red de salud ambulatoria con 12 clínicas en EE. UU. y Reino Unido, con citas el mismo día, horarios extendidos y atención bilingüe.",
+  navLabel: "Navegación principal",
+  mobileNavLabel: "Navegación móvil",
   homeAnchor: "inicio",
   homeAriaLabel: "Inicio de HealthCore",
   navItems: [
@@ -171,64 +171,64 @@ export const spanishContent: WebsiteContent = {
     { label: "Contacto", href: "#contacto" },
   ],
   heroBadge: "Red de Salud Ambulatoria",
-  heroTitle: "Atencion medica que se adapta a tu vida",
+  heroTitle: "Atención médica que se adapta a tu vida",
   heroSubtitle:
-    "12 clinicas ambulatorias en EE. UU. y Reino Unido que ofrecen citas el mismo dia, horarios extendidos y atencion bilingue, para que recibas la atencion que necesitas, cuando la necesitas.",
+    "12 clínicas ambulatorias en EE. UU. y Reino Unido que ofrecen citas el mismo día, horarios extendidos y atención bilingüe, para que recibas la atención que necesitas, cuando la necesitas.",
   heroPrimaryCta: "Solicitar una cita",
   heroSecondaryCta: "Ver servicios",
-  heroImageAlt: "Profesional de la salud asistiendo a una paciente en una clinica ambulatoria",
+  heroImageAlt: "Profesional de la salud asistiendo a una paciente en una clínica ambulatoria",
   servicesTitle: "Servicios",
   servicesSubtitle:
-    "Servicios ambulatorios integrales disenados para prevencion, continuidad y apoyo especializado.",
+    "Servicios ambulatorios integrales diseñados para prevención, continuidad y apoyo especializado.",
   services: [
     {
-      title: "Atencion Primaria y Enfermedades Cronicas",
+      title: "Atención Primaria y Enfermedades Crónicas",
       bullets: [
-        "Citas el mismo dia con medicos de atencion primaria",
-        "Manejo continuo de diabetes, hipertension y asma",
+        "Citas el mismo día con médicos de atención primaria",
+        "Manejo continuo de diabetes, hipertensión y asma",
       ],
     },
     {
       title: "Consultas con Especialistas",
       bullets: [
-        "Cardiologia, endocrinologia, neumologia y salud de la mujer",
+        "Cardiología, endocrinología, neumología y salud de la mujer",
         "Derivaciones coordinadas dentro de la red de HealthCore",
       ],
     },
     {
       title: "Salud Preventiva y Bienestar",
       bullets: [
-        "Chequeos, vacunacion y revisiones anuales",
-        "Asesoramiento en salud mental y derivaciones a psiquiatria",
+        "Chequeos, vacunación y revisiones anuales",
+        "Asesoramiento en salud mental y derivaciones a psiquiatría",
       ],
     },
   ],
-  whyTitle: "Por que HealthCore",
+  whyTitle: "Por qué HealthCore",
   whyItems: [
-    { emphasis: "Citas el mismo dia", text: "en la mayoria de las ubicaciones" },
+    { emphasis: "Citas el mismo día", text: "en la mayoría de las ubicaciones" },
     {
       emphasis: "Horarios extendidos",
-      text: "entre semana hasta las 7pm u 8pm, sabados disponibles",
+      text: "entre semana hasta las 7pm u 8pm, sábados disponibles",
     },
     {
-      emphasis: "Personal bilingue",
-      text: "en ingles y espanol en ubicaciones de EE. UU.",
+      emphasis: "Personal bilingüe",
+      text: "en inglés y español en ubicaciones de EE. UU.",
     },
-    { emphasis: "12 clinicas", text: "en Texas, Florida, Georgia y el Reino Unido" },
+    { emphasis: "12 clínicas", text: "en Texas, Florida, Georgia y el Reino Unido" },
   ],
-  whyCardTitle: "Disenado para el acceso moderno de pacientes",
+  whyCardTitle: "Diseñado para el acceso moderno de pacientes",
   whyCardBody:
-    "HealthCore combina excelencia clinica con accesibilidad real: disponibilidad rapida, rutas de atencion coordinadas y comunicacion centrada en el paciente en los idiomas que usa tu familia cada dia.",
+    "HealthCore combina excelencia clínica con accesibilidad real: disponibilidad rápida, rutas de atención coordinadas y comunicación centrada en el paciente en los idiomas que usa tu familia cada día.",
   whyCardCta: "Ir al formulario de consulta",
   locationsTitle: "Ubicaciones en EE. UU.",
   locationsNote:
-    "Las clinicas del Reino Unido atienden un mercado independiente y no se incluyen en este sitio web publico.",
-  locationsTableLabel: "Tabla de clinicas de HealthCore en Estados Unidos",
+    "Las clínicas del Reino Unido atienden un mercado independiente y no se incluyen en este sitio web público.",
+  locationsTableLabel: "Tabla de clínicas de HealthCore en Estados Unidos",
   locationsColumns: {
-    clinic: "Nombre de la clinica",
+    clinic: "Nombre de la clínica",
     city: "Ciudad",
     state: "Estado",
-    phone: "Telefono",
+    phone: "Teléfono",
     hours: "Horario",
   },
   locations: baseLocations.map((location) => ({
@@ -247,7 +247,7 @@ export const spanishContent: WebsiteContent = {
     { title: "Reino Unido (Londres)", value: "+44 20 7946 0100" },
   ],
   contactBody:
-    "Quieres solicitar atencion? Usa nuestro formulario de consulta para pacientes y recepcion se pondra en contacto contigo dentro de 1 dia habil.",
+    "¿Quieres solicitar atención? Usa nuestro formulario de consulta para pacientes y recepción se pondrá en contacto contigo dentro de 1 día hábil.",
   contactPrimaryCta: "Abrir formulario de consulta",
   footerCopyright: "© 2025 HealthCore. Todos los derechos reservados.",
   socialNavLabel: "Redes sociales",

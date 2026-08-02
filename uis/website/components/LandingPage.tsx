@@ -12,6 +12,7 @@ export default function LandingPage({ content }: LandingPageProps) {
   const locationsId = content.lang === "es" ? "ubicaciones" : "locations";
   const contactId = content.lang === "es" ? "contacto" : "contact";
   const heroId = content.lang === "es" ? "hero-title-es" : "hero-title";
+  const applicationHref = content.lang === "es" ? "/application.es.html" : "/application.html";
 
   return (
     <>
@@ -38,7 +39,7 @@ export default function LandingPage({ content }: LandingPageProps) {
 
               <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                 <a
-                  href="/application"
+                  href={applicationHref}
                   className="inline-flex items-center justify-center rounded-xl bg-white px-6 py-3 text-sm font-semibold text-sky-900 shadow-sm transition hover:bg-cyan-50 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-sky-800"
                 >
                   {content.heroPrimaryCta}
@@ -101,7 +102,7 @@ export default function LandingPage({ content }: LandingPageProps) {
               <h3 className="text-lg font-semibold text-slate-900">{content.whyCardTitle}</h3>
               <p className="mt-3 text-sm text-slate-700">{content.whyCardBody}</p>
               <a
-                href="/application"
+                href={applicationHref}
                 className="mt-6 inline-flex items-center rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-800 focus:outline-none focus:ring-2 focus:ring-sky-700 focus:ring-offset-2"
               >
                 {content.whyCardCta}
@@ -158,7 +159,7 @@ export default function LandingPage({ content }: LandingPageProps) {
 
             <p className="mt-8 text-sm text-slate-600">{content.contactBody}</p>
             <a
-              href="/application"
+              href={applicationHref}
               className="mt-4 inline-flex items-center rounded-lg bg-sky-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-sky-800 focus:outline-none focus:ring-2 focus:ring-sky-700 focus:ring-offset-2"
             >
               {content.contactPrimaryCta}
