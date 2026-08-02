@@ -8,3 +8,8 @@ Each subfolder inside `uis/` must correspond to **one specific user interface** 
 - **Recommendation**: document in this file (or in sub-READMEs) the applications you add, their objective, the technology used, and how to run them.
 
 > _Spanish version: [README.es.md](./README.es.md)._
+
+## Current apps in this repository
+
+- `talent-pipeline-tracker`: Next.js app for candidate pipeline operations.
+- `website`: Next.js + TypeScript public corporate website for HealthCore (milestone 1 migration).
