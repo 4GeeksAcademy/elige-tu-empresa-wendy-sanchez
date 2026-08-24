@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,6 +23,17 @@ export default function RootLayout({
                   Internal App
                 </p>
                 <h1 className="text-lg font-semibold">HealthCore Backoffice</h1>
+                <nav className="mt-2 flex gap-3 text-xs text-slate-300">
+                  <Link className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white" href="/">
+                    Dashboard
+                  </Link>
+                  <Link
+                    className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+                    href="/incidents"
+                  >
+                    Incident Analysis
+                  </Link>
+                </nav>
               </div>
               <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">
                 Dashboard Preview
