@@ -21,7 +21,29 @@
 - services/api.ts: cliente HTTP centralizado.
 - types/candidate.ts y lib/validation.ts: contrato de datos y validación.
 
+### 4) API Directorio de Proveedores (services/api)
+- models.py: modelos Pydantic (Supplier, SupplierCreate, SupplierReplace, SupplierRateUpdate, SupplierStatusUpdate) con enums de país, moneda, categoría, estado y acuerdo de cumplimiento, más validador de coherencia moneda-país.
+- database.py: inicialización de TinyDB (data/process/suppliers_db.json, override con HEALTHCORE_DB_PATH).
+- routes/suppliers.py: listado con filtros, búsqueda por país y por categoría, alta, reemplazo, PATCH de tarifa (registra updated_at), PATCH de estado y DELETE como baja lógica (suspende y sella archived_at, no borra).
+- seed.py: carga idempotente de los 15 proveedores del CONTEXT (`uv run seed` desde services/api).
+- pyproject.toml: dependencias y script `seed`.
+
+### 5) Directorio de proveedores en el backoffice (uis/backoffice)
+- app/suppliers/page.tsx: Server Component que hace la carga inicial y enlaza desde el menú ("Supplier Directory").
+- components/SuppliersDirectoryClient.tsx: tabla con filtros por país y categoría sin recarga, alta con validación en cliente, edición de tarifa inline y botones Suspender/Activar y Eliminar por fila.
+- Tres estados visuales: Activo (verde), Suspendido (ámbar) y Eliminado (rojo, con fecha de baja).
+- app/api/suppliers/**: route handlers que proxean a la API FastAPI (SUPPLIERS_API_URL, por defecto http://127.0.0.1:8000).
+- lib/suppliersApi.ts, lib/suppliersProxy.ts y lib/suppliersServer.ts: cliente HTTP, proxy con formateo de errores 422 y carga server-side.
+- types/supplier.ts: contrato de datos alineado con los modelos Pydantic.
+
+## Decisiones de diseño vigentes
+- El CONTEXT manda: `status` solo admite "active" y "suspended". No se añadió un tercer valor "deleted" pese a necesitarse el concepto de baja.
+- El botón Eliminar ejecuta DELETE, que archiva el registro (`archived_at`) en lugar de borrarlo: una auditoría puede preguntar con qué proveedores se trabajó en un período.
+- Suspender y Eliminar son acciones distintas: la primera es una pausa reversible sin fecha; la segunda cierra la relación dejando constancia del momento.
+
 ## Estado operacional observado
 - Typecheck de raiz sin errores.
 - Typecheck de uis/talent-pipeline-tracker sin errores.
-- Estructura del repo lista para continuar hitos posteriores (backend/telemetría/agentes/workflows).
+- Typecheck y lint de uis/backoffice sin errores.
+- API de proveedores auditada extremo a extremo: validaciones 422, 404, filtros, seeder idempotente y persistencia tras reiniciar uvicorn.
+- Estructura del repo lista para continuar hitos posteriores (telemetría/agentes/workflows).

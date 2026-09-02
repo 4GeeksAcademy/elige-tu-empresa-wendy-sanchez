@@ -33,6 +33,12 @@ export default function RootLayout({
                   >
                     Incident Analysis
                   </Link>
+                  <Link
+                    className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+                    href="/suppliers"
+                  >
+                    Supplier Directory
+                  </Link>
                 </nav>
               </div>
               <span className="rounded-full border border-slate-700 bg-slate-900 px-3 py-1 text-xs text-slate-300">

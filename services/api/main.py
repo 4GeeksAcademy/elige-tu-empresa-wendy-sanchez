@@ -7,8 +7,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from incidents_analysis import analyze_csv_text, report_to_csv_text
+from routes.suppliers import router as suppliers_router
 
-app = FastAPI(title="HealthCore Incidents API", version="1.0.0")
+app = FastAPI(title="HealthCore API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -18,6 +19,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(suppliers_router)
+
 _last_report: dict | None = None
 _last_csv_export: str | None = None
 _repo_root = Path(__file__).resolve().parents[2]
@@ -26,11 +29,14 @@ _repo_root = Path(__file__).resolve().parents[2]
 @app.get("/")
 def root() -> dict[str, str]:
     return {
-        "service": "HealthCore Incidents API",
+        "service": "HealthCore API",
         "docs": "/docs",
         "analyze": "/api/incidents/analyze",
         "analyze_sample": "/api/incidents/analyze/sample",
         "export": "/api/incidents/results/export",
+        "suppliers": "/api/suppliers",
+        "suppliers_by_country": "/api/suppliers/by-country/{country}",
+        "suppliers_by_category": "/api/suppliers/by-category/{category}",
     }
 
 

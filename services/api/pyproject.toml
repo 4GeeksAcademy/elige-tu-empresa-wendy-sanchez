@@ -1,0 +1,34 @@
+[project]
+name = "healthcore-api"
+version = "1.1.0"
+description = "API interna de HealthCore Digital: análisis de incidencias y directorio de proveedores"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.116.1",
+    "uvicorn==0.35.0",
+    "python-multipart==0.0.20",
+    "pydantic[email]>=2.9",
+    "tinydb>=4.8.2",
+]
+
+[project.scripts]
+seed = "seed:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = [
+    "main.py",
+    "models.py",
+    "database.py",
+    "seed.py",
+    "incidents_analysis.py",
+    "routes",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+]
