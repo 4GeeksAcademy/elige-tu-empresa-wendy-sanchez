@@ -107,3 +107,83 @@ class Supplier(SupplierBase):
     updated_at: datetime
     archived_at: datetime | None = None
     """Momento en que se dejó de trabajar con el proveedor. El registro nunca se borra."""
+
+
+class Role(str, Enum):
+    ADMIN = "admin"
+    MANAGER = "manager"
+    USER = "user"
+
+
+class UserCreate(BaseModel):
+    """Payload de alta: incluye credenciales y datos opcionales de perfil inicial."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    name: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=200)
+
+
+class UserUpdate(BaseModel):
+    """Payload de actualización de credenciales: `role` sólo lo puede cambiar un admin."""
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    email: EmailStr | None = None
+    role: Role | None = None
+
+
+class User(BaseModel):
+    """Modelo persistido en TinyDB: nunca incluye nombre visible ni datos de contacto."""
+
+    id: int
+    email: EmailStr
+    hashed_password: str
+    is_active: bool = True
+    role: Role = Role.USER
+    created_at: datetime
+
+
+class UserOut(BaseModel):
+    """Modelo de respuesta pública: nunca expone `hashed_password`."""
+
+    id: int
+    email: EmailStr
+    is_active: bool
+    role: Role
+    created_at: datetime
+
+
+class ProfileUpdate(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    name: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=200)
+
+
+class Profile(BaseModel):
+    id: int
+    user_id: int
+    name: str | None = None
+    phone: str | None = None
+    address: str | None = None
+
+
+class MeResponse(BaseModel):
+    email: EmailStr
+    role: Role
+    profile: Profile | None = None
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str

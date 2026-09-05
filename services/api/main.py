@@ -7,7 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from incidents_analysis import analyze_csv_text, report_to_csv_text
+from routes.auth import router as auth_router
+from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
+from routes.users import router as users_router
 
 app = FastAPI(title="HealthCore API", version="1.1.0")
 
@@ -20,6 +23,9 @@ app.add_middleware(
 )
 
 app.include_router(suppliers_router)
+app.include_router(users_router)
+app.include_router(profiles_router)
+app.include_router(auth_router)
 
 _last_report: dict | None = None
 _last_csv_export: str | None = None

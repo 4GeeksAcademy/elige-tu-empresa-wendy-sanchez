@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from tinydb import Query as TinyQuery
 
 from database import get_suppliers_table
@@ -13,8 +13,10 @@ from models import (
     SupplierReplace,
     SupplierStatus,
     SupplierStatusUpdate,
+    User,
     utc_now,
 )
+from security import get_current_user
 
 router = APIRouter(prefix="/api/suppliers", tags=["suppliers"])
 
@@ -73,7 +75,7 @@ def get_supplier(supplier_id: int) -> Supplier:
 
 
 @router.post("", response_model=Supplier, status_code=status.HTTP_201_CREATED)
-def create_supplier(payload: SupplierCreate) -> Supplier:
+def create_supplier(payload: SupplierCreate, current_user: User = Depends(get_current_user)) -> Supplier:
     table = get_suppliers_table()
     if table.get(SupplierQuery.name.test(lambda value: value.lower() == payload.name.lower())):
         raise HTTPException(
@@ -89,7 +91,9 @@ def create_supplier(payload: SupplierCreate) -> Supplier:
 
 
 @router.put("/{supplier_id}", response_model=Supplier)
-def replace_supplier(supplier_id: int, payload: SupplierReplace) -> Supplier:
+def replace_supplier(
+    supplier_id: int, payload: SupplierReplace, current_user: User = Depends(get_current_user)
+) -> Supplier:
     current = _read_one(supplier_id)
     record = payload.model_dump(mode="json")
     rate_changed = payload.monthly_rate != current.monthly_rate
@@ -102,7 +106,9 @@ def replace_supplier(supplier_id: int, payload: SupplierReplace) -> Supplier:
 
 
 @router.patch("/{supplier_id}/rate", response_model=Supplier)
-def update_supplier_rate(supplier_id: int, payload: SupplierRateUpdate) -> Supplier:
+def update_supplier_rate(
+    supplier_id: int, payload: SupplierRateUpdate, current_user: User = Depends(get_current_user)
+) -> Supplier:
     _read_one(supplier_id)
     changes = {"monthly_rate": payload.monthly_rate, "updated_at": utc_now().isoformat()}
     get_suppliers_table().update(changes, doc_ids=[supplier_id])
@@ -110,7 +116,9 @@ def update_supplier_rate(supplier_id: int, payload: SupplierRateUpdate) -> Suppl
 
 
 @router.patch("/{supplier_id}/status", response_model=Supplier)
-def update_supplier_status(supplier_id: int, payload: SupplierStatusUpdate) -> Supplier:
+def update_supplier_status(
+    supplier_id: int, payload: SupplierStatusUpdate, current_user: User = Depends(get_current_user)
+) -> Supplier:
     _read_one(supplier_id)
     changes: dict[str, object] = {"status": payload.status.value}
     if payload.status is SupplierStatus.ACTIVE:
@@ -120,7 +128,7 @@ def update_supplier_status(supplier_id: int, payload: SupplierStatusUpdate) -> S
 
 
 @router.delete("/{supplier_id}", response_model=Supplier)
-def archive_supplier(supplier_id: int) -> Supplier:
+def archive_supplier(supplier_id: int, current_user: User = Depends(get_current_user)) -> Supplier:
     """Baja lógica: el CONTEXT exige conservar el histórico, así que se archiva con su fecha."""
     _read_one(supplier_id)
     get_suppliers_table().update(
