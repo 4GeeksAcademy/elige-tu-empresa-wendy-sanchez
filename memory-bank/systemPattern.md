@@ -2,9 +2,10 @@
 
 ## Patrón general del repositorio
 Monorepo de aprendizaje orientado a hitos, con separación por dominios:
-- uis/: interfaces (HTML estático y app Next.js).
+- uis/: interfaces (HTML estático y apps Next.js: website, backoffice, talent-pipeline-tracker).
 - src/: utilidades TypeScript de lógica de negocio (modelo, colecciones, búsqueda, transformaciones, validaciones).
-- packages/, services/, data/, skills/, workflows/: estructura preparada para escalado en hitos posteriores.
+- services/api/: backend FastAPI (análisis de incidencias + directorio de proveedores).
+- packages/, data/, skills/, workflows/: estructura preparada para escalado en hitos posteriores.
 
 ## Patrones de código observados
 
@@ -36,3 +37,27 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 ## Patrones de navegación
 - Listado -> detalle con preservación de contexto de filtros vía query string.
 - Operaciones del detalle (estado/etapa/notas/edición) sin salir de la página.
+
+## Patrones del backend (services/api)
+
+### 6) Capas por responsabilidad
+- models.py: modelos Pydantic y enums de dominio.
+- database.py: inicialización única de TinyDB y resolución de la ruta del fichero.
+- routes/: un router por dominio, montado en main.py.
+- seed.py: datos iniciales del CONTEXT, ejecutable como script.
+
+### 7) Modelos de entrada y salida separados
+- SupplierCreate / SupplierReplace para lo que envía el cliente.
+- Supplier para la respuesta, con los campos que genera el sistema (id, updated_at, archived_at).
+- Los campos generados por el sistema se ignoran si el cliente los envía.
+
+### 8) Trazabilidad temporal
+- updated_at sella exclusivamente los cambios de tarifa (auditorías de coste).
+- archived_at sella la baja del proveedor. No se mezclan semánticas en un mismo campo.
+
+### 9) Seeder idempotente
+- Comprueba existencia por nombre antes de insertar y reporta insertados/omitidos/total por consola.
+
+### 10) Proxy de API en el backoffice
+- app/api/** reenvía al backend y traduce los errores 422 de FastAPI a mensajes legibles por campo.
+- El navegador nunca habla directamente con FastAPI: evita CORS y oculta la URL interna del backend.
