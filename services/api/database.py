@@ -8,6 +8,8 @@ from tinydb.table import Table
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "process" / "suppliers_db.json"
 SUPPLIERS_TABLE = "suppliers"
+USERS_TABLE = "users"
+PROFILES_TABLE = "profiles"
 
 _db: TinyDB | None = None
 
@@ -28,6 +30,14 @@ def get_db() -> TinyDB:
 
 def get_suppliers_table() -> Table:
     return get_db().table(SUPPLIERS_TABLE)
+
+
+def get_users_table() -> Table:
+    return get_db().table(USERS_TABLE)
+
+
+def get_profiles_table() -> Table:
+    return get_db().table(PROFILES_TABLE)
 
 
 def close_db() -> None:

@@ -9,6 +9,9 @@ dependencies = [
     "python-multipart==0.0.20",
     "pydantic[email]>=2.9",
     "tinydb>=4.8.2",
+    "python-jose[cryptography]>=3.5.0",
+    "libpass[bcrypt]>=1.9.3",
+    "python-dotenv>=1.2.3",
 ]
 
 [project.scripts]
@@ -23,6 +26,8 @@ only-include = [
     "main.py",
     "models.py",
     "database.py",
+    "security.py",
+    "user_service.py",
     "seed.py",
     "incidents_analysis.py",
     "routes",
