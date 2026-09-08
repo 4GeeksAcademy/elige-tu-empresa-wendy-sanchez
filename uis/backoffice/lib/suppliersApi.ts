@@ -1,4 +1,5 @@
 import type { Supplier, SupplierCreatePayload, SupplierFilters, SupplierStatus } from "../types/supplier";
+import { getToken, removeToken } from "./auth";
 
 interface ValidationIssue {
   loc?: (string | number)[];
@@ -32,8 +33,30 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
+function handle401() {
+  if (typeof window !== "undefined") {
+    removeToken();
+    window.location.href = "/login";
+  }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, init);
+  const headers: Record<string, string> = {
+    ...((init?.headers as Record<string, string>) ?? {}),
+    ...getAuthHeaders(),
+  };
+
+  const response = await fetch(url, { ...init, headers });
+
+  if (response.status === 401) {
+    handle401();
+    throw new Error("Sesión expirada. Redirigiendo al inicio de sesión...");
+  }
 
   if (!response.ok) {
     let payload: unknown = null;

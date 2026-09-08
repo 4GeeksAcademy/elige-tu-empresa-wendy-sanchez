@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Sora, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
+import AuthShell from "./AuthShell";
 
 const sora = Sora({
   variable: "--font-sora",
@@ -27,7 +28,9 @@ export default function RootLayout({
       lang="en"
       className={`${sora.variable} ${sourceSans.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-slate-50">
+        <AuthShell>{children}</AuthShell>
+      </body>
     </html>
   );
 }

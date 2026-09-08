@@ -1,3 +1,4 @@
+import { getToken, removeToken } from "@/lib/auth";
 import {
   CandidateCreatePayload,
   CandidatePatchPayload,
@@ -13,15 +14,35 @@ if (!API_URL) {
   throw new Error("Falta NEXT_PUBLIC_API_URL en las variables de entorno.");
 }
 
+function handle401() {
+  if (typeof window !== "undefined") {
+    removeToken();
+    window.location.href = "/login";
+  }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...getAuthHeaders(),
+    ...(init?.headers as Record<string, string> ?? {}),
+  };
+
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
+    headers,
     cache: "no-store",
   });
+
+  if (response.status === 401) {
+    handle401();
+    throw new Error("Sesión expirada. Redirigiendo al inicio de sesión...");
+  }
 
   if (!response.ok) {
     const fallback = `Error ${response.status}: ${response.statusText}`;
