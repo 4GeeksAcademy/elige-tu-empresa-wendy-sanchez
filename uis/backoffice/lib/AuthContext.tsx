@@ -70,9 +70,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const login = useCallback(
-    (token: string) => {
+    async (token: string) => {
       setToken(token);
-      setUser(null); // se recargará vía refreshUser
+      // Recargar los datos del usuario antes de navegar
+      try {
+        const response = await fetch("/api/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const data = (await response.json()) as MeResponse;
+          setUser(data);
+        }
+      } catch {
+        setUser(null);
+      }
       router.push("/");
     },
     [router],

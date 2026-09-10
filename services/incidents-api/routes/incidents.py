@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections import Counter
+from enum import Enum
 
 from fastapi import APIRouter, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from tinydb import Query as TinyQuery
 
 from database import get_incidents_table
@@ -14,13 +16,40 @@ from models import (
     IncidentOrigin,
     IncidentResponse,
     IncidentStatus,
-    IncidentSummary,
     IncidentUpdate,
     utc_now,
 )
 
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 IncidentQuery = TinyQuery()
+
+# ── Allowed status transitions ────────────────────────────────────────────
+# open        → in_progress, discarded
+# in_progress → resolved, discarded
+# resolved    → (final)
+# discarded   → (final)
+
+_ALLOWED_TRANSITIONS: dict[str, set[str]] = {
+    IncidentStatus.OPEN.value: {
+        IncidentStatus.IN_PROGRESS.value,
+        IncidentStatus.DISCARDED.value,
+    },
+    IncidentStatus.IN_PROGRESS.value: {
+        IncidentStatus.RESOLVED.value,
+        IncidentStatus.DISCARDED.value,
+    },
+    IncidentStatus.RESOLVED.value: set(),
+    IncidentStatus.DISCARDED.value: set(),
+}
+
+# ── Status update payload ─────────────────────────────────────────────────
+
+
+class StatusUpdatePayload(BaseModel):
+    status: IncidentStatus = Field(..., description="New status value")
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────
 
 
 def _to_response(doc_id: int, record: dict) -> IncidentResponse:
@@ -69,8 +98,8 @@ def list_incidents(
 # ── Summary (MUST come before /{incident_id} to avoid route conflict) ──
 
 
-@router.get("/summary", response_model=IncidentSummary)
-def get_summary() -> IncidentSummary:
+@router.get("/summary", response_model=dict)
+def get_summary() -> dict:
     incidents = get_incidents_table().all()
 
     total = len(incidents)
@@ -85,13 +114,13 @@ def get_summary() -> IncidentSummary:
         branch_counter[doc.get("branch", "unknown")] += 1
         origin_counter[doc.get("origin", "unknown")] += 1
 
-    return IncidentSummary(
-        total=total,
-        by_status=dict(status_counter),
-        by_category=dict(category_counter),
-        by_branch=dict(branch_counter),
-        by_origin=dict(origin_counter),
-    )
+    return {
+        "total": total,
+        "by_status": dict(status_counter),
+        "by_category": dict(category_counter),
+        "by_branch": dict(branch_counter),
+        "by_origin": dict(origin_counter),
+    }
 
 
 # ── Get single incident ─────────────────────────────────────────────────
@@ -116,14 +145,13 @@ def create_incident(payload: IncidentCreate) -> IncidentResponse:
     return _to_response(doc_id, record)
 
 
-# ── Update incident ─────────────────────────────────────────────────────
+# ── Update incident (full edit) ─────────────────────────────────────────
 
 
 @router.patch("/{incident_id}", response_model=IncidentResponse)
 def update_incident(incident_id: int, payload: IncidentUpdate) -> IncidentResponse:
     current = _read_one(incident_id)
 
-    # Map the current object to a dict for update
     changes: dict = {}
     update_data = payload.model_dump(exclude_none=True, mode="json")
     for key in ("title", "description", "category", "status", "branch"):
@@ -137,6 +165,37 @@ def update_incident(incident_id: int, payload: IncidentUpdate) -> IncidentRespon
     return _read_one(incident_id)
 
 
+# ── Status transition (PATCH /{id}/status) ──────────────────────────────
+
+
+@router.patch("/{incident_id}/status", response_model=IncidentResponse)
+def update_incident_status(
+    incident_id: int, payload: StatusUpdatePayload
+) -> IncidentResponse:
+    current = _read_one(incident_id)
+    current_status = current.status.value  # enum → str
+    new_status = payload.status.value
+
+    allowed = _ALLOWED_TRANSITIONS.get(current_status, set())
+    if new_status not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Invalid status transition: from '{current_status}' "
+                f"to '{new_status}'. "
+                f"Allowed transitions from '{current_status}': "
+                f"{', '.join(sorted(allowed)) if allowed else 'none (final state)'}."
+            ),
+        )
+
+    get_incidents_table().update(
+        {"status": new_status, "updated_at": utc_now().isoformat()},
+        doc_ids=[incident_id],
+    )
+
+    return _read_one(incident_id)
+
+
 # ── Delete incident ─────────────────────────────────────────────────────
 
 
@@ -144,28 +203,3 @@ def update_incident(incident_id: int, payload: IncidentUpdate) -> IncidentRespon
 def delete_incident(incident_id: int) -> None:
     _read_one(incident_id)  # ensure exists
     get_incidents_table().remove(doc_ids=[incident_id])
-
-
-@router.get("/summary", response_model=IncidentSummary)
-def get_summary() -> IncidentSummary:
-    incidents = get_incidents_table().all()
-
-    total = len(incidents)
-    status_counter: Counter[str] = Counter()
-    category_counter: Counter[str] = Counter()
-    branch_counter: Counter[str] = Counter()
-    origin_counter: Counter[str] = Counter()
-
-    for doc in incidents:
-        status_counter[doc.get("status", "unknown")] += 1
-        category_counter[doc.get("category", "unknown")] += 1
-        branch_counter[doc.get("branch", "unknown")] += 1
-        origin_counter[doc.get("origin", "unknown")] += 1
-
-    return IncidentSummary(
-        total=total,
-        by_status=dict(status_counter),
-        by_category=dict(category_counter),
-        by_branch=dict(branch_counter),
-        by_origin=dict(origin_counter),
-    )
