@@ -1,5 +1,10 @@
 import { forwardJsonBody, proxyToSuppliersApi } from "../../../lib/suppliersProxy";
 
+function getForwardHeaders(request: Request): Record<string, string> {
+  const auth = request.headers.get("authorization");
+  return auth ? { authorization: auth } : {};
+}
+
 export async function GET(request: Request): Promise<Response> {
   const incoming = new URL(request.url);
   const params = new URLSearchParams();
@@ -10,10 +15,10 @@ export async function GET(request: Request): Promise<Response> {
   if (category) params.set("category", category);
 
   const query = params.toString();
-  return proxyToSuppliersApi(query ? `?${query}` : "");
+  return proxyToSuppliersApi(query ? `?${query}` : "", {}, { forwardHeaders: getForwardHeaders(request) });
 }
 
 export async function POST(request: Request): Promise<Response> {
   const init = await forwardJsonBody(request);
-  return proxyToSuppliersApi("", { ...init, method: "POST" });
+  return proxyToSuppliersApi("", { ...init, method: "POST" }, { forwardHeaders: getForwardHeaders(request) });
 }

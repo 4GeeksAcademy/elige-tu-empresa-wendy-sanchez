@@ -18,8 +18,9 @@
 - app/page.tsx: listado, filtros por query params, búsqueda y alta de candidatura.
 - app/candidates/[id]/page.tsx + components/CandidateDetailClient.tsx: detalle, PATCH de estado/etapa, notas y reemplazo de registro.
 - components/CandidateForm.tsx: formulario reutilizable de alta/edición.
-- services/api.ts: cliente HTTP centralizado.
+- services/api.ts: cliente HTTP centralizado con autenticación JWT (Bearer token desde localStorage).
 - types/candidate.ts y lib/validation.ts: contrato de datos y validación.
+- **Autenticación**: lib/auth.ts (tipos y utilidades de token), lib/AuthContext.tsx (React Context), components/AuthGuard.tsx (guard de rutas con PUBLIC_ROUTES), components/TrackerHeader.tsx (controles de sesión), app/AuthShell.tsx (composición provider+guard+header), app/login/page.tsx, app/register/page.tsx, app/account/profile/page.tsx — login/registro llama directamente a NEXT_PUBLIC_API_URL (FastAPI).
 
 ### 4) API Directorio de Proveedores (services/api)
 - models.py: modelos Pydantic (Supplier, SupplierCreate, SupplierReplace, SupplierRateUpdate, SupplierStatusUpdate) con enums de país, moneda, categoría, estado y acuerdo de cumplimiento, más validador de coherencia moneda-país.
@@ -29,14 +30,18 @@
 - pyproject.toml: dependencias y script `seed`.
 
 ### 5) Directorio de proveedores en el backoffice (uis/backoffice)
-- app/suppliers/page.tsx: Server Component que hace la carga inicial y enlaza desde el menú ("Supplier Directory").
+- app/suppliers/page.tsx: Server Component que hace la carga inicial y enlaza desde el menú.
 - components/SuppliersDirectoryClient.tsx: tabla con filtros por país y categoría sin recarga, alta con validación en cliente, edición de tarifa inline y botones Suspender/Activar y Eliminar por fila.
 - Tres estados visuales: Activo (verde), Suspendido (ámbar) y Eliminado (rojo, con fecha de baja).
-- app/api/suppliers/**: route handlers que proxean a la API FastAPI (SUPPLIERS_API_URL, por defecto http://127.0.0.1:8000).
+- app/api/suppliers/**: route handlers que proxean a la API FastAPI (SUPPLIERS_API_URL) con forwarding del header Authorization.
 - lib/suppliersApi.ts, lib/suppliersProxy.ts y lib/suppliersServer.ts: cliente HTTP, proxy con formateo de errores 422 y carga server-side.
 - types/supplier.ts: contrato de datos alineado con los modelos Pydantic.
+- **Autenticación**: lib/auth.ts (tipos y utilidades de token), lib/AuthContext.tsx (React Context con proxy a /api/auth/me), lib/authHttpClient.ts (cliente HTTP con Bearer token + manejo 401), components/AuthGuard.tsx (guard de rutas con PUBLIC_ROUTES), components/BackofficeHeader.tsx (controles de sesión), app/AuthShell.tsx (composición provider+guard+header), app/login/page.tsx, app/register/page.tsx, app/account/profile/page.tsx — login/registro llama a los proxies Next.js (/api/auth/login, /api/users) que reenvían a FastAPI.
 
 ## Decisiones de diseño vigentes
+- **Autenticación vía React Context + localStorage**: El token JWT se almacena en localStorage (clave `healthcore_token`) y se adjunta como `Authorization: Bearer` a cada llamada protegida. No se usa middleware de Next.js. El provider se inicializa en el cliente, lee el token al montar y verifica la sesión con GET /auth/me. Al recibir 401 en cualquier llamada, se limpia el token y se redirige a /login.
+- **Dos arquitecturas de API**: Backoffice usa route handlers de Next.js como proxies al backend FastAPI (propagando Authorization mediante forwardHeaders). Trader llama directamente a NEXT_PUBLIC_API_URL desde el navegador.
+- **Website público (Hito 1) no afectado**: La app `uis/website` no contiene referencias a AuthProvider, AuthGuard, useAuth ni al token, cumpliendo el requisito de solo proteger backoffice y tracker.
 - El CONTEXT manda: `status` solo admite "active" y "suspended". No se añadió un tercer valor "deleted" pese a necesitarse el concepto de baja.
 - El botón Eliminar ejecuta DELETE, que archiva el registro (`archived_at`) en lugar de borrarlo: una auditoría puede preguntar con qué proveedores se trabajó en un período.
 - Suspender y Eliminar son acciones distintas: la primera es una pausa reversible sin fecha; la segunda cierra la relación dejando constancia del momento.
@@ -44,6 +49,8 @@
 ## Estado operacional observado
 - Typecheck de raiz sin errores.
 - Typecheck de uis/talent-pipeline-tracker sin errores.
-- Typecheck y lint de uis/backoffice sin errores.
+- Typecheck de uis/backoffice sin errores.
+- Typecheck de uis/website sin errores (no afectado por auth).
 - API de proveedores auditada extremo a extremo: validaciones 422, 404, filtros, seeder idempotente y persistencia tras reiniciar uvicorn.
+- Autenticación implementada en backoffice y tracker: login, registro, perfil, guard de rutas, headers Authorization, manejo 401.
 - Estructura del repo lista para continuar hitos posteriores (telemetría/agentes/workflows).
