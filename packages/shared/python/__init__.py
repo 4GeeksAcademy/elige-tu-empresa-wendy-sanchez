@@ -1,0 +1,1 @@
+"""HealthCore shared Python utilities — validation, models, and CSV helpers."""
