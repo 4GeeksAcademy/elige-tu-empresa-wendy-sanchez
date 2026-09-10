@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { useAuth } from "@/lib/AuthContext";
 
 /** Rutas públicas que no requieren autenticación. */
-const PUBLIC_ROUTES = ["/login", "/register"];
+const PUBLIC_ROUTES = ["/login", "/register", "/forgot-password", "/reset-password"];
 
 interface AuthGuardProps {
   children: React.ReactNode;

@@ -12,6 +12,7 @@ dependencies = [
     "python-jose[cryptography]>=3.5.0",
     "libpass[bcrypt]>=1.9.3",
     "python-dotenv>=1.2.3",
+    "requests>=2.31.0",
 ]
 
 [project.scripts]
@@ -28,6 +29,9 @@ only-include = [
     "database.py",
     "security.py",
     "user_service.py",
+    "email_service.py",
+    "rate_limiter.py",
+    "audit_logger.py",
     "seed.py",
     "incidents_analysis.py",
     "routes",

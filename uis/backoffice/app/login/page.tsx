@@ -1,7 +1,8 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/AuthContext";
 
 interface FieldErrors {
@@ -10,8 +11,29 @@ interface FieldErrors {
   general?: string;
 }
 
+/**
+ * Envuelto en <Suspense> porque usa useSearchParams() (requerido por Next.js
+ * para que no se rompa el prerenderizado estático de la página).
+ */
 export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="mx-auto flex min-h-[calc(100vh-80px)] max-w-lg items-center justify-center px-4 py-12">
+          <p className="text-sm text-slate-500">Cargando...</p>
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const { login } = useAuth();
+  const searchParams = useSearchParams();
+  const resetOk = searchParams.get("reset") === "ok";
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -72,6 +94,12 @@ export default function LoginPage() {
           Accede al panel de operaciones internas de HealthCore.
         </p>
 
+        {resetOk && (
+          <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            Contraseña restablecida correctamente. Inicia sesión con tu nueva contraseña.
+          </div>
+        )}
+
         {errors.general && (
           <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
             {errors.general}
@@ -108,6 +136,14 @@ export default function LoginPage() {
             {errors.password && (
               <span className="text-sm text-red-700">{errors.password}</span>
             )}
+            <span className="text-right">
+              <Link
+                href="/forgot-password"
+                className="text-sm font-medium text-cyan-700 hover:text-cyan-800"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </span>
           </label>
 
           <button
