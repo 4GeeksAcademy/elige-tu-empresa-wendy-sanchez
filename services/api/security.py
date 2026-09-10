@@ -10,15 +10,18 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from passlib.hash import bcrypt
+from tinydb import Query as TinyQuery
 
+import database
+import user_service
 from models import User
-from user_service import get_user_by_id
 
 load_dotenv()
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+RESET_TOKEN_EXPIRE_MINUTES = int(os.getenv("RESET_TOKEN_EXPIRE_MINUTES", "30"))
 
 _oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login", auto_error=False)
 
@@ -64,7 +67,71 @@ def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> User:
     except (JWTError, ValueError):
         raise unauthorized from None
 
-    user = get_user_by_id(user_id)
+    user = user_service.get_user_by_id(user_id)
     if user is None or not user.is_active:
         raise unauthorized
     return user
+
+
+# ──────────────────────────────────────────────
+# Tokens de restablecimiento de contraseña
+# ──────────────────────────────────────────────
+
+# Código de propósito para separar tokens de acceso y de restablecimiento.
+# Evita que un token de acceso JWT pueda usarse como token de reset y viceversa.
+_RESET_TOKEN_TYPE = "password_reset"
+
+
+def create_reset_token(user_id: int) -> str:
+    """Genera un token JWT firmado de corta duración para restablecer la contraseña."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+    payload = {"sub": str(user_id), "type": _RESET_TOKEN_TYPE, "exp": expire}
+    return jwt.encode(payload, _get_secret_key(), algorithm=JWT_ALGORITHM)
+
+
+def create_reset_token_expiry() -> datetime:
+    """Momento UTC en el que un token de restablecimiento deja de ser válido."""
+    return datetime.now(timezone.utc) + timedelta(minutes=RESET_TOKEN_EXPIRE_MINUTES)
+
+
+def validate_reset_token(token: str) -> int:
+    """Valida un token de restablecimiento (firma + expiración) y devuelve el user_id.
+
+    Lanza HTTPException 400 si el token es inválido, ha expirado o ya se usó.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="El enlace de restablecimiento no es válido o ha expirado.",
+    )
+
+    try:
+        payload = jwt.decode(token, _get_secret_key(), algorithms=[JWT_ALGORITHM])
+    except JWTError:
+        raise invalid from None
+
+    if payload.get("type") != _RESET_TOKEN_TYPE:
+        raise invalid
+
+    user_id_raw = payload.get("sub")
+    if user_id_raw is None:
+        raise invalid
+    try:
+        user_id = int(user_id_raw)
+    except ValueError:
+        raise invalid from None
+
+    # Comprobar que el token no se haya utilizado ya (invalidate-on-use).
+    token_exists = database.get_reset_tokens_table().contains(
+        TinyQuery()["token"] == token
+    )
+    if not token_exists:
+        raise invalid
+
+    return user_id
+
+
+def invalidate_reset_token(token: str) -> None:
+    """Invalida un token de restablecimiento tras su uso para que no pueda reutilizarse."""
+    database.get_reset_tokens_table().remove(
+        TinyQuery()["token"] == token
+    )

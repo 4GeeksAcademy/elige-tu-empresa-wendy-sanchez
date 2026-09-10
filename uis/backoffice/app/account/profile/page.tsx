@@ -114,6 +114,16 @@ export default function ProfilePage() {
           <p className="mt-1 text-sm font-medium text-slate-900 capitalize">{user.role}</p>
         </div>
 
+        {/* Enlace a cambio de contraseña */}
+        <div className="mt-2">
+          <Link
+            href="/account/change-password"
+            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-cyan-700 hover:bg-slate-50"
+          >
+            Cambiar contraseña
+          </Link>
+        </div>
+
         {errors.success && (
           <div className="mt-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
             {errors.success}

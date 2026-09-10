@@ -10,6 +10,9 @@ DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "process" / "su
 SUPPLIERS_TABLE = "suppliers"
 USERS_TABLE = "users"
 PROFILES_TABLE = "profiles"
+RESET_TOKENS_TABLE = "reset_tokens"
+RATE_LIMITS_TABLE = "password_reset_rate_limits"
+AUDIT_LOG_TABLE = "password_reset_audit"
 
 _db: TinyDB | None = None
 
@@ -38,6 +41,20 @@ def get_users_table() -> Table:
 
 def get_profiles_table() -> Table:
     return get_db().table(PROFILES_TABLE)
+
+
+def get_reset_tokens_table() -> Table:
+    return get_db().table(RESET_TOKENS_TABLE)
+
+
+def get_rate_limits_table() -> Table:
+    """Tabla para control de tasa: impide abusos en /forgot-password por email."""
+    return get_db().table(RATE_LIMITS_TABLE)
+
+
+def get_audit_log_table() -> Table:
+    """Registro de auditoría de eventos de restablecimiento de contraseña."""
+    return get_db().table(AUDIT_LOG_TABLE)
 
 
 def close_db() -> None:

@@ -187,3 +187,28 @@ class Token(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+# ──────────────────────────────────────────────
+# Restablecimiento y cambio de contraseña
+# ──────────────────────────────────────────────
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Payload para solicitar un restablecimiento de contraseña."""
+
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    """Payload para restablecer la contraseña con un token."""
+
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Payload para cambiar la contraseña estando autenticado."""
+
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
