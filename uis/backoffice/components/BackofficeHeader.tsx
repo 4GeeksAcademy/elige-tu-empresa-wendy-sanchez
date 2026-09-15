@@ -19,7 +19,7 @@ export default function BackofficeHeader() {
             Internal App
           </p>
           <h1 className="text-lg font-semibold">HealthCore Backoffice</h1>
-          <nav className="mt-2 flex gap-3 text-xs text-slate-300">
+          <nav className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-300">
             <Link className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white" href="/">
               Dashboard
             </Link>
@@ -28,6 +28,24 @@ export default function BackofficeHeader() {
               href="/incidents"
             >
               Incident Analysis
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/incidents/register"
+            >
+              Register Incident
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/incidents/list"
+            >
+              Incidents List
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/incidents/summary"
+            >
+              Summary
             </Link>
             <Link
               className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
