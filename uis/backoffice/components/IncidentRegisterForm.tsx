@@ -163,7 +163,7 @@ export default function IncidentRegisterForm() {
         setFieldErrors({});
         setSuccessMessage("Incident registered successfully.");
       } catch {
-        setServerError("Could not connect to the server. Please make sure the API is running.");
+        setServerError("Error de conexión. Inténtalo de nuevo más tarde.");
       } finally {
         setIsSubmitting(false);
       }

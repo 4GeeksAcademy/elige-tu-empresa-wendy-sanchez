@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import csv
 import io
+import logging
 import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 VALID_CLINICS: dict[str, str] = {
     "US-TX-01": "US",
@@ -130,7 +133,12 @@ def analyze_csv_text(csv_text: str) -> dict[str, Any]:
 
     for row in reader:
         total += 1
-        reasons = validate_record(row)
+        try:
+            reasons = validate_record(row)
+        except Exception:
+            logger.exception("Error al validar fila %d del CSV", total)
+            invalid_breakdown["parse_error"] += 1
+            continue
         if reasons:
             invalid_breakdown.update(reasons)
             continue

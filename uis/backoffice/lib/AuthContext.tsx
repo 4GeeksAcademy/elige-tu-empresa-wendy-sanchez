@@ -54,11 +54,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(data);
       } else {
         // Token inválido o expirado → limpiar
+        console.error("Token inválido o expirado, limpiando sesión (status %d)", response.status);
         removeToken();
         setUser(null);
       }
     } catch {
       // Error de red: no se puede verificar, pero mantenemos el token
+      console.error("Error de red al verificar sesión en /api/auth/me");
       setUser(null);
     } finally {
       setLoading(false);
@@ -82,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setUser(data);
         }
       } catch {
+        console.error("Error al cargar perfil de usuario tras login");
         setUser(null);
       }
       router.push("/");

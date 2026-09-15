@@ -44,10 +44,7 @@ export default function ForgotPasswordPage() {
       });
 
       if (!response.ok) {
-        const data = (await response.json()) as { detail?: unknown };
-        const msg =
-          typeof data.detail === "string" ? data.detail : "Error al enviar la solicitud";
-        setError(msg);
+        setError("No se pudo procesar la solicitud. Inténtalo de nuevo.");
         return;
       }
 

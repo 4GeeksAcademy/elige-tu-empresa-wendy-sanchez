@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 
 from incidents_analysis import analyze_csv_text, report_to_csv_text
 from routes.auth import router as auth_router
 from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
 from routes.users import router as users_router
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="HealthCore API", version="1.1.0")
 
@@ -26,6 +30,43 @@ app.include_router(suppliers_router)
 app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
+
+
+# ── Global exception handlers ──────────────────────────────────────────
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Return user-friendly validation errors, never the full stack trace."""
+    errors: list[dict] = []
+    for e in exc.errors():
+        field = ".".join(str(loc) for loc in e.get("loc", []) if loc != "body")
+        msg = e.get("msg", "Invalid value")
+        errors.append(
+            {
+                "field": field or "body",
+                "message": msg,
+            }
+        )
+    return JSONResponse(
+        status_code=422,
+        content={"detail": errors},
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all: never expose stack traces to the client."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Ocurrió un error inesperado. Inténtalo de nuevo más tarde."
+        },
+    )
+
 
 _last_report: dict | None = None
 _last_csv_export: str | None = None
@@ -69,7 +110,7 @@ async def analyze_incidents(file: UploadFile = File(...)) -> dict:
     try:
         report = analyze_csv_text(text)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     global _last_report
     global _last_csv_export
@@ -88,14 +129,14 @@ def analyze_sample_incidents() -> dict:
     if not sample_path.exists():
         raise HTTPException(
             status_code=404,
-            detail="No se encontró el CSV de muestra en scripts/incidents-healthcore.csv",
+            detail="No se encontró el CSV de muestra en la ruta esperada.",
         )
 
+    text = sample_path.read_text(encoding="utf-8")
     try:
-        text = sample_path.read_text(encoding="utf-8")
         report = analyze_csv_text(text)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     global _last_report
     global _last_csv_export

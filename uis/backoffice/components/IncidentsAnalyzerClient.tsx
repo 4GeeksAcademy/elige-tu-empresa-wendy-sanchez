@@ -85,16 +85,14 @@ export default function IncidentsAnalyzerClient() {
       });
 
       if (!res.ok) {
-        const payload = (await res.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(payload?.detail ?? "No se pudo analizar el fichero");
+        throw new Error("No se pudo analizar el fichero. Inténtalo de nuevo.");
       }
 
       const payload = (await res.json()) as AnalysisResponse;
       setResponse(payload);
-    } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : "Error inesperado";
+    } catch {
       setResponse(null);
-      setError(message);
+      setError("No se pudo analizar el fichero. Inténtalo de nuevo.");
     } finally {
       setIsSubmitting(false);
     }
@@ -106,8 +104,7 @@ export default function IncidentsAnalyzerClient() {
     try {
       const res = await fetch(`${API_BASE}/api/incidents/results/export`);
       if (!res.ok) {
-        const payload = (await res.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(payload?.detail ?? "No se pudo descargar el CSV");
+        throw new Error("No se pudo descargar el CSV. Inténtalo de nuevo.");
       }
 
       const blob = await res.blob();

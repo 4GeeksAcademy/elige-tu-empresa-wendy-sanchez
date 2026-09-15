@@ -29,7 +29,7 @@ export async function proxyToSuppliersApi(
     });
   } catch {
     return Response.json(
-      { detail: "No se pudo contactar con la API de proveedores. ¿Está levantada en el puerto 8000?" },
+      { detail: "No se pudo contactar con la API de proveedores. Inténtalo de nuevo más tarde." },
       { status: 502 },
     );
   }
@@ -38,13 +38,20 @@ export async function proxyToSuppliersApi(
     return new Response(null, { status: 204 });
   }
 
-  const body = await upstream.arrayBuffer();
-  return new Response(body, {
-    status: upstream.status,
-    headers: {
-      "content-type": upstream.headers.get("content-type") ?? "application/json",
-    },
-  });
+  try {
+    const body = await upstream.arrayBuffer();
+    return new Response(body, {
+      status: upstream.status,
+      headers: {
+        "content-type": upstream.headers.get("content-type") ?? "application/json",
+      },
+    });
+  } catch {
+    return Response.json(
+      { detail: "Error al leer la respuesta del servidor de proveedores." },
+      { status: 502 },
+    );
+  }
 }
 
 export async function forwardJsonBody(request: Request): Promise<RequestInit> {
