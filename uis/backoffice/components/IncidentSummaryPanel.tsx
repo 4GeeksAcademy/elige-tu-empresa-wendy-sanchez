@@ -64,7 +64,7 @@ export default function IncidentSummaryPanel() {
     setError(null);
     try {
       const data = await fetch(`${API_BASE}/summary`).then((r) => {
-        if (!r.ok) throw new Error(`API error ${r.status}`);
+        if (!r.ok) throw new Error();
         return r.json();
       });
       setSummary(data);

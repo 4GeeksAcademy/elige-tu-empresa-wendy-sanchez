@@ -132,29 +132,8 @@ export default function IncidentRegisterForm() {
         });
 
         if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          // Handle structured validation errors from API
-          const details: FieldError[] = body?.detail;
-          if (Array.isArray(details)) {
-            const mapped: Record<string, string> = {};
-            for (const d of details) {
-              if (d.field && d.message) {
-                mapped[d.field] = d.message;
-              }
-            }
-            if (Object.keys(mapped).length > 0) {
-              setFieldErrors(mapped);
-              return;
-            }
-          }
-          // Fallback generic error
-          const genericMsg =
-            res.status === 422
-              ? "Some fields are invalid. Please check the form and try again."
-              : res.status === 400
-                ? "Invalid request. Please check the data and try again."
-                : "Something went wrong. Please try again later.";
-          setServerError(genericMsg);
+          // Generic error, no status code leakage
+          setServerError("Error al registrar el incidente. Verifica los datos e inténtalo de nuevo.");
           return;
         }
 

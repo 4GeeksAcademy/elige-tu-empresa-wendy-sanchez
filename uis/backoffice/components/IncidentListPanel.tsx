@@ -107,7 +107,7 @@ export default function IncidentListPanel() {
     setFetchError(null);
     try {
       const data = await fetch(API_BASE).then((r) => {
-        if (!r.ok) throw new Error(`API error ${r.status}`);
+        if (!r.ok) throw new Error();
         return r.json();
       });
       setIncidents(data);
@@ -171,9 +171,7 @@ export default function IncidentListPanel() {
           prev.map((inc) => (inc.id === incidentId ? updated : inc)),
         );
       } catch {
-        setStatusUpdateError(
-          "Could not connect to the server. Please try again.",
-        );
+        setStatusUpdateError("Error de conexión. No se pudo actualizar el estado.");
         // Rollback
         setIncidents(prevIncidents);
       } finally {

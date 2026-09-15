@@ -117,7 +117,7 @@ async function fetchFromApi<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    throw new Error(`La API respondió con estado ${res.status}`);
+    throw new Error("Error de comunicación con el servidor. Inténtalo de nuevo.");
   }
   if (res.status === 204) return undefined as T;
   return res.json();
