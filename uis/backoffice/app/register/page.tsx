@@ -68,22 +68,7 @@ export default function RegisterPage() {
       const createData = (await createResponse.json()) as { detail?: string | unknown };
 
       if (!createResponse.ok) {
-        if (typeof createData.detail === "string") {
-          setErrors({ general: createData.detail });
-        } else if (Array.isArray(createData.detail)) {
-          const fieldErrs: FieldErrors = {};
-          for (const issue of createData.detail) {
-            const loc = issue.loc as (string | number)[] | undefined;
-            const msg = issue.msg as string | undefined;
-            if (loc?.includes("email")) fieldErrs.email = msg ?? "Email inválido";
-            else if (loc?.includes("password")) fieldErrs.password = msg ?? "Contraseña inválida";
-            else if (loc?.includes("name")) fieldErrs.name = msg;
-            else if (loc?.includes("phone")) fieldErrs.phone = msg;
-          }
-          setErrors(Object.keys(fieldErrs).length > 0 ? fieldErrs : { general: "Error de validación" });
-        } else {
-          setErrors({ general: "Error al crear la cuenta" });
-        }
+        setErrors({ general: "No se pudo crear la cuenta. Verifica los datos e inténtalo de nuevo." });
         return;
       }
 

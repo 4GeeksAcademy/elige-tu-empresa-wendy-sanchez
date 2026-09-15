@@ -107,12 +107,12 @@ export default function IncidentListPanel() {
     setFetchError(null);
     try {
       const data = await fetch(API_BASE).then((r) => {
-        if (!r.ok) throw new Error(`API error ${r.status}`);
+        if (!r.ok) throw new Error();
         return r.json();
       });
       setIncidents(data);
-    } catch (err) {
-      setFetchError(err instanceof Error ? err.message : "Failed to load incidents");
+    } catch {
+      setFetchError("No se pudieron cargar los incidentes.");
     } finally {
       setIsLoading(false);
     }
@@ -159,11 +159,7 @@ export default function IncidentListPanel() {
         );
 
         if (!res.ok) {
-          const body = await res.json().catch(() => null);
-          const msg =
-            body?.detail ||
-            "Failed to update status. Please try again.";
-          setStatusUpdateError(msg);
+          setStatusUpdateError("Error al actualizar el estado. Inténtalo de nuevo.");
           // Rollback
           setIncidents(prevIncidents);
           return;
@@ -175,9 +171,7 @@ export default function IncidentListPanel() {
           prev.map((inc) => (inc.id === incidentId ? updated : inc)),
         );
       } catch {
-        setStatusUpdateError(
-          "Could not connect to the server. Please try again.",
-        );
+        setStatusUpdateError("Error de conexión. No se pudo actualizar el estado.");
         // Rollback
         setIncidents(prevIncidents);
       } finally {
@@ -249,16 +243,13 @@ export default function IncidentListPanel() {
     return (
       <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
-          <h2 className="text-lg font-bold">Connection Error</h2>
-          <p className="mt-2 text-sm">{fetchError}</p>
-          <p className="mt-2 text-xs text-red-600">
-            Ensure the API is running at {API_BASE}
-          </p>
+          <h2 className="text-lg font-bold">Error de conexión</h2>
+          <p className="mt-2 text-sm">No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde.</p>
           <button
             onClick={fetchIncidents}
             className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
           >
-            Retry
+            Reintentar
           </button>
         </div>
       </div>

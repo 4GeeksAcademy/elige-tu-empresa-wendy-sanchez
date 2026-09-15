@@ -1,38 +1,6 @@
 import type { Supplier, SupplierCreatePayload, SupplierFilters, SupplierStatus } from "../types/supplier";
 import { getToken, removeToken } from "./auth";
 
-interface ValidationIssue {
-  loc?: (string | number)[];
-  msg?: string;
-}
-
-function extractErrorMessage(payload: unknown, fallback: string): string {
-  if (typeof payload !== "object" || payload === null || !("detail" in payload)) {
-    return fallback;
-  }
-
-  const detail = (payload as { detail: unknown }).detail;
-
-  if (typeof detail === "string") {
-    return detail;
-  }
-
-  if (Array.isArray(detail)) {
-    const messages = (detail as ValidationIssue[])
-      .map((issue) => {
-        const field = issue.loc?.filter((part) => part !== "body").join(".");
-        return field ? `${field}: ${issue.msg ?? "valor inválido"}` : issue.msg;
-      })
-      .filter(Boolean);
-
-    if (messages.length > 0) {
-      return messages.join(" · ");
-    }
-  }
-
-  return fallback;
-}
-
 function handle401() {
   if (typeof window !== "undefined") {
     removeToken();
@@ -59,13 +27,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   }
 
   if (!response.ok) {
-    let payload: unknown = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    throw new Error(extractErrorMessage(payload, `La API respondió con estado ${response.status}`));
+    throw new Error("Error de comunicación con el servidor. Inténtalo de nuevo.");
   }
 
   if (response.status === 204) {

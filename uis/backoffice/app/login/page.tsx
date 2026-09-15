@@ -69,7 +69,7 @@ function LoginForm() {
       const data = (await response.json()) as { access_token?: string; detail?: string };
 
       if (!response.ok) {
-        setErrors({ general: data.detail ?? "Error al iniciar sesión" });
+        setErrors({ general: "Email o contraseña incorrectos." });
         return;
       }
 

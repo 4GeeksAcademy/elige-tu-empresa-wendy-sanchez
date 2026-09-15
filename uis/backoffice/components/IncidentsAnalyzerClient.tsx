@@ -85,16 +85,14 @@ export default function IncidentsAnalyzerClient() {
       });
 
       if (!res.ok) {
-        const payload = (await res.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(payload?.detail ?? "No se pudo analizar el fichero");
+        throw new Error("No se pudo analizar el fichero. Inténtalo de nuevo.");
       }
 
       const payload = (await res.json()) as AnalysisResponse;
       setResponse(payload);
-    } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : "Error inesperado";
+    } catch {
       setResponse(null);
-      setError(message);
+      setError("No se pudo analizar el fichero. Inténtalo de nuevo.");
     } finally {
       setIsSubmitting(false);
     }
@@ -106,8 +104,7 @@ export default function IncidentsAnalyzerClient() {
     try {
       const res = await fetch(`${API_BASE}/api/incidents/results/export`);
       if (!res.ok) {
-        const payload = (await res.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(payload?.detail ?? "No se pudo descargar el CSV");
+        throw new Error("No se pudo descargar el CSV. Inténtalo de nuevo.");
       }
 
       const blob = await res.blob();
@@ -119,9 +116,8 @@ export default function IncidentsAnalyzerClient() {
       anchor.click();
       anchor.remove();
       window.URL.revokeObjectURL(url);
-    } catch (downloadError) {
-      const message = downloadError instanceof Error ? downloadError.message : "Error inesperado";
-      setError(message);
+    } catch {
+      setError("No se pudo descargar el CSV. Inténtalo de nuevo.");
     } finally {
       setIsDownloading(false);
     }
@@ -136,16 +132,14 @@ export default function IncidentsAnalyzerClient() {
       });
 
       if (!res.ok) {
-        const payload = (await res.json().catch(() => null)) as { detail?: string } | null;
-        throw new Error(payload?.detail ?? "No se pudo cargar la muestra");
+        throw new Error("No se pudo cargar la muestra. Inténtalo de nuevo.");
       }
 
       const payload = (await res.json()) as AnalysisResponse;
       setResponse(payload);
-    } catch (sampleError) {
-      const message = sampleError instanceof Error ? sampleError.message : "Error inesperado";
+    } catch {
       setResponse(null);
-      setError(message);
+      setError("No se pudo cargar la muestra. Inténtalo de nuevo.");
     } finally {
       setIsLoadingSample(false);
     }

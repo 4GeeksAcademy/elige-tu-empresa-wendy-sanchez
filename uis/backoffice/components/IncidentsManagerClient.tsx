@@ -117,8 +117,7 @@ async function fetchFromApi<T>(url: string, options?: RequestInit): Promise<T> {
     ...options,
   });
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`API error ${res.status}: ${body}`);
+    throw new Error("Error de comunicación con el servidor. Inténtalo de nuevo.");
   }
   if (res.status === 204) return undefined as T;
   return res.json();
@@ -217,12 +216,12 @@ export default function IncidentsManagerClient() {
         method: "POST",
         body: JSON.stringify(form),
       });
-      setFeedback("Incident created successfully");
+      setFeedback("Incidente creado correctamente");
       setShowForm(false);
       setForm(EMPTY_FORM);
       await refreshData();
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "Failed to create incident");
+    } catch {
+      setFeedback("Error al crear el incidente. Inténtalo de nuevo.");
     } finally {
       setIsSaving(false);
     }
@@ -240,28 +239,28 @@ export default function IncidentsManagerClient() {
         method: "PATCH",
         body: JSON.stringify(form),
       });
-      setFeedback("Incident updated successfully");
+      setFeedback("Incidente actualizado correctamente");
       setEditingId(null);
       setSelectedIncident(null);
       setShowForm(false);
       setForm(EMPTY_FORM);
       await refreshData();
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "Failed to update incident");
+    } catch {
+      setFeedback("Error al actualizar el incidente. Inténtalo de nuevo.");
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this incident?")) return;
+    if (!confirm("¿Estás seguro de eliminar este incidente?")) return;
     try {
       await fetchFromApi(`${API_BASE}/api/incidents/${id}`, { method: "DELETE" });
-      setFeedback("Incident deleted");
+      setFeedback("Incidente eliminado");
       if (selectedIncident?.id === id) setSelectedIncident(null);
       await refreshData();
-    } catch (err) {
-      setFeedback(err instanceof Error ? err.message : "Failed to delete incident");
+    } catch {
+      setFeedback("Error al eliminar el incidente. Inténtalo de nuevo.");
     }
   };
 
@@ -315,16 +314,13 @@ export default function IncidentsManagerClient() {
     return (
       <div className="mx-auto max-w-4xl px-4 py-8">
         <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
-          <h2 className="text-lg font-bold">Connection Error</h2>
-          <p className="mt-2 text-sm">{listError}</p>
-          <p className="mt-2 text-xs text-red-600">
-            Make sure the API is running at {API_BASE}
-          </p>
+          <h2 className="text-lg font-bold">Error de conexión</h2>
+          <p className="mt-2 text-sm">No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde.</p>
           <button
             onClick={refreshData}
-            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
+            className="mt-4 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
           >
-            Retry
+            Reintentar
           </button>
         </div>
       </div>
