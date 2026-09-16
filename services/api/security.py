@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -17,6 +18,8 @@ import user_service
 from models import User
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
@@ -62,9 +65,14 @@ def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> User:
         payload = jwt.decode(token, _get_secret_key(), algorithms=[JWT_ALGORITHM])
         user_id_raw = payload.get("sub")
         if user_id_raw is None:
+            logger.warning("Token JWT válido pero sin 'sub': %s...", token[:20])
             raise unauthorized
         user_id = int(user_id_raw)
-    except (JWTError, ValueError):
+    except JWTError:
+        logger.warning("Token JWT inválido rechazado (posible ataque): %s...", token[:20])
+        raise unauthorized from None
+    except ValueError:
+        logger.warning("'sub' no entero en token JWT: %s...", token[:20])
         raise unauthorized from None
 
     user = user_service.get_user_by_id(user_id)
@@ -107,17 +115,24 @@ def validate_reset_token(token: str) -> int:
     try:
         payload = jwt.decode(token, _get_secret_key(), algorithms=[JWT_ALGORITHM])
     except JWTError:
+        logger.warning("Token de restablecimiento inválido (posible ataque): %s...", token[:20])
         raise invalid from None
 
     if payload.get("type") != _RESET_TOKEN_TYPE:
+        logger.warning(
+            "Token con type incorrecto en restablecimiento: %s",
+            payload.get("type"),
+        )
         raise invalid
 
     user_id_raw = payload.get("sub")
     if user_id_raw is None:
+        logger.warning("Token de restablecimiento sin 'sub': %s...", token[:20])
         raise invalid
     try:
         user_id = int(user_id_raw)
     except ValueError:
+        logger.warning("'sub' no entero en token de restablecimiento: %s...", token[:20])
         raise invalid from None
 
     # Comprobar que el token no se haya utilizado ya (invalidate-on-use).

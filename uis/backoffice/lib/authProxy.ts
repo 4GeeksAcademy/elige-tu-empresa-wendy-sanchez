@@ -16,7 +16,7 @@ export async function proxyToAuthApi(path: string, init: RequestInit = {}): Prom
     });
   } catch {
     return Response.json(
-      { detail: "No se pudo contactar con la API de autenticación. ¿Está levantada en el puerto 8000?" },
+      { detail: "No se pudo contactar con la API de autenticación. Inténtalo de nuevo más tarde." },
       { status: 502 },
     );
   }
@@ -25,13 +25,20 @@ export async function proxyToAuthApi(path: string, init: RequestInit = {}): Prom
     return new Response(null, { status: 204 });
   }
 
-  const body = await upstream.arrayBuffer();
-  return new Response(body, {
-    status: upstream.status,
-    headers: {
-      "content-type": upstream.headers.get("content-type") ?? "application/json",
-    },
-  });
+  try {
+    const body = await upstream.arrayBuffer();
+    return new Response(body, {
+      status: upstream.status,
+      headers: {
+        "content-type": upstream.headers.get("content-type") ?? "application/json",
+      },
+    });
+  } catch {
+    return Response.json(
+      { detail: "Error al leer la respuesta del servidor de autenticación." },
+      { status: 502 },
+    );
+  }
 }
 
 /** Extrae el body JSON entrante manteniendo la cabecera de contenido. */

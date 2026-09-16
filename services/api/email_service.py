@@ -67,10 +67,18 @@ def send_password_reset_email(email: str, reset_token: str) -> None:
         )
         response.raise_for_status()
         logger.info("Correo de restablecimiento enviado a %s", email)
-    except requests.RequestException as exc:
+    except Exception:
         # Nunca propagamos el error al cliente: /forgot-password debe devolver
-        # siempre 200 para no revelar si el email existe. Solo registramos.
-        logger.error("Error al enviar correo de restablecimiento a %s: %s", email, exc)
+        # siempre 200 para no revelar si el email existe.
+        # Capturamos Exception en lugar de solo RequestException para cubrir
+        # errores de red inesperados (socket.gaierror, Timeout, etc.).
+        # El mensaje de la excepción no se registra para evitar exponer
+        # la API key o datos sensibles en los logs.
+        logger.error(
+            "Error al enviar correo de restablecimiento a %s",
+            email,
+            exc_info=False,
+        )
 
 
 def _build_reset_email_text(reset_url: str) -> str:

@@ -61,12 +61,7 @@ function ResetPasswordForm() {
       });
 
       if (!response.ok) {
-        const data = (await response.json()) as { detail?: unknown };
-        const msg =
-          typeof data.detail === "string"
-            ? data.detail
-            : "Error al restablecer la contraseña";
-        setError(msg);
+        setError("El enlace de restablecimiento no es válido o ha expirado.");
         return;
       }
 

@@ -110,12 +110,13 @@ export default function SuppliersDirectoryClient({
   const loadSuppliers = useCallback(
     async (country: SupplierCountry | "", category: SupplierCategory | "") => {
       setIsLoading(true);
+      setListError(null);
       try {
         const data = await fetchSuppliers({ country, category });
         setSuppliers(data);
         setListError(null);
-      } catch (error) {
-        setListError(error instanceof Error ? error.message : "No se pudo cargar el directorio");
+      } catch {
+        setListError("No se pudo cargar el directorio de proveedores. Inténtalo de nuevo.");
         setSuppliers([]);
       } finally {
         setIsLoading(false);
