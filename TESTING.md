@@ -22,7 +22,7 @@ Para evitarlo, se hacen pruebas automáticas (**tests**): Para eso escribimos c�
 cd services/api
 uv add --dev pytest pytest-cov httpx
 
-# 2. Ejecutar todos los tests
+# 2. Ejecutar todos los tests (auth API)
 uv run pytest -v --tb=short
 
 # 3. Con cobertura (--cov=. funciona; --cov=services/api NO funciona)
@@ -32,7 +32,25 @@ uv run pytest --cov=. --cov-report=term
 uv run pytest tests/test_security.py -v --tb=short
 ```
 
-### TypeScript (Jest)
+### Python / FastAPI (incidents API)
+
+```bash
+# 1. Instalar dependencias de testing
+cd services/incidents-api
+pip install -r requirements.txt
+pip install pytest pytest-cov httpx
+
+# 2. Ejecutar todos los tests
+python -m pytest -v --tb=short
+
+# 3. Con cobertura
+python -m pytest -v --cov=. --cov-report=term
+
+# 4. Solo un fichero
+python -m pytest tests/test_incidents.py -v --tb=short
+```
+
+### TypeScript — Utilidades (src/__tests__/)
 
 ```bash
 # 1. Instalar dependencias de testing (solo la primera vez)
@@ -45,6 +63,25 @@ npx jest --coverage
 npx jest src/__tests__/collections.test.ts
 ```
 
+### TypeScript — Backoffice (Jest + jsdom)
+
+```bash
+# 1. Situarse en el directorio del backoffice
+cd uis/backoffice
+
+# 2. Instalar dependencias
+npm install --save-dev jest @types/jest ts-jest jest-environment-jsdom
+
+# 3. Ejecutar todos los tests
+npx jest --verbose
+
+# 4. Con cobertura
+npx jest --verbose --coverage
+
+# 5. Solo un fichero
+npx jest --verbose __tests__/auth.test.ts
+```
+
 ---
 
 ## Estructura de archivos de prueba
@@ -52,7 +89,7 @@ npx jest src/__tests__/collections.test.ts
 > ✅ **Actualizado**: coincide exactamente con los archivos existentes.
 
 ```
-services/api/tests/
+services/api/tests/                                 # Auth API (pytest + httpx)
 ├── __init__.py                                    # Marcador de módulo
 ├── conftest.py                                    # Fixtures compartidas: client, in-memory db, seed users, tokens
 ├── test_auth_login.py               (13 tests)    # POST /auth/login
@@ -61,21 +98,26 @@ services/api/tests/
 ├── test_auth_reset_password.py      (14 tests)    # POST /auth/reset-password
 ├── test_auth_change_password.py     (14 tests)    # POST /auth/change-password
 ├── test_security.py                 (31 tests)    # hash_password, verify_password, tokens JWT
-├── test_user_service.py             (22 tests)    # CRUD usuarios y perfiles
+└── test_user_service.py             (22 tests)    # CRUD usuarios y perfiles
 
-src/__tests__/
+services/incidents-api/tests/                       # Incidents API (pytest + httpx)
+├── conftest.py                                    # Fixtures: in-memory TinyDB, client, seed helpers
+├── helpers.py                                     # seed_incident(), MINIMAL_BODY
+└── test_incidents.py               (67 tests)    # 7 endpoints: CRUD + status transitions + summary
+
+src/__tests__/                                      # Utilidades TypeScript (Node)
 ├── collections.test.ts              (22 tests)    # filterClaims, sortClaimsById, groupClaimsBy, etc.
 ├── search.test.ts                   (17 tests)    # findClaimById, binarySearchClaimById, etc.
 ├── transformations.test.ts          (25 tests)    # calculateDenialRate, denialRateByPayer, generateCMEReport, etc.
 └── validations.test.ts              (18 tests)    # validateClaim, validateClinician, thresholds
 
-Total: 195 tests (113 Python + 82 TypeScript)
+uis/backoffice/__tests__/                           # Backoffice utils (Jest + jsdom)
+├── auth.test.ts                      (8 tests)    # getToken, setToken, removeToken, getAuthHeaders
+├── suppliersApi.test.ts             (13 tests)    # fetchSuppliers, createSupplier, archiveSupplier, updateRate/Status
+└── suppliersProxy.test.ts           (15 tests)    # proxyToSuppliersApi, forwardJsonBody
+
+Total: 298 tests (195 anterior + 67 incidents API + 36 frontend backoffice)
 ```
-
-> **Nota**: Los archivos `auth.test.ts`, `authHttpClient.test.ts` y `authProxy.test.ts`
-> aparecen en el plan inicial pero **no se implementaron** porque pertenecen al frontend
-> (backoffice) y quedaron fuera del alcance acordado. Ver sección "Mejoras pendientes".
-
 ---
 ## Tipos de pruebas
 
@@ -377,8 +419,6 @@ Total: 195 tests (113 Python + 82 TypeScript)
 | ✅ Happy path | forwardAuthorizationHeader | RequestInit con Authorization |
 | ✅ Happy path | forwardAuthorizedJsonBody combina ambos | RequestInit completo |
 
----
-
 ## Principios de diseño de las pruebas
 
 1. **No probar serialización HTTP**: No verificamos que FastAPI serializa correctamente
@@ -493,7 +533,7 @@ module.exports = {
 | `email_service.py` | **79%** |
 | **Total API** | **78%** |
 
-### TypeScript / Jest — 82 tests ✅
+### TypeScript / Jest (src/utils/) — 82 tests ✅
 
 ```
  collections.test.ts    ..........................  (22 tests)
@@ -510,15 +550,50 @@ module.exports = {
 | `search.ts` | **100%** |
 | `validations.ts` | **100%** |
 | `transformations.ts` | **85%** |
-| **Total TypeScript** | **91%** |
+| **Total src/utils/** | **91%** |
+
+### Python / Incidents API — 67 tests ✅
+
+```
+ tests/test_incidents.py  ...........................................................
+ ──────────────────────────────────────────────────────────────────────────────────
+ Total: 67 passed, 0 failed
+```
+
+| Módulo | Cobertura |
+|--------|:---------:|
+| `routes/incidents.py` | **100%** |
+| `models.py` | **100%** |
+| `main.py` | **96%** |
+| `database.py` | **93%** |
+| **Total incidents API** | **98%** |
+
+### TypeScript / Backoffice — 36 tests ✅
+
+```
+ auth.test.ts            ........                               (8 tests)
+ suppliersApi.test.ts    .............                          (13 tests)
+ suppliersProxy.test.ts  ...............                        (15 tests)
+ ──────────────────────────────────────────────────────────────────────────────────
+ Total: 36 passed, 0 failed
+```
+
+| Módulo | Cobertura |
+|--------|:---------:|
+| `auth.ts` | **93%** |
+| `suppliersApi.ts` | **97%** |
+| `suppliersProxy.ts` | **100%** |
+| **Total backoffice** | **97%** |
 
 ### Resumen consolidado
 
 | Stack | Tests | Pasados | Cobertura |
 |:------|:-----:|:-------:|:---------:|
-| Python (pytest) | 113 | 113 ✅ | 78% |
-| TypeScript (Jest) | 82 | 82 ✅ | 91% |
-| **Total** | **195** | **195** ✅ | — |
+| Python — Auth API | 113 | 113 ✅ | 78% |
+| Python — Incidents API | 67 | 67 ✅ | 98% |
+| TypeScript — Utilidades (src/utils/) | 82 | 82 ✅ | 91% |
+| TypeScript — Backoffice | 36 | 36 ✅ | 97% |
+| **Total** | **298** | **298** ✅ | — |
 
 ### Notas sobre optimizaciones encontradas
 
@@ -564,10 +639,12 @@ module.exports = {
 
 | # | Mejora | Impacto | Dificultad | Estado |
 |---|--------|---------|------------|--------|
-| 7 | **Implementar tests para `auth.ts`, `authHttpClient.ts` y `authProxy.ts`** | Estos archivos del backoffice aparecen en el plan original pero quedaron fuera del alcance. Añadirlos daría cobertura completa al frontend. | Media | 🔲 Pendiente |
-| 8 | **Añadir tests de integración real (no solo lógica)** | Probar endpoints con HTTP real en lugar de TestClient, incluyendo serialización/deserialización completa. | Alta | 🔲 Pendiente |
-| 9 | **Añadir `hypothesis` para property-based testing** | En lugar de escribir casos a mano, usar Hypothesis para generar contraseñas, emails, objetos de prueba automáticamente y verificar propiedades invariantes (ej: "toda contraseña hasheada con bcrypt se verifica correctamente"). | Media | 🔲 Pendiente |
-| 10 | **Aumentar cobertura de `transformations.ts` de 85% al 100%** | Líneas sin cubrir incluyen `calculateNoShowCost` con fechas límite, `flagHighNoShowLocations` con threshold, y la función `getCliniciansAtRisk`. | Media | 🔲 Pendiente |
+| 7 | **Implementar tests para `authHttpClient.ts` del backoffice** | `auth.ts`, `suppliersApi.ts` y `suppliersProxy.ts` ya tienen cobertura completa (36 tests, 97% global). `authHttpClient.ts` es el único archivo `lib/` sin tests. | Media | 🔲 Pendiente |
+| 8 | **Probar más escenarios en incidents API (email_service.py, rate_limiter.py)** | La cobertura del incidents API es 98% en rutas/modelos, pero `main.py` tiene un 96% (falta probar el manejador genérico de excepciones). | Baja | 🔲 Pendiente |
+| 9 | **Añadir tests de integración real (no solo lógica)** | Probar endpoints con HTTP real en lugar de TestClient, incluyendo serialización/deserialización completa. | Alta | 🔲 Pendiente |
+| 10 | **Añadir `hypothesis` para property-based testing** | En lugar de escribir casos a mano, usar Hypothesis para generar contraseñas, emails, objetos de prueba automáticamente y verificar propiedades invariantes (ej: "toda contraseña hasheada con bcrypt se verifica correctamente"). | Media | 🔲 Pendiente |
+| 11 | **Aumentar cobertura de `transformations.ts` de 85% al 100%** | Líneas sin cubrir incluyen `calculateNoShowCost` con fechas límite, `flagHighNoShowLocations` con threshold, y la función `getCliniciansAtRisk`. | Media | 🔲 Pendiente |
+| 12 | **Aumentar cobertura de `auth.ts` (backoffice) de 93% al 100%** | La línea sin cubrir (45) es el caso `window is undefined` durante SSR, difícil de simular en jsdom. | Baja | 🔲 Pendiente |
 
 ### Mejoras en la infraestructura de testing
 
@@ -576,6 +653,121 @@ module.exports = {
 | 11 | **Añadir GitHub Actions para CI** | Ejecutar `pytest --cov=.` y `npx jest --coverage` automáticamente en cada PR. | Baja | 🔲 Pendiente |
 | 12 | **Configurar pre-commit hooks** | Ejecutar tests automáticos antes de cada commit para evitar código roto en el repositorio. | Baja | 🔲 Pendiente |
 | 13 | **Migrar de TinyDB a SQLite para los tests de integración** | TinyDB en memoria funciona, pero SQLite daría mayor realismo y sería más representativo de una BD real. | Alta | 🔲 Pendiente |
+
+---
+
+## 1. Pruebas unitarias para los endpoints del backoffice
+
+De los archivos planificados originalmente para el backoffice en la sección de cobertura planeada:
+
+- ✅ `auth.ts` — **Implementado** (8 tests, cobertura 93%). Ver `uis/backoffice/__tests__/auth.test.ts`.
+- ⏳ `authHttpClient.ts` — **Pendiente**. No se implementó porque se priorizó `suppliersApi.ts` (mismo patrón de `request<T>` genérico).
+- ⏳ `authProxy.ts` — **Pendiente**. No se implementó porque se priorizó `suppliersProxy.ts` (mismo patrón de proxy).
+- ✅ `suppliersApi.ts` — **Implementado** (13 tests, cobertura 97%). Ver `uis/backoffice/__tests__/suppliersApi.test.ts`.
+- ✅ `suppliersProxy.ts` — **Implementado** (15 tests, cobertura 100%). Ver `uis/backoffice/__tests__/suppliersProxy.test.ts`.
+
+Estos tests cubren las mismas categorías (happy path, 401 → redirect, errores de red, validación) que se detallan en las tablas superiores para `auth.ts`, `authHttpClient.ts` y `authProxy.ts`.
+
+---
+
+## 2. Pruebas unitarias para las funciones de utilidad del frontend
+
+### GET /api/incidents — Listar incidentes
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ✅ Happy path | Listado sin filtros | GET /api/incidents | Lista completa ordenada por created_at desc |
+| ✅ Happy path | Filtro por status | GET /api/incidents?status=open | Solo incidentes con status=open |
+| ✅ Happy path | Filtro por category | GET /api/incidents?category=billing | Solo incidentes con category=billing |
+| ✅ Happy path | Filtro por origin | GET /api/incidents?origin=phone | Solo incidentes con origin=phone |
+| ✅ Happy path | Filtro por branch | GET /api/incidents?branch=CDMX-Norte | Solo incidentes con branch=CDMX-Norte |
+| ✅ Happy path | Filtros combinados | GET /api/incidents?status=open&category=billing | Intersección de filtros |
+| ⚠️ Límite | Sin incidentes | GET /api/incidents en DB vacía | [] |
+| ⚠️ Límite | Filtro sin coincidencias | GET /api/incidents?status=resolved (sin resolved) | [] |
+| ❌ Fallo | Valor de filtro inválido | GET /api/incidents?status=invalid | 422 |
+
+### GET /api/incidents/summary — Resumen de incidentes
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ⚠️ Límite | DB vacía | GET /api/incidents/summary | Todos los contadores a 0 |
+| ✅ Happy path | Con varios incidentes | GET /api/incidents/summary | open=X, in_progress=Y, resolved=Z, discarded=W |
+
+### GET /api/incidents/{id} — Obtener incidente por ID
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ✅ Happy path | Incidente existe | GET /api/incidents/1 | Incidente con branch_label |
+| ❌ Fallo | Incidente no existe | GET /api/incidents/999 | 404 |
+| ❌ Fallo | ID con formato inválido | GET /api/incidents/foo | 422 |
+
+### POST /api/incidents — Crear incidente
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ✅ Happy path | Todos los campos obligatorios | Body completo | 201 + incidente creado |
+| ✅ Happy path | Con status explícito | Body + status="open" | 201 + status correcto |
+| ✅ Happy path | title con 200 caracteres | title = "x" * 200 | 201 |
+| ✅ Happy path | title con 3 caracteres (mínimo) | title = "abc" | 201 |
+| ✅ Happy path | description con 2000 caracteres | description = "x" * 2000 | 201 |
+| ✅ Happy path | description con 10 caracteres (mínimo) | description = "a" * 10 | 201 |
+| ✅ Happy path | Cada origin válido (phone, email, system, in_person) | 4 tests parametrizados | 201 |
+| ✅ Happy path | Cada category válida (9 categorías) | 9 tests parametrizados | 201 |
+| ✅ Happy path | Cada branch válido (14 sucursales) | 14 tests parametrizados | 201 |
+| ❌ Fallo | Falta title | Body sin title | 422 |
+| ❌ Fallo | Falta description | Body sin description | 422 |
+| ❌ Fallo | Falta branch | Body sin branch | 422 |
+| ❌ Fallo | Falta category | Body sin category | 422 |
+| ❌ Fallo | Falta origin | Body sin origin | 422 |
+| ❌ Fallo | title demasiado corto (< 3) | title = "ab" | 422 |
+| ❌ Fallo | title demasiado largo (> 200) | title = "x" * 201 | 422 |
+| ❌ Fallo | description demasiado corta (< 10) | description = "abc" | 422 |
+| ❌ Fallo | description demasiado larga (> 2000) | description = "x" * 2001 | 422 |
+| ❌ Fallo | branch inválido | branch = "INVALID" | 422 |
+| ❌ Fallo | category inválida | category = "invalid" | 422 |
+| ❌ Fallo | origin inválido | origin = "invalid" | 422 |
+| ❌ Fallo | status inválido | status = "invalid" | 422 |
+| ❌ Fallo | Body vacío | {} | 422 |
+
+### PATCH /api/incidents/{id} — Actualizar incidente (parcial)
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ✅ Happy path | Actualizar title | {"title": "nuevo"} | 200 + title actualizado + updated_at cambia |
+| ✅ Happy path | Actualizar todos los campos editables | title + description + category + origin + branch | 200 |
+| ✅ Happy path | Actualizar un solo campo | Solo title | Solo title cambia |
+| ❌ Fallo | Incidente no existe | PATCH /api/incidents/999 | 404 |
+| ❌ Fallo | branch inválido | {"branch": "INVALID"} | 422 |
+| ❌ Fallo | title demasiado corto | {"title": "ab"} | 422 |
+| ⚠️ Límite | Body vacío (sin cambios) | {} | 200 (no-op) |
+
+### PATCH /api/incidents/{id}/status — Transición de estado
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ✅ Happy path | open → in_progress | {"status": "in_progress"} | 200 + status actualizado |
+| ✅ Happy path | open → discarded | {"status": "discarded"} | 200 |
+| ✅ Happy path | in_progress → resolved | {"status": "resolved"} | 200 |
+| ✅ Happy path | in_progress → discarded | {"status": "discarded"} | 200 |
+| ❌ Fallo | resolved → open | {"status": "open"} | 400 (transición prohibida) |
+| ❌ Fallo | discarded → open | {"status": "open"} | 400 |
+| ❌ Fallo | resolved → in_progress | {"status": "in_progress"} | 400 |
+| ❌ Fallo | discarded → in_progress | {"status": "in_progress"} | 400 |
+| ❌ Fallo | resolved → discarded | {"status": "discarded"} | 400 |
+| ❌ Fallo | discarded → resolved | {"status": "resolved"} | 400 |
+| ❌ Fallo | in_progress → open | {"status": "open"} | 400 |
+| ❌ Fallo | Incidente no existe | PATCH /api/incidents/999/status | 404 |
+| ❌ Fallo | Falta status | {} | 422 |
+| ❌ Fallo | status inválido | {"status": "invalid"} | 422 |
+
+### DELETE /api/incidents/{id} — Eliminar incidente
+
+| Categoría | Caso | Entrada | Comportamiento esperado |
+|-----------|------|---------|------------------------|
+| ✅ Happy path | Eliminar existente | DELETE /api/incidents/1 | 204 + GET devuelve 404 |
+| ❌ Fallo | Incidente no existe | DELETE /api/incidents/999 | 404 |
+| ⚠️ Límite | Eliminar y verificar listado | DELETE + GET después | Desaparece de la lista |
+| ⚠️ Límite | Eliminar y verificar summary | DELETE + GET summary | Contadores actualizados |
 
 ---
 
