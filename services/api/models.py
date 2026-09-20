@@ -212,3 +212,55 @@ class ChangePasswordRequest(BaseModel):
 
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# SQLModel ORM — Inventory tables (Supabase)
+# ─────────────────────────────────────────────────────────────────────
+
+from datetime import datetime, timezone
+from typing import Optional
+
+from sqlmodel import Field, SQLModel
+
+
+def utc_now_sql() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class MedicalSupply(SQLModel, table=True):
+    """Suministro médico — equivalente a Product del README."""
+    __tablename__: str = "medical_supplies"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(max_length=200, nullable=False)
+    sku: str = Field(max_length=50, unique=True, nullable=False, index=True)
+    category: str = Field(max_length=50, nullable=False)  # ppe, wound_care, diagnostics, medications, consumables
+    unit: str = Field(max_length=20, nullable=False)       # box, unit, pack, vial
+    country: str = Field(max_length=2, nullable=False)      # US / UK
+
+
+class SupplyDelivery(SQLModel, table=True):
+    """Entrega de proveedor — equivalente a InboundOrder del README."""
+    __tablename__: str = "supply_deliveries"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    supply_id: int = Field(foreign_key="medical_supplies.id", nullable=False, index=True)
+    quantity: int = Field(nullable=False)
+    vendor_name: str = Field(max_length=200, nullable=False)
+    clinic_id: int = Field(nullable=False)  # 1–12; no FK
+    created_at: datetime = Field(default_factory=utc_now_sql, nullable=False)
+    user_uuid: str = Field(max_length=36, nullable=False)  # UUID del usuario en TinyDB
+
+
+class SupplyConsumption(SQLModel, table=True):
+    """Consumo clínico — equivalente a OutboundOrder del README."""
+    __tablename__: str = "supply_consumptions"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    supply_id: int = Field(foreign_key="medical_supplies.id", nullable=False, index=True)
+    quantity: int = Field(nullable=False)
+    consumption_type: str = Field(max_length=20, nullable=False)  # clinical_use / expiry_waste
+    clinic_id: int = Field(nullable=False)  # 1–12; no FK
+    created_at: datetime = Field(default_factory=utc_now_sql, nullable=False)
+    user_uuid: str = Field(max_length=36, nullable=False)  # UUID del usuario en TinyDB

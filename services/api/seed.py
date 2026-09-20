@@ -180,6 +180,104 @@ SUPPLIERS_SEED: list[dict] = [
 ]
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Seed de inventario (Supabase) — suministros, entregas y consumos
+# ─────────────────────────────────────────────────────────────────────
+
+SUPPLIES_SEED: list[dict] = [
+    {
+        "name": "Guantes de nitrilo (caja de 100)",
+        "sku": "HCR-PPE-001",
+        "category": "ppe",
+        "unit": "box",
+        "country": "US",
+    },
+    {
+        "name": "Mascarilla quirúrgica (pack de 50)",
+        "sku": "HCR-PPE-002",
+        "category": "ppe",
+        "unit": "pack",
+        "country": "UK",
+    },
+    {
+        "name": "Apósito adhesivo para heridas",
+        "sku": "HCR-WND-001",
+        "category": "wound_care",
+        "unit": "box",
+        "country": "US",
+    },
+    {
+        "name": "Test rápido de estreptococo",
+        "sku": "HCR-DIAG-001",
+        "category": "diagnostics",
+        "unit": "unit",
+        "country": "US",
+    },
+    {
+        "name": "Tiras reactivas glucemia (50)",
+        "sku": "HCR-DIAG-002",
+        "category": "diagnostics",
+        "unit": "box",
+        "country": "UK",
+    },
+    {
+        "name": "Solución salina 0,9% 500ml",
+        "sku": "HCR-MED-001",
+        "category": "medications",
+        "unit": "vial",
+        "country": "US",
+    },
+]
+
+DELIVERIES_SEED: list[dict] = [
+    {
+        "supply_sku": "HCR-PPE-001",
+        "quantity": 50,
+        "vendor_name": "MedLine Industries",
+        "clinic_id": 1,
+    },
+    {
+        "supply_sku": "HCR-PPE-001",
+        "quantity": 30,
+        "vendor_name": "Bound Tree Medical",
+        "clinic_id": 2,
+    },
+    {
+        "supply_sku": "HCR-PPE-002",
+        "quantity": 20,
+        "vendor_name": "Cardinal Health UK",
+        "clinic_id": 10,
+    },
+    {
+        "supply_sku": "HCR-DIAG-001",
+        "quantity": 100,
+        "vendor_name": "MedLine Industries",
+        "clinic_id": 1,
+    },
+]
+
+CONSUMPTIONS_SEED: list[dict] = [
+    {
+        "supply_sku": "HCR-PPE-001",
+        "quantity": 10,
+        "consumption_type": "clinical_use",
+        "clinic_id": 1,
+    },
+    {
+        "supply_sku": "HCR-PPE-001",
+        "quantity": 5,
+        "consumption_type": "expiry_waste",
+        "clinic_id": 2,
+    },
+    {
+        "supply_sku": "HCR-PPE-002",
+        "quantity": 8,
+        "consumption_type": "clinical_use",
+        "clinic_id": 10,
+    },
+]
+
+
 def seed_suppliers() -> tuple[int, int]:
     """Inserta los proveedores que aún no existan. Devuelve (insertados, omitidos)."""
     table = get_suppliers_table()
@@ -204,14 +302,96 @@ def seed_suppliers() -> tuple[int, int]:
     return inserted, skipped
 
 
+def seed_inventory() -> dict[str, int]:
+    """Siembra las tablas de inventario en Supabase.
+
+    Crea suministros si no existen por SKU, y luego registra entregas y
+    consumos referenciando los IDs de los suministros ya creados.
+    Usa '1' como user_uuid por defecto (primer usuario admin de TinyDB).
+
+    Returns: dict con conteo de creados.
+    """
+    from sqlmodel import Session, select
+
+    from database import get_sql_engine, init_supabase_schema
+    from models import MedicalSupply, SupplyConsumption, SupplyDelivery
+
+    # Crear las tablas en Supabase antes de insertar datos
+    init_supabase_schema()
+
+    engine = get_sql_engine()
+    counts: dict[str, int] = {"supplies": 0, "deliveries": 0, "consumptions": 0}
+
+    default_user_uuid = "1"
+
+    with Session(engine) as session:
+        # ── Supplies (solo si no existen por SKU) ──────────────
+        for raw in SUPPLIES_SEED:
+            existing = session.exec(
+                select(MedicalSupply).where(MedicalSupply.sku == raw["sku"])
+            ).first()
+            if existing:
+                continue
+            supply = MedicalSupply(**raw)
+            session.add(supply)
+            session.flush()  # obtiene el ID sin commit
+            counts["supplies"] += 1
+
+        # Diccionario sku → id
+        sku_to_id: dict[str, int] = {}
+        all_supplies = session.exec(select(MedicalSupply)).all()
+        for s in all_supplies:
+            sku_to_id[s.sku] = s.id
+
+        # ── Deliveries ─────────────────────────────────────────
+        for raw in DELIVERIES_SEED:
+            supply_id = sku_to_id.get(raw["supply_sku"])
+            if supply_id is None:
+                continue
+            delivery = SupplyDelivery(
+                supply_id=supply_id,
+                quantity=raw["quantity"],
+                vendor_name=raw["vendor_name"],
+                clinic_id=raw["clinic_id"],
+                user_uuid=default_user_uuid,
+            )
+            session.add(delivery)
+            counts["deliveries"] += 1
+
+        # ── Consumptions ───────────────────────────────────────
+        for raw in CONSUMPTIONS_SEED:
+            supply_id = sku_to_id.get(raw["supply_sku"])
+            if supply_id is None:
+                continue
+            consumption = SupplyConsumption(
+                supply_id=supply_id,
+                quantity=raw["quantity"],
+                consumption_type=raw["consumption_type"],
+                clinic_id=raw["clinic_id"],
+                user_uuid=default_user_uuid,
+            )
+            session.add(consumption)
+            counts["consumptions"] += 1
+
+        session.commit()
+
+    return counts
+
+
 def main() -> None:
     inserted, skipped = seed_suppliers()
     total = len(get_suppliers_table())
 
-    print(f"Base de datos: {get_db_path()}")
+    print(f"Base de datos TinyDB: {get_db_path()}")
     print(f"Proveedores insertados: {inserted}")
     print(f"Proveedores omitidos (ya existían): {skipped}")
     print(f"Total en el directorio: {total}")
+
+    inv_counts = seed_inventory()
+    print(f"\n--- Inventario (Supabase) ---")
+    print(f"Suministros creados: {inv_counts['supplies']}")
+    print(f"Entregas registradas: {inv_counts['deliveries']}")
+    print(f"Consumos registrados: {inv_counts['consumptions']}")
 
 
 if __name__ == "__main__":
