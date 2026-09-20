@@ -3,20 +3,33 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from database import init_supabase_schema
 from incidents_analysis import analyze_csv_text, report_to_csv_text
 from routes.auth import router as auth_router
+from routes.inventory import router as inventory_router
 from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
 from routes.users import router as users_router
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="HealthCore API", version="1.1.0")
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Inicializa el esquema de Supabase al arrancar la aplicación."""
+    init_supabase_schema()
+    logger.info("Supabase schema initialized (tables created if not exist).")
+    yield
+
+
+app = FastAPI(title="HealthCore API", version="1.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +43,7 @@ app.include_router(suppliers_router)
 app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
+app.include_router(inventory_router)
 
 
 # ── Global exception handlers ──────────────────────────────────────────

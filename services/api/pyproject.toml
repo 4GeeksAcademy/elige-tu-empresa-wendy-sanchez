@@ -13,6 +13,8 @@ dependencies = [
     "libpass[bcrypt]>=1.9.3",
     "python-dotenv>=1.2.3",
     "requests>=2.31.0",
+    "sqlmodel>=0.0.42",
+    "psycopg2-binary>=2.9.13",
 ]
 
 [project.scripts]
@@ -26,6 +28,7 @@ build-backend = "hatchling.build"
 only-include = [
     "main.py",
     "models.py",
+    "schemas.py",
     "database.py",
     "security.py",
     "user_service.py",

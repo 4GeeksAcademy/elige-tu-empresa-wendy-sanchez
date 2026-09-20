@@ -49,7 +49,7 @@ def _in_memory_db(monkeypatch: pytest.MonkeyPatch) -> None:
         return db
 
     monkeypatch.setattr("database._db", None)
-    monkeypatch.setattr("database.get_db", mock_get_db)
+    monkeypatch.setattr("database.get_tinydb", mock_get_db)
 
 
 # ────────────────────────────────────────────────────────
