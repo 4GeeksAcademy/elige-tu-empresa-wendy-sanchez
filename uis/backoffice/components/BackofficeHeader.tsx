@@ -53,6 +53,31 @@ export default function BackofficeHeader() {
             >
               Supplier Directory
             </Link>
+            <span className="text-slate-600">|</span>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white text-cyan-200"
+              href="/inventory/products"
+            >
+              📦 Stock
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/inventory/orders/inbound"
+            >
+              📥 Registrar Entrada
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/inventory/orders/outbound"
+            >
+              📤 Registrar Salida
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/inventory/orders"
+            >
+              📋 Historial
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">

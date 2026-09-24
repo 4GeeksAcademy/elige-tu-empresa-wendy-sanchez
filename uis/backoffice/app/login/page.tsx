@@ -66,10 +66,15 @@ function LoginForm() {
         body: JSON.stringify({ email: email.trim(), password }),
       });
 
-      const data = (await response.json()) as { access_token?: string; detail?: string };
+      const data = (await response.json()) as { access_token?: string; detail?: string | unknown };
 
       if (!response.ok) {
-        setErrors({ general: "Email o contraseña incorrectos." });
+        // Mostrar el mensaje de error real que devuelve la API
+        const msg =
+          typeof data.detail === "string"
+            ? data.detail
+            : "Email o contraseña incorrectos.";
+        setErrors({ general: msg });
         return;
       }
 
