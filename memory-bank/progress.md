@@ -93,6 +93,12 @@
 - 45 errores iniciales de TypeScript en `suppliersProxy.test.ts` resueltos.
 - Tests ejecutándose correctamente: 11/11 passed (0.723s).
 
+12. **Correcciones runtime (docker compose up)**:
+- **Backend (8000) — Supabase graceful skip**: `DATABASE_URL` vacío provocaba crash en `init_supabase_schema()`. Solucionado con verificación `if not DATABASE_URL: logger.info(...); return`.
+- **Backoffice (3001) — Module not found**: Turbopack no resuelve imports fuera del directorio del proyecto (`../../../src/...`). Solucionado montando `./src` dentro de `uis/backoffice/src` en docker-compose.yml y cambiando imports a `../src/...`.
+- **Website (3000) — Imágenes rotas**: Next.js intenta optimizar imágenes descargándolas de Unsplash en el servidor, el contenedor no resuelve DNS externo. Solucionado con `images: { unoptimized: true }` en website/next.config.ts.
+- **Verificación final**: los 4 servicios responden 200 OK (website:3000, backoffice:3001, backend:8000/docs, incidents-backend:8010). Imágenes visibles en website.
+
 ## Riesgos o brechas potenciales
 - No hay pruebas automatizadas persistidas para la API de proveedores (la auditoría se ejecutó con scripts ad hoc).
 - Falta verificar formalmente métricas de rendimiento (PageSpeed) en URL pública.

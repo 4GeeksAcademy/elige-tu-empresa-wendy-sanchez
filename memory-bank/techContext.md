@@ -88,6 +88,9 @@
 13. **Stock reactivo en frontend**: al seleccionar un producto en el formulario de salida, se dispara fetchProduct() para obtener el stock fresco de la API. No confía solo en el listado inicial.
 14. **Dockerización para desarrollo**: contenedores separados por servicio, comunicación por nombre Docker, bind mounts para hot-reload.
 15. **Configuración dual de tsconfig**: `tsconfig.json` principal para producción (excluye `__tests__`), `tsconfig.test.json` para Jest (con `types: ["jest", "node"]`).
+16. **Init_supabase_schema graceful skip**: `database.py` verifica `if not DATABASE_URL:` antes de llamar a `get_sql_engine()`, permitiendo desarrollo local sin Supabase. La función retorna silenciosamente con un mensaje informativo en logs.
+17. **Montaje `src/` dentro del proyecto (Turbopack compatibility)**: Para que Turbopack resuelva imports compartidos, `./src:/workspace/uis/backoffice/src` se monta dentro del directorio del proyecto backoffice. Los imports cambian de `../../../src/...` a `../src/...`. Esto evita el error de Turbopack de no resolver imports fuera del directorio del proyecto.
+18. **Desactivación de optimización de imágenes en contenedor**: `next.config.ts` del website usa `images: { unoptimized: true }` para que el navegador cargue imágenes externas (Unsplash) directamente, evitando errores `EAI_AGAIN` por falta de resolución DNS en el contenedor.
 
 ## Docker y orquestación
 

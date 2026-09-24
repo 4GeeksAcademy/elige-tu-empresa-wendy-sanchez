@@ -36,6 +36,7 @@ services:
     volumes:
       # Bind mount del código fuente para recarga en caliente
       - ./uis:/workspace/uis
+      - ./src:/workspace/uis/backoffice/src
       - ./packages:/workspace/packages
       # Excluir node_modules del host (usamos las del contenedor)
       - /workspace/uis/website/node_modules

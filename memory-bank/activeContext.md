@@ -137,6 +137,27 @@
 - **Tests unitarios del backoffice**: 11/11 tests pasan con `npx jest` (0.723s).
 - **TypeScript**: todos los errores resueltos (45 problemas iniciales en `suppliersProxy.test.ts`).
 - **Configuración de tests**: `tsconfig.test.json` creado con `types: ["jest", "node"]`, `jest.config.ts` actualizado para usarlo, `__tests__` excluido del `tsconfig.json` principal.
+
+### 17) Correcciones runtime (docker compose up)
+- **Problema**: Backoffice (3001) daba error 500 — `Module not found: Can't resolve '../../../src/utils/transformations'`
+  - **Causa raíz**: Turbopack no resuelve imports fuera del directorio del proyecto, aunque `experimental: { externalDir: true }` esté configurado. El volumen de `src/` estaba montado en `/workspace/src/` pero el import `../../../src/` queda fuera del árbol de resolución de Turbopack.
+  - **Solución**: se montó `./src:/workspace/uis/backoffice/src` en docker-compose.yml para que la carpeta `src/` esté dentro del proyecto backoffice. Los imports en `app/page.tsx` se cambiaron de `../../../src/...` a `../src/...`.
+  - **Alternativa descartada**: `NEXT_DISABLE_TURBOPACK=1` + `@healthcore/*` path alias (Webpack tampoco resolvía bien externalDir).
+- **Problema**: Backend (8000) crasheaba al arrancar — `RuntimeError: DATABASE_URL no está configurada`
+  - **Causa raíz**: `init_supabase_schema()` llamaba a `get_sql_engine()` que lanza error si `DATABASE_URL` está vacía.
+  - **Solución**: `init_supabase_schema()` ahora verifica si `DATABASE_URL` existe antes de llamar a `get_sql_engine()`. Añadido `logger.info` skip graceful. Añadido `import logging` en database.py.
+- **Problema**: Website (3000) mostraba imágenes rotas — error `getaddrinfo EAI_AGAIN images.unsplash.com`
+  - **Causa raíz**: El contenedor Docker no resuelve DNS externo. Next.js intenta optimizar imágenes (descargarlas, redimensionarlas, convertirlas) en el servidor y eso falla.
+  - **Solución**: `images: { unoptimized: true }` en `uis/website/next.config.ts`. Ahora el navegador carga las imágenes directamente de Unsplash.
+
+### 18) Estado actual de los servicios (docker compose up)
+| Puerto | Servicio | Estado | URL |
+|--------|----------|--------|-----|
+| 3000 | Website (Next.js) | ✅ 200 | http://localhost:3000 |
+| 3001 | Backoffice (Next.js) | ✅ 200 | http://localhost:3001 |
+| 8000 | HealthCore API (FastAPI) | ✅ Arrancó sin Supabase | http://localhost:8000/docs |
+| 8010 | Incidents API (FastAPI) | ✅ 200 | http://localhost:8010 |
+
 - `incidents-healthcore.csv` / `incidents-COMPANY.csv`: datos históricos de incidencias.
 - `results.csv`: resultados de análisis.
 - app/suppliers/page.tsx: Server Component que hace la carga inicial y enlaza desde el menú.

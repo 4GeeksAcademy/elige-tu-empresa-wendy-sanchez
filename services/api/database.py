@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import AsyncGenerator, Generator
@@ -10,6 +11,8 @@ from tinydb import TinyDB
 from tinydb.table import Table
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "process" / "suppliers_db.json"
 SUPPLIERS_TABLE = "suppliers"
@@ -49,7 +52,12 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def init_supabase_schema() -> None:
-    """Create all tables in Supabase on application startup."""
+    """Create all tables in Supabase on application startup.
+    Gracefully skips if DATABASE_URL is not set.
+    """
+    if not DATABASE_URL:
+        logger.info("DATABASE_URL no configurada. Omitiendo inicialización de Supabase.")
+        return
     engine = get_sql_engine()
     SQLModel.metadata.create_all(engine)
 

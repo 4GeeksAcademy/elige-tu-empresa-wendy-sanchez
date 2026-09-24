@@ -15,12 +15,12 @@ WORKDIR ${WORKSPACE}
 # ── 1. Instalar dependencias del website ───────────────────────────────
 FROM base AS deps-website
 COPY uis/website/package.json uis/website/package-lock.json* ./
-RUN npm ci --only=production --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+RUN npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
 
 # ── 2. Instalar dependencias del backoffice ────────────────────────────
 FROM base AS deps-backoffice
 COPY uis/backoffice/package.json uis/backoffice/package-lock.json* ./
-RUN npm ci --only=production --ignore-scripts 2>/dev/null || npm install --ignore-scripts
+RUN npm ci --ignore-scripts 2>/dev/null || npm install --ignore-scripts
 
 # ── 3. Etapa final ─────────────────────────────────────────────────────
 FROM base AS runner
