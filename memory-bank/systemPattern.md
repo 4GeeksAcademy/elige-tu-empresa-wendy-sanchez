@@ -61,3 +61,26 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 ### 10) Proxy de API en el backoffice
 - app/api/** reenvía al backend y traduce los errores 422 de FastAPI a mensajes legibles por campo.
 - El navegador nunca habla directamente con FastAPI: evita CORS y oculta la URL interna del backend.
+
+## Patrones de infraestructura y desarrollo
+
+### 11) Docker multi-servicio para desarrollo
+- Cada servicio tiene su propio `Dockerfile` y `.dockerignore` en su directorio.
+- `docker-compose.yml` en raíz orquesta todos los servicios con red bridge explícita.
+- Los contenedores se comunican por nombre de servicio Docker, no por localhost.
+- Bind mounts del código fuente permiten hot-reload sin reconstruir imágenes.
+- Volúmenes anónimos para `node_modules` evitan que el bind mount del host sobrescriba las dependencias instaladas en el contenedor.
+
+### 12) Entrypoint dinámico
+- `services/entrypoint.sh` selecciona el comando uvicorn según variable `SERVICE_NAME` (api→:8000, incidents-api→:8010).
+- `uis/start.sh` lanza ambos Next.js en paralelo con manejo de señales SIGTERM/SIGINT.
+
+### 13) Optimización de contexto Docker
+- `.dockerignore` raíz excluye node_modules, .env, __pycache__, .next, .venv, .git del contexto de build (reduce ~987 kB → ~10.5 kB).
+- Cada subdirectorio (uis/, services/) tiene su propio `.dockerignore` para filtros adicionales específicos.
+
+### 14) Configuración dual de TypeScript para tests
+- `tsconfig.json` principal: configuración estricta de producción, excluye `__tests__`.
+- `tsconfig.test.json`: extiende el principal, añade `types: ["jest", "node"]`, incluye `__tests__`.
+- `jest.config.ts` apunta al `tsconfig.test.json` para que Jest tenga los tipos correctos.
+- Esto evita contaminar el ámbito de producción con tipos de test (@types/jest).
