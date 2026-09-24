@@ -153,12 +153,12 @@ function extractErrorMessage(payload: unknown, fallback: string): string {
 
 /** Desde el navegador, las peticiones pasan por el proxy de Next.js
  *  (/api/inventory/*) configurado en next.config.ts, que reescribe
- *  a http://localhost:8000/inventory/*. Desde el servidor (SSR)
+ *  a http://backend:8000/inventory/*. Desde el servidor (SSR)
  *  se usa la variable NEXT_PUBLIC_INVENTORY_API_URL.
  */
 const API_BASE_URL = typeof window !== "undefined"
   ? ""  // En el navegador, usar ruta relativa → Next.js proxy
-  : (process.env.NEXT_PUBLIC_INVENTORY_API_URL ?? "http://127.0.0.1:8000");
+  : (process.env.NEXT_PUBLIC_INVENTORY_API_URL ?? "http://backend:8000");
 
 function apiPath(endpoint: string): string {
   // Los endpoints ya incluyen /inventory/ (ej: "/inventory/products")

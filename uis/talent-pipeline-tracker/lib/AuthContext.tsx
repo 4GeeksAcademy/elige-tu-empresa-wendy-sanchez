@@ -11,7 +11,7 @@ import {
 import { useRouter } from "next/navigation";
 import { getToken, removeToken, setToken, type MeResponse } from "@/lib/auth";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 interface AuthContextValue {
   user: MeResponse | null;

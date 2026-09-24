@@ -1,0 +1,33 @@
+# ── HealthCore — Root .dockerignore ─────────────────────────────────────
+# El build context en docker-compose.yml es la raíz (`.`).
+# Docker solo lee el .dockerignore que está en la raíz del context.
+# Sin esto, node_modules/ y .env se enviarían al daemon de Docker.
+
+.git
+.gitignore
+.github
+.env
+.env*
+.env.local
+.env.*.local
+**/node_modules
+**/.next
+**/__pycache__
+**/__tests__
+**/*.pyc
+**/*.pyo
+**/*.log
+**/.venv
+**/venv
+**/*.egg-info
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/dist
+**/build
+**/coverage
+**/*.tsbuildinfo
+**/.cache
+*.md
+README*
+LICENSE

@@ -1,0 +1,26 @@
+# ── HealthCore — .dockerignore para interfaces ────────────────────────
+# Excluye lo que no debe copiarse a la imagen ni interferir con bind mounts.
+
+node_modules
+.next
+.env
+.env*
+.env.local
+.env.production
+.env.development
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.cache
+.git
+.gitignore
+*.md
+README*
+__tests__
+tests
+coverage
+dist
+.next
+*.tsbuildinfo

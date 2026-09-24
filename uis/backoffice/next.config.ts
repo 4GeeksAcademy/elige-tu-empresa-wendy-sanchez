@@ -7,15 +7,15 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      // Proxy /api/incidents/* → backend de incidencias (puerto 8010)
+      // Proxy /api/incidents/* → Incidents API (nombre Docker: incidents-backend)
       {
         source: "/api/incidents/:path*",
-        destination: "http://127.0.0.1:8010/api/incidents/:path*",
+        destination: "http://incidents-backend:8010/api/incidents/:path*",
       },
-      // Proxy /api/inventory/* → backend de inventario (puerto 8000)
+      // Proxy /api/inventory/* → HealthCore API (nombre Docker: backend)
       {
         source: "/api/inventory/:path*",
-        destination: "http://127.0.0.1:8000/inventory/:path*",
+        destination: "http://backend:8000/inventory/:path*",
       },
     ];
   },
