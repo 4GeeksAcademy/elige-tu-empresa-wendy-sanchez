@@ -1,113 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-interface Incident {
-  id: number;
-  title: string;
-  description: string;
-  category: IncidentCategory;
-  status: IncidentStatus;
-  origin: IncidentOrigin;
-  branch: string;
-  branch_label: string;
-  created_at: string;
-  updated_at: string;
-}
-
-interface IncidentSummary {
-  total: number;
-  by_status: Record<string, number>;
-  by_category: Record<string, number>;
-  by_branch: Record<string, number>;
-  by_origin: Record<string, number>;
-}
-
-type IncidentStatus = "open" | "in_progress" | "resolved" | "discarded";
-type IncidentCategory =
-  | "clinical_equipment"
-  | "it_system"
-  | "billing_error"
-  | "compliance_breach"
-  | "patient_experience"
-  | "staff_issue"
-  | "facility_issue"
-  | "referral_issue"
-  | "other";
-type IncidentOrigin = "customer" | "branch" | "internal";
-
-const STATUS_LABELS: Record<IncidentStatus, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  resolved: "Resolved",
-  discarded: "Discarded",
-};
-
-const STATUS_COLORS: Record<IncidentStatus, string> = {
-  open: "bg-yellow-100 text-yellow-800 border-yellow-300",
-  in_progress: "bg-blue-100 text-blue-800 border-blue-300",
-  resolved: "bg-green-100 text-green-800 border-green-300",
-  discarded: "bg-slate-100 text-slate-600 border-slate-300",
-};
-
-const CATEGORY_LABELS: Record<IncidentCategory, string> = {
-  clinical_equipment: "Clinical Equipment",
-  it_system: "IT System",
-  billing_error: "Billing Error",
-  compliance_breach: "Compliance Breach",
-  patient_experience: "Patient Experience",
-  staff_issue: "Staff Issue",
-  facility_issue: "Facility Issue",
-  referral_issue: "Referral Issue",
-  other: "Other",
-};
-
-const ORIGIN_LABELS: Record<IncidentOrigin, string> = {
-  customer: "Customer",
-  branch: "Branch",
-  internal: "Internal",
-};
-
-const VALID_BRANCHES = [
-  { value: "central", label: "Central — Austin Main Clinic" },
-  { value: "austin_north", label: "Austin — North" },
-  { value: "dallas_uptown", label: "Dallas Uptown" },
-  { value: "houston_med_center", label: "Houston Medical Center" },
-  { value: "san_antonio_west", label: "San Antonio West" },
-  { value: "miami_brickell", label: "Miami Brickell" },
-  { value: "miami_doral", label: "Miami Doral" },
-  { value: "orlando_east", label: "Orlando East" },
-  { value: "tampa_bay", label: "Tampa Bay" },
-  { value: "atlanta_midtown", label: "Atlanta Midtown" },
-  { value: "savannah", label: "Savannah" },
-  { value: "london_city", label: "London City" },
-  { value: "london_west", label: "London West End" },
-  { value: "manchester_central", label: "Manchester Central" },
-];
-
-const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "";
-
-// ── Form state ───────────────────────────────────────────────────────────────
-
-interface IncidentFormState {
-  title: string;
-  description: string;
-  category: IncidentCategory | "";
-  status: IncidentStatus;
-  origin: IncidentOrigin;
-  branch: string;
-}
-
-const EMPTY_FORM: IncidentFormState = {
-  title: "",
-  description: "",
-  category: "",
-  status: "open",
-  origin: "customer",
-  branch: "",
-};
+import type {
+  Incident,
+  IncidentSummary,
+  IncidentStatus,
+  IncidentCategory,
+  IncidentOrigin,
+  IncidentFormState,
+} from "@/types/incident";
+import {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  CATEGORY_LABELS,
+  ORIGIN_LABELS,
+  BRANCH_OPTIONS as VALID_BRANCHES,
+  API_BASE,
+  EMPTY_FORM,
+} from "@/lib/incidents";
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -153,8 +63,8 @@ export default function IncidentsManagerClient() {
     setListError(null);
     try {
       const [incidentsData, summaryData] = await Promise.all([
-        fetchFromApi<Incident[]>(`${API_BASE}/api/incidents`),
-        fetchFromApi<IncidentSummary>(`${API_BASE}/api/incidents/summary`),
+        fetchFromApi<Incident[]>(`${API_BASE}`),
+        fetchFromApi<IncidentSummary>(`${API_BASE}/summary`),
       ]);
       setIncidents(incidentsData);
       setSummary(summaryData);
@@ -212,7 +122,7 @@ export default function IncidentsManagerClient() {
 
     setIsSaving(true);
     try {
-      await fetchFromApi(`${API_BASE}/api/incidents`, {
+      await fetchFromApi(`${API_BASE}`, {
         method: "POST",
         body: JSON.stringify(form),
       });
@@ -235,7 +145,7 @@ export default function IncidentsManagerClient() {
 
     setIsSaving(true);
     try {
-      await fetchFromApi(`${API_BASE}/api/incidents/${editingId}`, {
+      await fetchFromApi(`${API_BASE}/${editingId}`, {
         method: "PATCH",
         body: JSON.stringify(form),
       });
@@ -255,7 +165,7 @@ export default function IncidentsManagerClient() {
   const handleDelete = async (id: number) => {
     if (!confirm("¿Estás seguro de eliminar este incidente?")) return;
     try {
-      await fetchFromApi(`${API_BASE}/api/incidents/${id}`, { method: "DELETE" });
+      await fetchFromApi(`${API_BASE}/${id}`, { method: "DELETE" });
       setFeedback("Incidente eliminado");
       if (selectedIncident?.id === id) setSelectedIncident(null);
       await refreshData();

@@ -117,7 +117,7 @@ Maximum critical path latency: 1,858 ms
 
 ## ANÁLISIS DE DUPLICACIÓN Y REFACTORIZACIÓN
 
-### Caso 1 — Tipos, constantes y mapeos de incidencias duplicados en 4 componentes
+### Caso 1 — Tipos, constantes y mapeos de incidencias duplicados en 4 componentes 
 
 **Dónde aparece:**
 
@@ -550,3 +550,156 @@ Aplicando el flujo de trabajo y guías de referencia de web-perf sobre los datos
 **Resultado esperado:**
 - Los ahorros de minificación reportados (182 KiB JS, 8 KiB CSS) se resuelven con solo usar producción.
 - Compresión Brotli adicional del 15-20% sobre Gzip.
+
+---
+
+## ARQUITECTURA DEL FRONTEND (Website + Backoffice)
+
+### Website — Sitio corporativo (`uis/website/`)
+
+**Stack:** Next.js 16 con Turbopack, App Router, TypeScript, Tailwind CSS.
+
+**Estructura de páginas:**
+
+| Ruta | Componente | Descripción |
+|------|-----------|-------------|
+| `/` (EN) | `app/page.tsx` → `LandingPage.tsx` | Página principal inglés |
+| `/es` (ES) | `app/es/page.tsx` → `LandingPage.tsx` | Página principal español |
+| `/application` | `app/application/page.tsx` | Placeholder — redirige a HTML legacy |
+| `/en` | `app/en/page.tsx` | Redundante: replica `app/page.tsx` |
+
+**Componentes compartidos:** `SiteHeader`, `SiteFooter`, `LandingPage`, `JsonLd` — todos reciben `WebsiteContent` como prop tipada.
+
+**Patrón de contenido:** `data/content.ts` exporta `englishContent` y `spanishContent` (objetos `WebsiteContent` de ~130 líneas cada uno). Layout raíz (`app/layout.tsx`) sin `html[lang]` dinámico (fijo `lang="en"`). Layout español (`app/es/layout.tsx`) con `lang="es"`.
+
+**Hallazgos:**
+- ✅ Buena separación entre contenido y presentación (content.ts + types/website.ts).
+- ✅ JSON-LD estructurado para SEO.
+- ⚠️ Dos páginas de inicio para inglés: `app/page.tsx` y `app/en/page.tsx` — idénticas. `page.tsx` ya apunta a `englishContent`; `/en/page.tsx` parece sobrante o es un redirect fallback.
+- ⚠️ Sin `robots.txt` ni `sitemap.xml`.
+- ⚠️ La imagen hero de Unsplash (externo) no lleva `priority` (se aborda en Mejora 2).
+
+### Backoffice (`uis/backoffice/`)
+
+**Stack:** Next.js 16 con Turbopack, App Router, TypeScript, Tailwind CSS, `@/*` path alias.
+
+**Estructura de páginas y componentes:**
+
+| Ruta | Componente | Propósito |
+|------|-----------|-----------|
+| `/` | `page.tsx` | Dashboard principal (datos de ejemplo) |
+| `/login` | `app/login/page.tsx` | Login con JWT |
+| `/register` | `app/register/page.tsx` | Registro de usuarios |
+| `/forgot-password` | `app/forgot-password/page.tsx` | Recuperación de contraseña |
+| `/reset-password` | `app/reset-password/page.tsx` | Restablecimiento de contraseña |
+| `/account/profile` | `app/account/profile/page.tsx` | Perfil de usuario |
+| `/account/change-password` | `app/account/change-password/page.tsx` | Cambio de contraseña |
+| `/incidents` | `IncidentsAnalyzerClient` | Analizador CSV de incidencias |
+| `/incidents/list` | `IncidentListPanel` | Listado de incidencias |
+| `/incidents/register` | `IncidentRegisterForm` | Formulario de registro |
+| `/incidents/summary` | `IncidentSummaryPanel` | Resumen estadístico |
+| `/incidents-manager` | `IncidentsManagerClient` | Gestor completo (CRUD) |
+| `/suppliers` | `SuppliersDirectoryClient` | Directorio de proveedores |
+| `/inventory/products` | — | Vista de productos |
+| `/inventory/orders/inbound` | — | Órdenes de entrada |
+| `/inventory/orders/outbound` | — | Órdenes de salida |
+
+**Patrón de autenticación:**
+- `AuthShell` (layout wrapper) + `AuthContext` (provider con `user`, `login`, `logout`).
+- Las páginas protegidas se envuelven en `AuthShell`; las públicas (login, register, forgot-password) están fuera.
+- `AuthContext.fetchUser()` verifica sesión en `/api/auth/me` con JWT.
+- Redirección estática: `if (!user) return null` en componentes protegidos.
+
+**Cliente HTTP:**
+- `lib/authHttpClient.ts` — `request<T>()` genérico con JWT, manejo de 401, `extractErrorMessage()`.
+- `lib/suppliersApi.ts` — reinventa `request<T>()`, `handle401()`, `getAuthHeaders()`.
+- `lib/inventoryApi.ts` — fetch directo con `getToken()` y manejo de errores inline.
+- **Problema:** 3 implementaciones del mismo patrón (detallado en Caso 2).
+
+**UI Components:** 4 componentes de incidencias con tipos y constantes duplicados (Caso 1). Sin componentes UI atómicos compartidos (spinner, error, empty-state).
+
+---
+
+## ARQUITECTURA DEL BACKEND
+
+### API principal (`services/api/`)
+
+**Stack:** FastAPI + Pydantic v2 + SQLModel + TinyDB + JWT (bcrypt/jose).
+
+**Dos bases de datos en paralelo:**
+1. **TinyDB** (`data/process/suppliers_db.json`) — persistencia actual para suppliers, users, profiles, reset_tokens, rate_limits, audit_log.
+2. **Supabase (PostgreSQL vía SQLModel)** — objetivo de migración futuro, con `DATABASE_URL`.
+
+**Módulos y sus responsabilidades:**
+
+| Módulo | Archivos | Propósito |
+|--------|----------|-----------|
+| **Auth** | `security.py`, `routes/auth.py` | JWT stateless, bcrypt, login, refresh, register, forgot/reset password |
+| **Users** | `user_service.py`, `routes/users.py` | CRUD de usuarios (TinyDB), roles, perfil |
+| **Suppliers** | `routes/suppliers.py`, `models.py` (parcial) | CRUD de proveedores, filtros por país/categoría, rate/status updates |
+| **Inventory** | `routes/inventory.py` | Gestión de suministros médicos, entregas, consumos |
+| **Profiles** | `routes/profiles.py` | Perfiles extendidos de usuario |
+
+**Modelos Pydantic destacados (`models.py`):**
+- `Supplier`, `SupplierCreate`, `SupplierReplace`, `SupplierRateUpdate`, `SupplierStatusUpdate`
+- `User`, `UserCreate`, `UserOut`, `UserUpdate`
+- `LoginRequest`, `Token`, `MeResponse`, `ChangePasswordRequest`, `ForgotPasswordRequest`
+- Enums: `Country`, `Currency`, `SupplierStatus`, `SupplierCategory`, `ComplianceAgreement`
+- Validación con `model_validator`: `currency_must_match_country` — consistencia cross-campo.
+
+**Seguridad (`security.py`):**
+- `hash_password()` / `verify_password()` con bcrypt.
+- `create_access_token()` con expiración configurable (default 30 min).
+- `get_current_user()` — dependencia FastAPI que decodifica JWT y busca usuario en TinyDB.
+- `OAuth2PasswordBearer` con `auto_error=False` (permite rutas públicas).
+
+**Control de acceso:** Sin roles explícitos aún. El middleware solo verifica autenticación (token válido). No hay diferenciación admin/operator/viewer.
+
+**Manejo de errores global (`main.py`):**
+- `RequestValidationError` → 422 con detalles campo a campo (sin stack trace).
+- `Exception` genérico → 500 con mensaje seguro (sin exposición de rastreo).
+
+### Incidents API (`services/incidents-api/`)
+
+**Stack:** FastAPI standalone + TinyDB (probablemente en `data/process/incidents_db.json`).
+
+**Endpoints:** CRUD de incidentes, análisis CSV, exportación.
+
+**Propósito:** Módulo separado de la API principal, posiblemente por razones históricas o de despliegue. Riesgo de duplicación de lógica de autenticación y persistencia.
+
+### API de HealthCore (`services/api/`)
+
+**Puntos destacables:**
+- CORS abierto (`allow_origins=["*"]`) — aceptable para desarrollo, debe restringirse en producción.
+- `lifespan` handler para inicialización de esquema Supabase.
+- `incidents_analysis.py` — análisis estadístico de CSV de incidencias.
+- No hay rate limiting visible en endpoints sensibles (login, forgot-password) a nivel de FastAPI middleware — solo existe tabla `RATE_LIMITS_TABLE` en TinyDB pero no se observa implementación activa.
+
+---
+
+## RESUMEN DE PRIORIDADES
+
+| Prioridad | Mejora | Impacto | Esfuerzo | Categoría |
+|-----------|--------|---------|----------|-----------|
+| 🔴 P0 | Reducir JavaScript no usado (Mejora 1) | LCP -2s en backoffice | Medio | Rendimiento |
+| 🔴 P0 | Optimizar LCP con `priority` en hero (Mejora 2) | LCP 4.7s→~2.5s en website ES | Bajo | Rendimiento |
+| 🔴 P0 | Extraer tipos/constantes de incidencias (Mejora 4) | ~200 líneas menos + DRY | Bajo | Calidad código |
+| 🟡 P1 | Consolidar cliente HTTP (Mejora 3) | ~150 líneas menos + consistencia | Medio | Calidad código |
+| 🟡 P1 | Resolver bloqueo SEO (Mejora 5) | SEO 63→90+ en website | Bajo | SEO |
+| 🟡 P1 | Abstraer componentes UI (Mejora 6) | ~150 líneas menos + consistencia | Medio | Calidad código |
+| 🟢 P2 | Minificar/comprimir assets (Mejora 7) | ~182 KiB menos | Bajo | Rendimiento |
+| 🟢 P2 | Añadir `robots.txt` y `sitemap.xml` | SEO incremental | Bajo | SEO |
+| 🟢 P2 | Restringir CORS a orígenes conocidos | Seguridad | Bajo | Seguridad |
+
+### Presupuesto de rendimiento
+
+| Métrica | Objetivo | Website EN (actual) | Website ES (actual) | Backoffice (actual) |
+|---------|---------|--------------------|---------------------|--------------------|
+| **LCP** | ≤ 2.5s | 2.5s ⚠️ | 4.7s ❌ | 5.3s ❌ |
+| **INP** | ≤ 200ms | 30ms ✅ | 30ms ✅ | 40ms ✅ |
+| **CLS** | ≤ 0.1 | 0 ✅ | 0 ✅ | 0 ✅ |
+| **FCP** | ≤ 1.8s | 1.1s ✅ | 1.1s ✅ | 0.9s ✅ |
+| **TBT** | ≤ 200ms | 60ms ✅ | 50ms ✅ | 70ms ✅ |
+| **Performance Score** | ≥ 90 | 97 ✅ | 83 ❌ | 80 ❌ |
+
+**Nota:** El INP y CLS cumplen holgadamente los objetivos en todos los frontends. Las intervenciones deben concentrarse en LCP y en la reducción de JavaScript no utilizado (Performance Score del Website ES y Backoffice).

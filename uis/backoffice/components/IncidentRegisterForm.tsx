@@ -1,90 +1,23 @@
 "use client";
 
 import { useState, useCallback } from "react";
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-type IncidentStatus = "open" | "in_progress" | "resolved" | "discarded";
-type IncidentCategory =
-  | "clinical_equipment" | "it_system" | "billing_error"
-  | "compliance_breach" | "patient_experience" | "staff_issue"
-  | "facility_issue" | "referral_issue" | "other";
-type IncidentOrigin = "customer" | "branch" | "internal";
-
-const CATEGORY_LABELS: Record<IncidentCategory, string> = {
-  clinical_equipment: "Clinical Equipment",
-  it_system: "IT System",
-  billing_error: "Billing Error",
-  compliance_breach: "Compliance Breach",
-  patient_experience: "Patient Experience",
-  staff_issue: "Staff Issue",
-  facility_issue: "Facility Issue",
-  referral_issue: "Referral Issue",
-  other: "Other",
-};
-
-const ORIGIN_LABELS: Record<IncidentOrigin, string> = {
-  customer: "Customer",
-  branch: "Branch",
-  internal: "Internal",
-};
-
-const STATUS_LABELS: Record<IncidentStatus, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  resolved: "Resolved",
-  discarded: "Discarded",
-};
-
-const BRANCHES = [
-  { value: "central", label: "Central — Austin Main Clinic" },
-  { value: "austin_north", label: "Austin — North" },
-  { value: "dallas_uptown", label: "Dallas Uptown" },
-  { value: "houston_med_center", label: "Houston Medical Center" },
-  { value: "san_antonio_west", label: "San Antonio West" },
-  { value: "miami_brickell", label: "Miami Brickell" },
-  { value: "miami_doral", label: "Miami Doral" },
-  { value: "orlando_east", label: "Orlando East" },
-  { value: "tampa_bay", label: "Tampa Bay" },
-  { value: "atlanta_midtown", label: "Atlanta Midtown" },
-  { value: "savannah", label: "Savannah" },
-  { value: "london_city", label: "London City" },
-  { value: "london_west", label: "London West End" },
-  { value: "manchester_central", label: "Manchester Central" },
-];
-
-const ALL_CATEGORIES = Object.keys(CATEGORY_LABELS) as IncidentCategory[];
-const ALL_ORIGINS = Object.keys(ORIGIN_LABELS) as IncidentOrigin[];
-const ALL_STATUSES = Object.keys(STATUS_LABELS) as IncidentStatus[];
-
-const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "/api/incidents";
-
-// ── Form state ───────────────────────────────────────────────────────────────
-
-interface FormState {
-  title: string;
-  description: string;
-  category: IncidentCategory | "";
-  status: IncidentStatus;
-  origin: IncidentOrigin;
-  branch: string;
-}
-
-const EMPTY_FORM: FormState = {
-  title: "",
-  description: "",
-  category: "",
-  status: "open",
-  origin: "customer",
-  branch: "",
-};
-
-// ── Field errors ────────────────────────────────────────────────────────────
-
-interface FieldError {
-  field: string;
-  message: string;
-}
+import type {
+  IncidentStatus,
+  IncidentCategory,
+  IncidentOrigin,
+  IncidentFormState as FormState,
+} from "@/types/incident";
+import {
+  CATEGORY_LABELS,
+  ORIGIN_LABELS,
+  STATUS_LABELS,
+  BRANCH_OPTIONS as BRANCHES,
+  ALL_CATEGORIES,
+  ALL_ORIGINS,
+  ALL_STATUSES,
+  API_BASE,
+  EMPTY_FORM,
+} from "@/lib/incidents";
 
 // ── Component ────────────────────────────────────────────────────────────────
 

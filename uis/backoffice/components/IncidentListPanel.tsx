@@ -1,87 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-type IncidentStatus = "open" | "in_progress" | "resolved" | "discarded";
-type IncidentCategory =
-  | "clinical_equipment" | "it_system" | "billing_error"
-  | "compliance_breach" | "patient_experience" | "staff_issue"
-  | "facility_issue" | "referral_issue" | "other";
-type IncidentOrigin = "customer" | "branch" | "internal";
-
-interface Incident {
-  id: number;
-  title: string;
-  description: string;
-  category: IncidentCategory;
-  status: IncidentStatus;
-  origin: IncidentOrigin;
-  branch: string;
-  branch_label: string;
-  created_at: string;
-  updated_at: string;
-}
-
-const STATUS_LABELS: Record<IncidentStatus, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  resolved: "Resolved",
-  discarded: "Discarded",
-};
-
-const STATUS_COLORS: Record<IncidentStatus, string> = {
-  open: "bg-yellow-100 text-yellow-800 border-yellow-300",
-  in_progress: "bg-blue-100 text-blue-800 border-blue-300",
-  resolved: "bg-green-100 text-green-800 border-green-300",
-  discarded: "bg-slate-100 text-slate-600 border-slate-300",
-};
-
-const CATEGORY_LABELS: Record<IncidentCategory, string> = {
-  clinical_equipment: "Clinical Equipment",
-  it_system: "IT System",
-  billing_error: "Billing Error",
-  compliance_breach: "Compliance Breach",
-  patient_experience: "Patient Experience",
-  staff_issue: "Staff Issue",
-  facility_issue: "Facility Issue",
-  referral_issue: "Referral Issue",
-  other: "Other",
-};
-
-const BRANCH_LABELS: Record<string, string> = {
-  central: "Central — Austin Main Clinic",
-  austin_north: "Austin — North",
-  dallas_uptown: "Dallas Uptown",
-  houston_med_center: "Houston Medical Center",
-  san_antonio_west: "San Antonio West",
-  miami_brickell: "Miami Brickell",
-  miami_doral: "Miami Doral",
-  orlando_east: "Orlando East",
-  tampa_bay: "Tampa Bay",
-  atlanta_midtown: "Atlanta Midtown",
-  savannah: "Savannah",
-  london_city: "London City",
-  london_west: "London West End",
-  manchester_central: "Manchester Central",
-};
-
-const ALL_STATUSES: IncidentStatus[] = ["open", "in_progress", "resolved", "discarded"];
-const ALL_CATEGORIES: IncidentCategory[] = [
-  "clinical_equipment", "it_system", "billing_error", "compliance_breach",
-  "patient_experience", "staff_issue", "facility_issue", "referral_issue", "other",
-];
-const ALL_BRANCHES = Object.keys(BRANCH_LABELS);
-
-const STATUS_OPTIONS = [
-  { value: "open", transitions: ["in_progress", "discarded"] },
-  { value: "in_progress", transitions: ["resolved", "discarded"] },
-  { value: "resolved", transitions: [] },
-  { value: "discarded", transitions: [] },
-];
-
-const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "/api/incidents";
+import type {
+  Incident,
+  IncidentStatus,
+  IncidentCategory,
+  IncidentOrigin,
+} from "@/types/incident";
+import {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  CATEGORY_LABELS,
+  BRANCH_LABELS,
+  ALL_STATUSES,
+  ALL_CATEGORIES,
+  ALL_BRANCHES,
+  STATUS_OPTIONS,
+  API_BASE,
+} from "@/lib/incidents";
 
 // ── Component ────────────────────────────────────────────────────────────────
 
