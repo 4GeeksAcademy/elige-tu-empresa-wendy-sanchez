@@ -1,0 +1,26 @@
+# ── HealthCore — .dockerignore para servicios backend ─────────────────
+# Excluye lo que no debe copiarse a la imagen ni interferir con bind mounts.
+
+__pycache__
+*.pyc
+*.pyo
+.env
+.env*
+.env.local
+*.log
+.git
+.gitignore
+*.md
+README*
+tests
+__tests__
+coverage
+.venv
+venv
+*.egg-info
+dist
+build
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.data

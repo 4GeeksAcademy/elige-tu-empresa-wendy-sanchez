@@ -86,6 +86,53 @@
 11. **Dos estrategias de proxy**: route handlers de Next.js para auth/suppliers (permiten lógica server-side como forwardHeaders), rewrites de next.config.ts para inventario/incidencias (más simples, sin lógica intermedia).
 12. **Capa API dedicada para inventario**: inventoryApi.ts centraliza todas las llamadas. Ningún componente de inventario hace fetch directo. Esto contrasta con el patrón anterior donde algunos componentes podían tener fetch inline.
 13. **Stock reactivo en frontend**: al seleccionar un producto en el formulario de salida, se dispara fetchProduct() para obtener el stock fresco de la API. No confía solo en el listado inicial.
+14. **Dockerización para desarrollo**: contenedores separados por servicio, comunicación por nombre Docker, bind mounts para hot-reload.
+15. **Configuración dual de tsconfig**: `tsconfig.json` principal para producción (excluye `__tests__`), `tsconfig.test.json` para Jest (con `types: ["jest", "node"]`).
+16. **Init_supabase_schema graceful skip**: `database.py` verifica `if not DATABASE_URL:` antes de llamar a `get_sql_engine()`, permitiendo desarrollo local sin Supabase. La función retorna silenciosamente con un mensaje informativo en logs.
+17. **Montaje `src/` dentro del proyecto (Turbopack compatibility)**: Para que Turbopack resuelva imports compartidos, `./src:/workspace/uis/backoffice/src` se monta dentro del directorio del proyecto backoffice. Los imports cambian de `../../../src/...` a `../src/...`. Esto evita el error de Turbopack de no resolver imports fuera del directorio del proyecto.
+18. **Desactivación de optimización de imágenes en contenedor**: `next.config.ts` del website usa `images: { unoptimized: true }` para que el navegador cargue imágenes externas (Unsplash) directamente, evitando errores `EAI_AGAIN` por falta de resolución DNS en el contenedor.
+
+## Docker y orquestación
+
+### docker-compose.yml (raíz)
+- **Red**: `healthcore-net` (bridge explícito).
+- **Servicios**: `uis` (Node.js), `backend` (Python), `incidents-backend` (Python).
+- **Contexto de build**: siempre `.` (raíz), con `.dockerignore` para filtrar.
+- **Montajes**: bind mounts de código fuente + volúmenes anónimos para `node_modules`.
+- **Variables de entorno**: via `env_file: .env`.
+- **Comunicación**: por nombre de servicio Docker (`http://backend:8000`, `http://incidents-backend:8010`).
+
+### uis/Dockerfile
+- **Imagen base**: `node:22-alpine`.
+- **3 etapas**: base, deps-website, deps-backoffice, runner.
+- **Puertos**: 3000 (website) y 3001 (backoffice).
+- **Entrypoint**: `start.sh` que lanza ambos Next.js en paralelo con `npm run dev`.
+
+### services/Dockerfile
+- **Imagen base**: `python:3.12-slim`.
+- **Instalación**: `pip install uv` → `uv pip install --system` desde ambos `requirements.txt`.
+- **Puertos**: 8000 (api) y 8010 (incidents-api).
+- **Entrypoint**: `entrypoint.sh` que selecciona `uvicorn` según `SERVICE_NAME`.
+
+### Variables de entorno para Docker (.env)
+- `SUPPLIERS_API_URL=http://backend:8000`
+- `INCIDENTS_API_URL=http://backend:8000` (¡no backend:8010!)
+- `NEXT_PUBLIC_INVENTORY_API_URL=http://backend:8000`
+- `NEXT_PUBLIC_INCIDENTS_API_URL=/api/incidents`
+- `JWT_SECRET_KEY=dev-secret-not-for-production`
+- `RESEND_API_KEY=` (vacío, simulación en consola)
+
+## Tests y TypeScript
+
+### Jest (uis/backoffice)
+- `jest.config.ts` configurado con `ts-jest` y `tsconfig.test.json`.
+- `tsconfig.test.json`: extiende `tsconfig.json`, añade `types: ["jest", "node"]`, incluye `__tests__`.
+- 11 tests pasando (0.723s): suppliers proxy, auth, suppliers API.
+- Ejecución: `npx jest` desde `uis/backoffice/`.
+
+### TypeScript
+- `__tests__` excluido del `tsconfig.json` principal para evitar conflictos de tipos.
+- Recarga de ventana VS Code necesaria después de cambios en tsconfig (TypeScript cachea el proyecto).
 
 ## Restricciones técnicas
 - El contenido y campos deben seguir exactamente CONTEXT.md para cumplir evaluación.

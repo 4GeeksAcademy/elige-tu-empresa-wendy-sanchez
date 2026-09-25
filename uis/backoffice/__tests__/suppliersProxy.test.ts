@@ -7,6 +7,9 @@
  * @jest-environment node
  */
 
+/// <reference types="jest" />
+/// <reference types="node" />
+
 import { forwardJsonBody, proxyToSuppliersApi } from "../lib/suppliersProxy";
 
 // ---------------------------------------------------------------------------
@@ -54,7 +57,7 @@ describe("proxyToSuppliersApi()", () => {
     expect(body).toEqual({ id: 1, name: "Test" });
 
     const [url, init] = mockFetch.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:8000/api/suppliers/1");
+    expect(url).toBe("http://backend:8000/api/suppliers/1");
     expect(init.method).toBe("GET");
     expect((init as RequestInit).cache).toBe("no-store");
   });

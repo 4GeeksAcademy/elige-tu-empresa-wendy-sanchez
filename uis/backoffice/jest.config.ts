@@ -3,7 +3,7 @@ const config = {
   testEnvironment: "jsdom",
   roots: ["<rootDir>/__tests__"],
   transform: {
-    "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.json" }],
+    "^.+\\.tsx?$": ["ts-jest", { tsconfig: "tsconfig.test.json" }],
   },
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/$1",

@@ -98,6 +98,66 @@
 ### 11) Scripts de análisis (scripts/)
 - `analyze.py`: script de análisis de datos.
 - `seed_incidents.py`: seed de incidencias desde CSV.
+
+### 12) Dockerización completa del monorepo para desarrollo
+- **Objetivo**: Cualquier miembro del equipo ejecuta `docker compose up` desde la raíz y toda la plataforma está operativa.
+- **3 servicios** en `docker-compose.yml`:
+  - `uis`: website (Next.js, puerto 3000) + backoffice (Next.js, puerto 3001)
+  - `backend`: FastAPI principal (proveedores, auth, inventario, puerto 8000)
+  - `incidents-backend`: FastAPI de incidencias (puerto 8010)
+- **Red Docker explícita**: `healthcore-net` (bridge)
+- **Comunicación entre servicios**: por nombre Docker (`http://backend:8000`, `http://incidents-backend:8010`), no por localhost.
+- **Bind mounts** para hot-reload en desarrollo (cambios locales → reflejados en el contenedor).
+- **Volúmenes anónimos** para `node_modules` (evita sobreescribir con bind mount del host).
+
+### 13) Archivos Docker creados
+- **`docker-compose.yml`** (raíz): orquestación de 3 servicios con `env_file: .env`, red `healthcore-net`, bind mounts, healthcheck opcional.
+- **`uis/Dockerfile`**: imagen multi-etapa Node 22 Alpine (base → deps-website → deps-backoffice → runner). EXPOSE 3000 3001. CMD `start.sh`.
+- **`uis/start.sh`**: arranca ambos Next.js en paralelo (website:3000, backoffice:3001) con trap SIGTERM/SIGINT + wait.
+- **`uis/.dockerignore`**: excluye node_modules, .next, .env, .log del contexto Docker de uis.
+- **`services/Dockerfile`**: imagen Python 3.12-slim + uv. Copia ambos requirements.txt, los instala, copia `services/api` y `services/incidents-api`. EXPOSE 8000 8010.
+- **`services/entrypoint.sh`**: entrypoint dinámico según `SERVICE_NAME` (api→8000, incidents-api→8010) con `uvicorn --reload`.
+- **`services/.dockerignore`**: excluye `__pycache__`, `*.pyc`, `.env*`, `tests/`, `*.log`.
+- **`.dockerignore`** (raíz): reduce drásticamente el contexto de build (node_modules, .env, `__pycache__`, `.next`, `.venv`, etc.).
+
+### 14) Actualización de URLs para entorno Docker
+- **Route handlers** (`authProxy.ts`, `suppliersProxy.ts`, `suppliersServer.ts`, `inventoryApi.ts`): fallbacks cambiados de `127.0.0.1:8000` a `http://backend:8000`.
+- **`next.config.ts`**: rewrites actualizados de `127.0.0.1` a nombres Docker (`backend:8000`, `incidents-backend:8010`).
+- **`IncidentsManagerClient.tsx`**: API_BASE cambiado de URL fija a relativa (`""`) para que pase por proxy Next.js.
+- **`.env`**: `SUPPLIERS_API_URL=http://backend:8000`, `INCIDENTS_API_URL=http://backend:8000`, `NEXT_PUBLIC_INVENTORY_API_URL=http://backend:8000`, `NEXT_PUBLIC_INCIDENTS_API_URL=/api/incidents`.
+
+### 15) Correcciones aplicadas
+- **Bug corregido**: `INCIDENTS_API_URL` estaba en `backend:8010` pero el servicio backend solo escucha en `:8000`. Se usaba como fallback para auth/suppliers. Corregido a `backend:8000`.
+- **`.dockerignore` raíz**: no existía inicialmente. El contexto de build pasó de ~987 kB a ~10.5 kB.
+- **`requirements.txt`**: se añadieron `sqlmodel>=0.0.42` y `psycopg2-binary>=2.9.13` que estaban en `pyproject.toml` pero no en `requirements.txt`.
+- **`.gitignore`**: se añadieron `.env.local` y `.env.*.local`.
+
+### 16) Pruebas y verificación
+- **`docker compose build`**: las 3 imágenes se construyen exitosamente.
+- **Tests unitarios del backoffice**: 11/11 tests pasan con `npx jest` (0.723s).
+- **TypeScript**: todos los errores resueltos (45 problemas iniciales en `suppliersProxy.test.ts`).
+- **Configuración de tests**: `tsconfig.test.json` creado con `types: ["jest", "node"]`, `jest.config.ts` actualizado para usarlo, `__tests__` excluido del `tsconfig.json` principal.
+
+### 17) Correcciones runtime (docker compose up)
+- **Problema**: Backoffice (3001) daba error 500 — `Module not found: Can't resolve '../../../src/utils/transformations'`
+  - **Causa raíz**: Turbopack no resuelve imports fuera del directorio del proyecto, aunque `experimental: { externalDir: true }` esté configurado. El volumen de `src/` estaba montado en `/workspace/src/` pero el import `../../../src/` queda fuera del árbol de resolución de Turbopack.
+  - **Solución**: se montó `./src:/workspace/uis/backoffice/src` en docker-compose.yml para que la carpeta `src/` esté dentro del proyecto backoffice. Los imports en `app/page.tsx` se cambiaron de `../../../src/...` a `../src/...`.
+  - **Alternativa descartada**: `NEXT_DISABLE_TURBOPACK=1` + `@healthcore/*` path alias (Webpack tampoco resolvía bien externalDir).
+- **Problema**: Backend (8000) crasheaba al arrancar — `RuntimeError: DATABASE_URL no está configurada`
+  - **Causa raíz**: `init_supabase_schema()` llamaba a `get_sql_engine()` que lanza error si `DATABASE_URL` está vacía.
+  - **Solución**: `init_supabase_schema()` ahora verifica si `DATABASE_URL` existe antes de llamar a `get_sql_engine()`. Añadido `logger.info` skip graceful. Añadido `import logging` en database.py.
+- **Problema**: Website (3000) mostraba imágenes rotas — error `getaddrinfo EAI_AGAIN images.unsplash.com`
+  - **Causa raíz**: El contenedor Docker no resuelve DNS externo. Next.js intenta optimizar imágenes (descargarlas, redimensionarlas, convertirlas) en el servidor y eso falla.
+  - **Solución**: `images: { unoptimized: true }` en `uis/website/next.config.ts`. Ahora el navegador carga las imágenes directamente de Unsplash.
+
+### 18) Estado actual de los servicios (docker compose up)
+| Puerto | Servicio | Estado | URL |
+|--------|----------|--------|-----|
+| 3000 | Website (Next.js) | ✅ 200 | http://localhost:3000 |
+| 3001 | Backoffice (Next.js) | ✅ 200 | http://localhost:3001 |
+| 8000 | HealthCore API (FastAPI) | ✅ Arrancó sin Supabase | http://localhost:8000/docs |
+| 8010 | Incidents API (FastAPI) | ✅ 200 | http://localhost:8010 |
+
 - `incidents-healthcore.csv` / `incidents-COMPANY.csv`: datos históricos de incidencias.
 - `results.csv`: resultados de análisis.
 - app/suppliers/page.tsx: Server Component que hace la carga inicial y enlaza desde el menú.

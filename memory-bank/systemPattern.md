@@ -58,6 +58,51 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 ### 9) Seeder idempotente
 - Comprueba existencia por nombre antes de insertar y reporta insertados/omitidos/total por consola.
 
-### 10) Proxy de API en el backoffice
+## Patrones de Docker
+
+### 10) Comunicación por nombre Docker
+- Los servicios se comunican usando nombres de servicio definidos en docker-compose.yml (`backend`, `incidents-backend`) en lugar de `localhost`.
+- Las variables de entorno (`.env`) contienen URLs con nombres Docker: `SUPPLIERS_API_URL=http://backend:8000`, `INCIDENTS_API_URL=http://backend:8000`.
+- Los route handlers y rewrites de Next.js (`next.config.ts`) usan estas variables de entorno.
+
+### 11) Multi-etapa con Dev/Prod separados
+- `uis/Dockerfile`: etapa `install` (dependencias) → `builder` (compilación) → `development` (dev con hot-reload via Turbopack). Sin `--only=production` para incluir devDependencies necesarias en runtime.
+- `services/Dockerfile`: usa `uv` para instalar dependencias, entrypoint bash que selecciona entre api e incidents-api según variable `SERVICE_NAME`.
+
+### 12) Bind mounts + volumes anónimos
+- **Bind mounts** para hot-reload: `./uis:/workspace/uis` refleja cambios en vivo en website y backoffice.
+- **Volumen especial**: `./src:/workspace/uis/backoffice/src` monta las utilidades compartidas dentro del proyecto backoffice, permitiendo que Turbopack resuelva imports como `../src/...`.
+- **Volúmenes anónimos** para `node_modules` en cada proyecto Next.js, evitando que el bind mount sobreescriba `node_modules` del contenedor.
+
+### 13) Graceful skip de dependencias externas
+- `init_supabase_schema()` verifica si `DATABASE_URL` está configurada antes de conectar. Si está vacía, omite la inicialización gracefulmente con un log informativo. Esto permite desarrollo local sin Supabase sin necesidad de variables dummy.
+
+### 14) Imágenes no optimizadas en contenedor
+- `next.config.ts` del website usa `images: { unoptimized: true }` porque el contenedor no resuelve DNS externo, evitando errores `EAI_AGAIN` al intentar optimizar imágenes de terceros (Unsplash). La carga directa desde el navegador funciona sin problemas.
+
+## Patrones de infraestructura y desarrollo
+
+### 15) Proxy de API en el backoffice
 - app/api/** reenvía al backend y traduce los errores 422 de FastAPI a mensajes legibles por campo.
 - El navegador nunca habla directamente con FastAPI: evita CORS y oculta la URL interna del backend.
+
+### 16) Docker multi-servicio para desarrollo
+- Cada servicio tiene su propio `Dockerfile` y `.dockerignore` en su directorio.
+- `docker-compose.yml` en raíz orquesta todos los servicios con red bridge explícita.
+- Los contenedores se comunican por nombre de servicio Docker, no por localhost.
+- Bind mounts del código fuente permiten hot-reload sin reconstruir imágenes.
+- Volúmenes anónimos para `node_modules` evitan que el bind mount del host sobrescriba las dependencias instaladas en el contenedor.
+
+### 17) Entrypoint dinámico
+- `services/entrypoint.sh` selecciona el comando uvicorn según variable `SERVICE_NAME` (api→:8000, incidents-api→:8010).
+- `uis/start.sh` lanza ambos Next.js en paralelo con manejo de señales SIGTERM/SIGINT.
+
+### 18) Optimización de contexto Docker
+- `.dockerignore` raíz excluye node_modules, .env, __pycache__, .next, .venv, .git del contexto de build (reduce ~987 kB → ~10.5 kB).
+- Cada subdirectorio (uis/, services/) tiene su propio `.dockerignore` para filtros adicionales específicos.
+
+### 19) Configuración dual de TypeScript para tests
+- `tsconfig.json` principal: configuración estricta de producción, excluye `__tests__`.
+- `tsconfig.test.json`: extiende el principal, añade `types: ["jest", "node"]`, incluye `__tests__`.
+- `jest.config.ts` apunta al `tsconfig.test.json` para que Jest tenga los tipos correctos.
+- Esto evita contaminar el ámbito de producción con tipos de test (@types/jest).

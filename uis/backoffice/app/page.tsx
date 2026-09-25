@@ -3,16 +3,16 @@ import {
   sampleClaims,
   sampleClinicians,
   sampleLocations,
-} from "../../../src/types/models";
-import { sortClaimsById } from "../../../src/utils/collections";
-import { binarySearchClaimById, findClaimById } from "../../../src/utils/search";
+} from "../src/types/models";
+import { sortClaimsById } from "../src/utils/collections";
+import { binarySearchClaimById, findClaimById } from "../src/utils/search";
 import {
   calculateDenialRate,
   calculateNoShowCost,
   denialRateByPayer,
   generateCMEReport,
   noShowRateByLocation,
-} from "../../../src/utils/transformations";
+} from "../src/utils/transformations";
 
 const formatPercent = (value: number): string => `${value.toFixed(2)}%`;
 

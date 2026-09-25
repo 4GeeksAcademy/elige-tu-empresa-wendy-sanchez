@@ -87,7 +87,7 @@ const VALID_BRANCHES = [
   { value: "manchester_central", label: "Manchester Central" },
 ];
 
-const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "http://localhost:8010";
+const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "";
 
 // ── Form state ───────────────────────────────────────────────────────────────
 
