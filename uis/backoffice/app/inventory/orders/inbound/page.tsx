@@ -6,9 +6,9 @@ import { useAuth } from "@/lib/AuthContext";
 import {
   fetchProducts,
   createInboundOrder,
-  ApiError,
   type MedicalSupply,
 } from "@/lib/inventoryApi";
+import { ApiError } from "@/lib/httpClient";
 
 // ── Clínicas HealthCore ───────────────────────────────────────────────
 
