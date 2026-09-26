@@ -65,6 +65,8 @@ Se aplicó la extracción hacia 2 archivos compartidos y se refactorizaron los 4
 
 5. **`BRANCH_LABELS` con traducciones inconsistentes**: El ManagerClient no usaba `BRANCH_LABELS` en ningún lado (solo `VALID_BRANCHES`), mientras que ListPanel y SummaryPanel recorrían `ALL_BRANCHES` y `BRANCH_LABELS` respectivamente — dos formas distintas de representar lo mismo.
 
+> **📌 Nota:** Esta refactorización corresponde a la **Mejora 4** de `AUDIT.md` (*Extraer tipos y constantes compartidas de incidencias*). Lo que en AUDIT.md se listó como "Mejora 4 (P0)" se resolvió junto con el Caso 1 de la etapa de refactorización, quedando implementado en el mismo commit (`2cfd5dd`).
+
 ---
 
 ### ✅ Antes / Después
@@ -211,6 +213,8 @@ No se introdujeron errores nuevos de TypeScript. Los únicos errores reportados 
 3. **`authHttpClient.ts` vs `httpClient.ts`**: Se creó `httpClient.ts` (nombre más simple) como el punto de consolidación, y se eliminó `authHttpClient.ts`. El contenido de `authHttpClient.ts` era el mejor punto de partida (ya tenía `extractErrorMessage` correcto), pero se mejoró añadiendo `ApiError` y `jsonRequest()`.
 
 4. **`inventoryApi.ts` requiere `apiPath()`**: A diferencia de suppliers (que usa rutas directamente), inventory necesita un wrapper (`requestInventory`) porque sus endpoints pasan por el proxy de Next.js (`/api/inventory/*` → `http://backend:8000/inventory/*`). Este wrapper se simplificó de tener su propia implementación `request<T>()` a ser un mero re-exportador que resuelve la ruta.
+
+> **📌 Nota:** Esta refactorización corresponde a la **Mejora 3** de `AUDIT.md` (*Consolidar el cliente HTTP autenticado en un único punto*). Lo que en AUDIT.md se listó como "Mejora 3 (P1)" se resolvió junto con el Caso 2 de la etapa de refactorización, quedando implementado en el mismo commit (`ae05931`).
 
 ---
 
