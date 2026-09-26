@@ -4,12 +4,14 @@
  * Las peticiones se realizan a través del proxy de Next.js (/api/inventory/*)
  * configurado en next.config.ts para evitar problemas de CORS.
  *
- * Ningún componente debe llamar a fetch directamente.
- * Lee el token JWT de localStorage y lo incluye en cada petición.
- * Gestiona errores 4xx/5xx extrayendo el mensaje del cuerpo de la respuesta.
+ * NINGÚN componente debe llamar a fetch directamente.
+ * La capa HTTP (request<T>, jsonRequest, extractErrorMessage) está delegada
+ * en ./httpClient.ts, el cliente HTTP único del backoffice.
+ *
+ * @module inventoryApi
  */
 
-import { getToken, removeToken } from "./auth";
+import { request } from "./httpClient";
 
 // ── Tipos ─────────────────────────────────────────────────────────────
 
@@ -115,40 +117,6 @@ export function getStockLevelColor(stock: number): string {
   }
 }
 
-// ── Extracción de errores de la API ───────────────────────────────────
-
-interface ValidationIssue {
-  loc?: (string | number)[];
-  msg?: string;
-}
-
-function extractErrorMessage(payload: unknown, fallback: string): string {
-  if (typeof payload !== "object" || payload === null || !("detail" in payload)) {
-    return fallback;
-  }
-
-  const detail = (payload as { detail: unknown }).detail;
-
-  if (typeof detail === "string") {
-    return detail;
-  }
-
-  if (Array.isArray(detail)) {
-    const messages = (detail as ValidationIssue[])
-      .map((issue) => {
-        const field = issue.loc?.filter((part) => part !== "body").join(".");
-        return field ? `${field}: ${issue.msg ?? "valor inválido"}` : issue.msg;
-      })
-      .filter(Boolean);
-
-    if (messages.length > 0) {
-      return messages.join(" · ");
-    }
-  }
-
-  return fallback;
-}
-
 // ── Cliente HTTP ──────────────────────────────────────────────────────
 
 /** Desde el navegador, las peticiones pasan por el proxy de Next.js
@@ -167,74 +135,23 @@ function apiPath(endpoint: string): string {
     : `${API_BASE_URL}${endpoint}`;
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+// Note: handle401(), getAuthHeaders(), request<T>(), extractErrorMessage(),
+// ApiError, ValidationIssue están ahora en ./httpClient.ts (único punto de mantenimiento).
 
-function handle401() {
-  if (typeof window !== "undefined") {
-    removeToken();
-    window.location.href = "/login";
-  }
-}
-
-export class ApiError extends Error {
-  status: number;
-  constructor(message: string, status: number) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-  }
-}
-
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-    ...getAuthHeaders(),
-    ...((init?.headers as Record<string, string>) ?? {}),
-  };
-
-  const response = await fetch(apiPath(path), {
-    ...init,
-    headers,
-  });
-
-  if (response.status === 401) {
-    handle401();
-    throw new ApiError("Sesión expirada. Redirigiendo al inicio de sesión...", 401);
-  }
-
-  if (!response.ok) {
-    let payload: unknown = null;
-    try {
-      payload = await response.json();
-    } catch {
-      payload = null;
-    }
-    throw new ApiError(
-      extractErrorMessage(payload, `La API respondió con estado ${response.status}`),
-      response.status,
-    );
-  }
-
-  if (response.status === 204) {
-    return undefined as T;
-  }
-
-  return (await response.json()) as T;
+async function requestInventory<T>(path: string, init?: RequestInit): Promise<T> {
+  return request<T>(apiPath(path), init);
 }
 
 // ── Endpoints ─────────────────────────────────────────────────────────
 
 /** Obtiene todos los suministros médicos con su stock actual. GET /inventory/products */
 export function fetchProducts(): Promise<MedicalSupply[]> {
-  return request<MedicalSupply[]>("/inventory/products");
+  return requestInventory<MedicalSupply[]>("/inventory/products");
 }
 
 /** Obtiene un suministro por ID con su stock calculado. GET /inventory/products/{id} */
 export function fetchProduct(id: number): Promise<MedicalSupply> {
-  return request<MedicalSupply>(`/inventory/products/${id}`);
+  return requestInventory<MedicalSupply>(`/inventory/products/${id}`);
 }
 
 /** Registra un nuevo suministro médico. POST /inventory/products */
@@ -245,7 +162,7 @@ export function createProduct(payload: {
   unit: string;
   country: string;
 }): Promise<MedicalSupply> {
-  return request<MedicalSupply>("/inventory/products", {
+  return requestInventory<MedicalSupply>("/inventory/products", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -253,7 +170,7 @@ export function createProduct(payload: {
 
 /** Registra una orden de entrada (entrega de proveedor). POST /inventory/orders/inbound */
 export function createInboundOrder(payload: SupplyDeliveryCreate): Promise<SupplyDeliveryResponse> {
-  return request<SupplyDeliveryResponse>("/inventory/orders/inbound", {
+  return requestInventory<SupplyDeliveryResponse>("/inventory/orders/inbound", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -261,7 +178,7 @@ export function createInboundOrder(payload: SupplyDeliveryCreate): Promise<Suppl
 
 /** Registra una orden de salida (consumo clínico). POST /inventory/orders/outbound */
 export function createOutboundOrder(payload: SupplyConsumptionCreate): Promise<SupplyConsumptionResponse> {
-  return request<SupplyConsumptionResponse>("/inventory/orders/outbound", {
+  return requestInventory<SupplyConsumptionResponse>("/inventory/orders/outbound", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -269,5 +186,5 @@ export function createOutboundOrder(payload: SupplyConsumptionCreate): Promise<S
 
 /** Obtiene el historial completo de órdenes (entradas y salidas). GET /inventory/orders */
 export function fetchOrders(): Promise<OrderListResponse> {
-  return request<OrderListResponse>("/inventory/orders");
+  return requestInventory<OrderListResponse>("/inventory/orders");
 }

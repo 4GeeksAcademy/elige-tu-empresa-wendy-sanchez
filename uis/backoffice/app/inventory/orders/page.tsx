@@ -7,6 +7,7 @@ import {
   type OrderListResponse,
   type OrderItem,
 } from "@/lib/inventoryApi";
+import { LoadingSpinner, ErrorMessage, EmptyState } from "@/components/ui";
 
 /** Traduce el tipo de orden a español legible */
 function orderTypeLabel(type: string): string {
@@ -87,24 +88,16 @@ export default function OrdersHistoryPage() {
   if (!user) return null;
 
   if (loading) {
-    return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-sky-600 border-t-transparent" />
-          <p className="ml-3 text-sm text-slate-500">Cargando historial de órdenes...</p>
-        </div>
-      </main>
-    );
+    return <LoadingSpinner message="Cargando historial de órdenes..." />;
   }
 
   if (error) {
     return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-800">Error al cargar el historial</p>
-          <p className="mt-1 text-sm text-red-600">{error}</p>
-        </div>
-      </main>
+      <ErrorMessage
+        title="Error al cargar el historial"
+        message={error}
+        fullPage
+      />
     );
   }
 
@@ -131,9 +124,7 @@ export default function OrdersHistoryPage() {
       {/* Lista de órdenes */}
       <section className="mt-6 space-y-3">
         {orders.length === 0 && (
-          <div className="rounded-xl border border-slate-200 bg-white p-8 text-center">
-            <p className="text-sm text-slate-500">No hay órdenes registradas.</p>
-          </div>
+          <EmptyState message="No hay órdenes registradas." />
         )}
 
         {orders.map((order) => (

@@ -1,87 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  Incident,
+  IncidentStatus,
+  IncidentCategory,
+  IncidentOrigin,
+} from "@/types/incident";
+import {
+  STATUS_LABELS,
+  STATUS_COLORS,
+  CATEGORY_LABELS,
+  BRANCH_LABELS,
+  ALL_STATUSES,
+  ALL_CATEGORIES,
+  ALL_BRANCHES,
+  STATUS_OPTIONS,
+  API_BASE,
+} from "@/lib/incidents";
 
-// ── Types ───────────────────────────────────────────────────────────────────
-
-type IncidentStatus = "open" | "in_progress" | "resolved" | "discarded";
-type IncidentCategory =
-  | "clinical_equipment" | "it_system" | "billing_error"
-  | "compliance_breach" | "patient_experience" | "staff_issue"
-  | "facility_issue" | "referral_issue" | "other";
-type IncidentOrigin = "customer" | "branch" | "internal";
-
-interface Incident {
-  id: number;
-  title: string;
-  description: string;
-  category: IncidentCategory;
-  status: IncidentStatus;
-  origin: IncidentOrigin;
-  branch: string;
-  branch_label: string;
-  created_at: string;
-  updated_at: string;
-}
-
-const STATUS_LABELS: Record<IncidentStatus, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  resolved: "Resolved",
-  discarded: "Discarded",
-};
-
-const STATUS_COLORS: Record<IncidentStatus, string> = {
-  open: "bg-yellow-100 text-yellow-800 border-yellow-300",
-  in_progress: "bg-blue-100 text-blue-800 border-blue-300",
-  resolved: "bg-green-100 text-green-800 border-green-300",
-  discarded: "bg-slate-100 text-slate-600 border-slate-300",
-};
-
-const CATEGORY_LABELS: Record<IncidentCategory, string> = {
-  clinical_equipment: "Clinical Equipment",
-  it_system: "IT System",
-  billing_error: "Billing Error",
-  compliance_breach: "Compliance Breach",
-  patient_experience: "Patient Experience",
-  staff_issue: "Staff Issue",
-  facility_issue: "Facility Issue",
-  referral_issue: "Referral Issue",
-  other: "Other",
-};
-
-const BRANCH_LABELS: Record<string, string> = {
-  central: "Central — Austin Main Clinic",
-  austin_north: "Austin — North",
-  dallas_uptown: "Dallas Uptown",
-  houston_med_center: "Houston Medical Center",
-  san_antonio_west: "San Antonio West",
-  miami_brickell: "Miami Brickell",
-  miami_doral: "Miami Doral",
-  orlando_east: "Orlando East",
-  tampa_bay: "Tampa Bay",
-  atlanta_midtown: "Atlanta Midtown",
-  savannah: "Savannah",
-  london_city: "London City",
-  london_west: "London West End",
-  manchester_central: "Manchester Central",
-};
-
-const ALL_STATUSES: IncidentStatus[] = ["open", "in_progress", "resolved", "discarded"];
-const ALL_CATEGORIES: IncidentCategory[] = [
-  "clinical_equipment", "it_system", "billing_error", "compliance_breach",
-  "patient_experience", "staff_issue", "facility_issue", "referral_issue", "other",
-];
-const ALL_BRANCHES = Object.keys(BRANCH_LABELS);
-
-const STATUS_OPTIONS = [
-  { value: "open", transitions: ["in_progress", "discarded"] },
-  { value: "in_progress", transitions: ["resolved", "discarded"] },
-  { value: "resolved", transitions: [] },
-  { value: "discarded", transitions: [] },
-];
-
-const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "/api/incidents";
+import { LoadingSpinner, ErrorMessage } from "@/components/ui";
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -207,52 +145,18 @@ export default function IncidentListPanel() {
   // ── Loading state ──────────────────────────────────────────────────────────
 
   if (isLoading) {
-    return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center py-20">
-          <div className="flex items-center gap-3 text-slate-500">
-            <svg
-              className="h-5 w-5 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-              />
-            </svg>
-            <span>Loading incidents...</span>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner message="Loading incidents..." />;
   }
 
   // ── Error state ────────────────────────────────────────────────────────────
 
   if (fetchError) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
-          <h2 className="text-lg font-bold">Error de conexión</h2>
-          <p className="mt-2 text-sm">No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde.</p>
-          <button
-            onClick={fetchIncidents}
-            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
+      <ErrorMessage
+        title="Error de conexión"
+        message="No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde."
+        onRetry={fetchIncidents}
+      />
     );
   }
 
