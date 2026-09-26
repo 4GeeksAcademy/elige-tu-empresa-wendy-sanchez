@@ -458,4 +458,157 @@ El build de producción se completa sin errores, con las 6 rutas generadas corre
 
 ---
 
+## 5. Mejora 6: Abstraer estados de carga, error y vacío en componentes reutilizables (Mejora 6 de AUDIT.md)
+
+### 📋 Resumen
+
+Se detectaron **3 patrones visuales repetidos** en componentes del backoffice que cargan datos desde API:
+
+1. **Loading**: SVG spinner con mensaje de texto, envuelto en contenedor `main` con padding
+2. **Error**: Bloque rojo con título, mensaje y botón "Reintentar", envuelto en contenedor `main`
+3. **Vacío**: Mensaje centrado cuando `data.length === 0`
+
+Cada componente implementaba estos patrones de forma manual, generando ~80 líneas duplicadas por componente. Se extrajeron a 3 componentes reutilizables en `components/ui/`.
+
+---
+
+### 🏗️ Archivos creados
+
+| Archivo | Propósito | Líneas |
+|---|---|---|
+| `components/ui/LoadingSpinner.tsx` | Spinner animado con mensaje opcional | 39 |
+| `components/ui/ErrorMessage.tsx` | Bloque de error con reintento y variantes | 74 |
+| `components/ui/EmptyState.tsx` | Mensaje de lista vacía con icono y acción | 44 |
+| `components/ui/index.ts` | Barrel export | 3 |
+
+---
+
+### 🔧 Archivos refactorizados
+
+| Archivo | Loading Antes → Después | Error Antes → Después | Vacío Antes → Después |
+|---|---|---|---|
+| `IncidentListPanel.tsx` | 22 líneas inline → 1 línea `<LoadingSpinner>` | 18 líneas inline → 7 líneas `<ErrorMessage>` | — |
+| `IncidentSummaryPanel.tsx` | 16 líneas inline → 1 línea `<LoadingSpinner>` | 18 líneas inline → 7 líneas `<ErrorMessage>` | — |
+| `IncidentsManagerClient.tsx` | 4 líneas inline → 1 línea `<LoadingSpinner>` | 16 líneas inline → 7 líneas `<ErrorMessage>` | — |
+| `app/inventory/products/page.tsx` | 10 líneas inline → 1 línea `<LoadingSpinner>` | 10 líneas inline → 5 líneas `<ErrorMessage>` | 5 líneas → 1 línea `<EmptyState>` |
+| `app/inventory/orders/page.tsx` | 10 líneas inline → 1 línea `<LoadingSpinner>` | 10 líneas inline → 5 líneas `<ErrorMessage>` | 7 líneas → 1 línea `<EmptyState>` |
+
+---
+
+### 📦 Componentes creados
+
+| Componente | Props | Variantes |
+|---|---|---|
+| `<LoadingSpinner>` | `message`, `fullPage`, `size` (sm/md/lg), `className` | `fullPage`: contenedor con padding; `!fullPage`: solo spinner+texto |
+| `<ErrorMessage>` | `title`, `message`, `onRetry`, `retryLabel`, `variant` (error/warning/info), `fullPage`, `className` | 3 variantes de color (rojo, ámbar, azul) |
+| `<EmptyState>` | `message`, `description`, `icon`, `action`, `fullPage`, `className` | Con/sin contenedor, con/sin acción |
+
+---
+
+### 📐 Patrón de uso
+
+```tsx
+// Antes — ~22 líneas repetitivas por componente
+if (isLoading) {
+  return (
+    <main className="mx-auto ...">
+      <div className="flex items-center justify-center py-20">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-sky-600 border-t-transparent" />
+        <p className="ml-3 text-sm text-slate-500">Cargando...</p>
+      </div>
+    </main>
+  );
+}
+
+if (error) {
+  return (
+    <main className="mx-auto ...">
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+        <p className="text-sm font-medium text-red-800">Error</p>
+        <p className="mt-1 text-sm text-red-600">{error}</p>
+      </div>
+    </main>
+  );
+}
+
+// Después — 2 líneas
+if (isLoading) return <LoadingSpinner message="Cargando..." />;
+if (error) return <ErrorMessage title="Error" message={error} fullPage />;
+```
+
+---
+
+### 🧩 Componentes NO refactorizados (intencionalmente)
+
+| Componente | Razón |
+|---|---|
+| `SuppliersDirectoryClient.tsx` | Usa loading inline en tabla (`aria-live`), errores inline en `<div>` de feedback, vacío como fila de tabla — no aplica el patrón full-page |
+| `IncidentsAnalyzerClient.tsx` | Solo tiene estados de formulario (submitting, download), no loading/error de listado |
+| `InboundOrderPage.tsx` / `OutboundOrderPage.tsx` | Formularios: usan loading inline en `<select>` y errores inline como feedback post-submit |
+| Páginas de auth (login, register, etc.) | Estados de formulario, no listados de datos |
+
+---
+
+### ✅ Validación
+
+```bash
+$ cd uis/backoffice && npx tsc --noEmit
+# Solo errores pre-existentes (test types, ../src/ module resolution, string indexing)
+# 0 errores nuevos introducidos por este cambio
+```
+
+**Build de producción backoffice:** No se ejecuta `next build` porque existe un error pre-existente de module resolution con `../src/` en Turbopack (`app/page.tsx`), no relacionado con este cambio.
+
+El build del **website** se ejecuta sin errores:
+
+```bash
+$ cd uis/website && npx next build
+✓ Compiled successfully
+```
+
+---
+
+### 📊 Antes / Después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| Líneas de UI state duplicadas (5 componentes) | ~110 líneas inline | ~20 líneas de componentes reutilizables |
+| Componentes reutilizables | 0 | 3 |
+| Variantes de color en errores | Solo rojo | 3 (rojo, ámbar, azul) |
+| Tamaño de spinner configurable | No | sm/md/lg |
+| Icono/acción en estado vacío | No | Sí (props `icon`, `action`) |
+| Cobertura (componentes refactorizados) | 0 | 5 |
+| Líneas de código eliminadas | — | **~90 líneas** |
+
+**Resultado Lighthouse:** *(Imágenes /audit/after/ Mejora 6)*
+- Website en inglés → Performance se mantuvo en 99
+- Website en español → Performance aumentó a 99
+- Backoffice → Performance aumentó a 81 
+
+---
+
+### 🎯 Mejoras descartadas (proyecto personal — no aplican)
+
+Las siguientes mejoras de AUDIT.md se evaluaron y se descartan por tratarse de un proyecto personal sin despliegue público actual:
+
+| Mejora | Motivo |
+|---|---|
+| **Mejora 5** — Resolver bloqueo SEO (noindex) | El `noindex` es **correcto y deseable** en entornos de desarrollo/proyectos personales. Impide que Google indexe contenido no destinado a producción. No hay nada que resolver. |
+| **Mejora 7** — Minificar/comprimir assets | Lighthouse reportaba ahorros en `next dev`, pero en producción (`next build`) Next.js ya minifica y comprime automáticamente con Turbopack. No requiere acción adicional. |
+
+---
+
+### ✅ Resumen final del ciclo de mejoras
+
+| Mejora | Estado |
+|---|---|
+| Caso 1 — Duplicación | ✅ Implementada |
+| Caso 2 — Cliente HTTP autenticado | ✅ Implementada |
+| Mejora 1 — JS no utilizado | ✅ Implementada |
+| Mejora 2 — Optimizar LCP | ✅ Implementada |
+| Mejora 3 — Cliente HTTP | ✅ Ya implementada (Caso 2) |
+| Mejora 4 — Tipos duplicados | ✅ Ya implementada (Caso 1) |
+| Mejora 5 — SEO noindex | ❌ Descartada — proyecto personal |
+| Mejora 6 — Estados UI reutilizables | ✅ Implementada |
+| Mejora 7 — Minificar assets | ❌ Descartada — proyecto personal |
 

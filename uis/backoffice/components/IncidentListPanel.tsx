@@ -19,6 +19,8 @@ import {
   API_BASE,
 } from "@/lib/incidents";
 
+import { LoadingSpinner, ErrorMessage } from "@/components/ui";
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function IncidentListPanel() {
@@ -143,52 +145,18 @@ export default function IncidentListPanel() {
   // ── Loading state ──────────────────────────────────────────────────────────
 
   if (isLoading) {
-    return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center py-20">
-          <div className="flex items-center gap-3 text-slate-500">
-            <svg
-              className="h-5 w-5 animate-spin"
-              viewBox="0 0 24 24"
-              fill="none"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
-              />
-            </svg>
-            <span>Loading incidents...</span>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner message="Loading incidents..." />;
   }
 
   // ── Error state ────────────────────────────────────────────────────────────
 
   if (fetchError) {
     return (
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
-          <h2 className="text-lg font-bold">Error de conexión</h2>
-          <p className="mt-2 text-sm">No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde.</p>
-          <button
-            onClick={fetchIncidents}
-            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
+      <ErrorMessage
+        title="Error de conexión"
+        message="No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde."
+        onRetry={fetchIncidents}
+      />
     );
   }
 

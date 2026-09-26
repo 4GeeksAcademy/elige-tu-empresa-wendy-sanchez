@@ -514,6 +514,8 @@ Aplicando el flujo de trabajo y guías de referencia de web-perf sobre los datos
 - SEO score pasaría de 63 a 90+.
 - El sitio sería indexable por motores de búsqueda, requisito fundamental para un sitio corporativo.
 
+> **🚫 DESCARTADA — Proyecto personal.** El `noindex` es correcto y deseable en entornos de desarrollo. No hay nada que resolver.
+
 ---
 
 ### Mejora 6 — Abstraer estados de carga, error y vacío en componentes reutilizables
@@ -550,6 +552,8 @@ Aplicando el flujo de trabajo y guías de referencia de web-perf sobre los datos
 **Resultado esperado:**
 - Los ahorros de minificación reportados (182 KiB JS, 8 KiB CSS) se resuelven con solo usar producción.
 - Compresión Brotli adicional del 15-20% sobre Gzip.
+
+> **🚫 DESCARTADA — Proyecto personal.** En producción (`next build`), Next.js ya minifica y comprime automáticamente con Turbopack. No requiere acción adicional.
 
 ---
 
@@ -685,9 +689,9 @@ Aplicando el flujo de trabajo y guías de referencia de web-perf sobre los datos
 | 🔴 P0 | Optimizar LCP con `priority` en hero (Mejora 2) | LCP 4.7s→~2.5s en website ES | Bajo | Rendimiento |
 | 🔴 P0 | Extraer tipos/constantes de incidencias (Mejora 4) | ~200 líneas menos + DRY | Bajo | Calidad código |
 | 🟡 P1 | Consolidar cliente HTTP (Mejora 3) | ~150 líneas menos + consistencia | Medio | Calidad código |
-| 🟡 P1 | Resolver bloqueo SEO (Mejora 5) | SEO 63→90+ en website | Bajo | SEO |
+| 🟡 P1 | Resolver bloqueo SEO (Mejora 5) | 🚫 Descartada — proyecto personal | Bajo | SEO |
 | 🟡 P1 | Abstraer componentes UI (Mejora 6) | ~150 líneas menos + consistencia | Medio | Calidad código |
-| 🟢 P2 | Minificar/comprimir assets (Mejora 7) | ~182 KiB menos | Bajo | Rendimiento |
+| 🟢 P2 | Minificar/comprimir assets (Mejora 7) | 🚫 Descartada — proyecto personal | Bajo | Rendimiento |
 | 🟢 P2 | Añadir `robots.txt` y `sitemap.xml` | SEO incremental | Bajo | SEO |
 | 🟢 P2 | Restringir CORS a orígenes conocidos | Seguridad | Bajo | Seguridad |
 

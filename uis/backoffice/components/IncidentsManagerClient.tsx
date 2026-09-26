@@ -18,6 +18,7 @@ import {
   API_BASE,
   EMPTY_FORM,
 } from "@/lib/incidents";
+import { LoadingSpinner, ErrorMessage } from "@/components/ui";
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -213,27 +214,17 @@ export default function IncidentsManagerClient() {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   if (isLoading && incidents.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="text-lg text-slate-500">Loading incidents...</div>
-      </div>
-    );
+    return <LoadingSpinner message="Loading incidents..." />;
   }
 
   if (listError) {
     return (
-      <div className="mx-auto max-w-4xl px-4 py-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
-          <h2 className="text-lg font-bold">Error de conexión</h2>
-          <p className="mt-2 text-sm">No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde.</p>
-          <button
-            onClick={refreshData}
-            className="mt-4 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
+      <ErrorMessage
+        title="Error de conexión"
+        message="No se pudieron cargar los incidentes. Inténtalo de nuevo más tarde."
+        onRetry={refreshData}
+        retryLabel="Reintentar"
+      />
     );
   }
 

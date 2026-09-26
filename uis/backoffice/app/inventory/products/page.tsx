@@ -9,6 +9,7 @@ import {
   getStockLevelLabel,
   type MedicalSupply,
 } from "@/lib/inventoryApi";
+import { LoadingSpinner, ErrorMessage, EmptyState } from "@/components/ui";
 
 // ── Mapa de categorías para etiquetas legibles ────────────────────────
 
@@ -56,24 +57,16 @@ export default function InventoryProductsPage() {
   if (!user) return null;
 
   if (loading) {
-    return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-sky-600 border-t-transparent" />
-          <p className="ml-3 text-sm text-slate-500">Cargando suministros...</p>
-        </div>
-      </main>
-    );
+    return <LoadingSpinner message="Cargando suministros..." />;
   }
 
   if (error) {
     return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
-          <p className="text-sm font-medium text-red-800">Error al cargar el inventario</p>
-          <p className="mt-1 text-sm text-red-600">{error}</p>
-        </div>
-      </main>
+      <ErrorMessage
+        title="Error al cargar el inventario"
+        message={error}
+        fullPage
+      />
     );
   }
 
@@ -180,9 +173,7 @@ export default function InventoryProductsPage() {
         </div>
 
         {supplies.length === 0 && (
-          <div className="px-4 py-12 text-center">
-            <p className="text-sm text-slate-500">No hay suministros registrados.</p>
-          </div>
+          <EmptyState message="No hay suministros registrados." />
         )}
       </section>
     </main>
