@@ -345,18 +345,112 @@ $ cd uis/backoffice && npx next build
 | Build backoffice | ❌ (preexistente) | ❌ (mismo error preexistente) |
 
 **Resultado Lighthouse:** *(Imágenes /audit/after/ Mejora 1)*
-- Website en inglés → Performance se mantuvo en 98 
+- Website en inglés → Performance se mantuvo en 98
 - Website en español → Performance se mantuvo en 98 
-- Backoffice → Ningún cambio
+- Backoffice → Ningún cambio 
+
 ---
 
-### 🔮 Próximos pasos recomendados
+## 4. Mejora 2: Optimización de LCP con `fetchpriority="high"` en la imagen hero (Mejora 2 de AUDIT.md)
 
-1. **Ejecutar `npm run analyze`** en el website para obtener el reporte visual de módulos y confirmar qué se lleva más peso
-2. **Corregir el error de backoffice**: Migrar `app/page.tsx` para que use rutas `@/` en vez de `../src/`, o bien eliminar el código legacy (`src/`) que ya no se necesita
-3. **Medir nuevamente con Lighthouse** en **build de producción real** (`next build && next start`), no en modo desarrollo, para validar la reducción de JS no utilizado
-4. **Implementar `next/dynamic`** para carga diferida de componentes pesados (tablas, formularios largos, paneles de análisis) si tras el analyze se confirma que son necesarios
-5. **Evaluar Mejora 2 de AUDIT.md**: Optimizar LCP con `fetchpriority` y precarga de imagen hero
+### 📋 Resumen
+
+Se implementó la **Mejora 2** de `AUDIT.md` para optimizar el Largest Contentful Paint (LCP) en el website corporativo. Lighthouse reportaba LCP de **2.5s** (inglés) y **4.7s** (español), con la recomendación explícita de aplicar `fetchpriority="high"` a la imagen hero y evitar `loading="lazy"` en el recurso LCP.
+
+La acción concreta fue añadir la propiedad `priority` al componente `<Image>` de Next.js en `LandingPage.tsx`, que es el componente compartido por las 3 rutas del website (`/`, `/en`, `/es`).
+
+---
+
+### 🏗️ Archivo modificado
+
+| Archivo | Cambio |
+|---|---|
+| `uis/website/components/LandingPage.tsx` | Añadida prop `priority` al `<Image>` de la imagen hero (línea 58) |
+
+---
+
+### 🔬 Detalle del cambio
+
+**Antes:**
+```tsx
+<Image
+  src="https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1400&q=80"
+  alt={content.heroImageAlt}
+  className="h-72 w-full rounded-xl object-cover sm:h-80 lg:h-[26rem]"
+  width={1400}
+  height={832}
+/>
+```
+
+**Después:**
+```tsx
+<Image
+  priority
+  src="https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1400&q=80"
+  alt={content.heroImageAlt}
+  className="h-72 w-full rounded-xl object-cover sm:h-80 lg:h-[26rem]"
+  width={1400}
+  height={832}
+/>
+```
+
+**¿Qué hace `priority` en Next.js `Image`?**
+
+- Aplica `fetchpriority="high"` en el `<img>` renderizado, indicando al navegador que este recurso es prioritario frente a otros
+- Elimina automáticamente `loading="lazy"` (que es el valor por defecto en Next.js Image), evitando que la imagen LCP se cargue con lazy loading
+- Precarga el recurso añadiendo un `<link rel="preload" as="image">` en el `<head>`, lo que adelanta el descubrimiento de la imagen
+
+---
+
+### 🔍 Cobertura del cambio
+
+El cambio beneficia a las **3 rutas del website** simultáneamente:
+
+| Ruta | Idioma | Contenido | Componente hero | ¿Afectado? |
+|------|--------|-----------|-----------------|------------|
+| `/` | Inglés | `englishContent` | `LandingPage.tsx` | ✅ Sí |
+| `/en` | Inglés | `englishContent` | `LandingPage.tsx` | ✅ Sí |
+| `/es` | Español | `spanishContent` | `LandingPage.tsx` | ✅ Sí |
+
+No fue necesario modificar nada adicional: el componente `LandingPage.tsx` es el mismo para todos los idiomas; solo cambia la prop `content` que recibe.
+
+---
+
+### ✅ Validación
+
+```bash
+$ cd uis/website && npx next build
+✓ Compiled successfully in 10.8s
+✓ Generating static pages (6/6) in 188ms
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ○ /application
+├ ○ /en
+└ ○ /es
+```
+
+El build de producción se completa sin errores, con las 6 rutas generadas correctamente como contenido estático.
+
+---
+
+### 📊 Antes / Después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| Prop `priority` en imagen hero | ❌ No presente | ✅ `priority` añadido |
+| `fetchpriority="high"` en HTML | No generado | Generado automáticamente por Next.js |
+| `loading="lazy"` en imagen hero | ✅ Sí (por defecto en Next.js Image) | ❌ Eliminado por `priority` |
+| `<link rel="preload">` en `<head>` | No (solo si Next.js lo decide) | Generado para la imagen hero |
+| Cobertura (rutas beneficiadas) | 0 | 3 (`/`, `/en`, `/es`) |
+| Build producción | ✅ | ✅ |
+| Líneas modificadas | 0 | 1 (adición de `priority`) |
+
+**Resultado Lighthouse:** *(Imágenes /audit/after/ Mejora 2)*
+- Website en inglés → Performance aumentó a 99
+- Website en español → Performance se mantuvo en 98 
+- Backoffice → Ningún cambio 
 
 ---
 
