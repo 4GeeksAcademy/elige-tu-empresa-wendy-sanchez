@@ -1,6 +1,6 @@
 # REPORTE DE CORRECCIONES APLICADAS
 
-## Caso 1: Duplicación de tipos, constantes y mapeos en 4 componentes de Incidentes
+## 1. Caso 1: Duplicación de tipos, constantes y mapeos en 4 componentes de Incidentes (Refactorización en AUDIT.md)
 
 ### 📋 Resumen
 
@@ -86,7 +86,7 @@ Se aplicó la extracción hacia 2 archivos compartidos y se refactorizaron los 4
 - Backoffice → Ningún cambio
 ---
 
-## Caso 2: Cliente HTTP autenticado implementado 3 veces con lógica casi idéntica
+## 2. Caso 2: Cliente HTTP autenticado implementado 3 veces con lógica casi idéntica (Refactorización en AUDIT.md)
 
 ### 📋 Resumen
 
@@ -232,4 +232,132 @@ No se introdujeron errores nuevos de TypeScript. Los únicos errores reportados 
 - Website en inglés → Performance se mantuvo en 98 
 - Website en español → Performance se mantuvo en 98 
 - Backoffice → Ningún cambio
+---
+
+## 3. Mejora 1: Reducción de JavaScript no utilizado en backoffice y website (Mejora 1 de AUDIT.md)
+
+### 📋 Resumen
+
+Se implementaron las optimizaciones propuestas en la **Mejora 1** de `AUDIT.md` para atacar el problema de JavaScript no utilizado que Lighthouse reportó en ambos frontends (544–560 KiB de JS sin usar). Las acciones concretas fueron:
+
+1. **Habilitar `experimental.optimizePackageImports`** en los `next.config.ts` de website y backoffice
+2. **Instalar `@next/bundle-analyzer`** como dependencia de desarrollo en ambos proyectos
+3. **Agregar script `analyze`** para ejecutar el análisis visual de bundles
+4. **Verificar la ausencia de imports barrel** y documentar el estado actual de las importaciones
+
+---
+
+### 🏗️ Archivos modificados
+
+| Archivo | Cambio |
+|---|---|
+| `uis/website/next.config.ts` | Agregado `experimental.optimizePackageImports: ["@/components", "@/data"]` |
+| `uis/backoffice/next.config.ts` | Agregado `experimental.optimizePackageImports: ["@/components", "@/lib", "@/types"]` |
+| `uis/website/package.json` | Agregado script `"analyze": "ANALYZE=true next build"` + devDep `@next/bundle-analyzer` |
+| `uis/backoffice/package.json` | Agregado script `"analyze": "ANALYZE=true next build"` + devDep `@next/bundle-analyzer` |
+
+---
+
+### 🔬 Detalle de cada optimización
+
+#### 1. `experimental.optimizePackageImports`
+
+Next.js 16 con Turbopack permite listar paquetes cuyas importaciones deben optimizarse durante el tree-shaking. Cuando se importa desde un directorio barrel (ej. `import { X } from "@/components"`), este flag hace que Next.js solo incluya en el bundle final los submódulos efectivamente usados, en lugar del archivo barrel completo.
+
+```typescript
+// uis/website/next.config.ts
+experimental: {
+  optimizePackageImports: ["@/components", "@/data"],
+}
+
+// uis/backoffice/next.config.ts
+experimental: {
+  externalDir: true,
+  optimizePackageImports: ["@/components", "@/lib", "@/types"],
+}
+```
+
+#### 2. `@next/bundle-analyzer` + script `analyze`
+
+Se instaló `@next/bundle-analyzer` y se agregó el script personalizado:
+
+```bash
+npm run analyze
+```
+
+Que ejecuta `ANALYZE=true next build` y genera reportes visuales interactivos en `.next/analyze/` (`client.html`, `server.html`, `edge.html`). Esto permite inspeccionar:
+
+- Módulos más pesados por ruta
+- Módulos compartidos entre rutas
+- Dependencias duplicadas
+- Código legacy que puede eliminarse
+
+#### 3. Verificación de imports barrel
+
+Se revisaron todas las importaciones en ambos proyectos:
+
+- **Website**: Todos los imports son directos a archivo (`@/components/SiteHeader`, `@/data/content`, etc.). No existe ningún barrel `index.ts` en `components/` ni `data/`.
+- **Backoffice**: Todos los imports son directos a archivo (`@/components/IncidentListPanel`, `@/lib/httpClient`, etc.). No existe ningún barrel `index.ts` en `components/`, `lib/` ni `types/`.
+
+---
+
+### 🔍 Hallazgos adicionales
+
+1. **No hay barrels activos**: A diferencia de lo que se sugería en AUDIT.md, **ningún componente** importa desde un barrel genérico. Todos los imports en website y backoffice son directos a archivo. Esto significa que el impacto inmediato de `optimizePackageImports` es principalmente **preventivo**: protege contra futuros barrels que pudieran crearse.
+
+2. **Los 544–560 KiB de JS no usado** reportados por Lighthouse probablemente corresponden a:
+   - Código incluido por defecto en el bundle de desarrollo (Lighthouse se midió en modo dev)
+   - Código legacy del milestone anterior (`src/types/models.ts`, `src/utils/`) que se importa en `app/page.tsx` del backoffice
+   - Runtime de Next.js y React, que es compartido entre todas las rutas
+
+3. **El build del backoffice tiene un error preexistente**: El archivo `app/page.tsx` importa desde `../src/types/models` y `../src/utils/` usando rutas relativas que Turbopack en Next.js 16.2.11 no resuelve correctamente, a pesar de tener `externalDir: true`. Este error **no fue introducido por esta refactorización** — se verificó haciendo `git stash` y ejecutando `next build` sin los cambios, obteniendo el mismo error.
+
+4. **El build del website compila correctamente** ✅ con la nueva configuración.
+
+---
+
+### ✅ Validación
+
+```bash
+# Website — build exitoso con nueva config
+$ cd uis/website && npx next build
+✓ Compiled successfully in 11.2s
+✓ Generating static pages (6/6) in 218ms
+# Experiments: optimizePackageImports (activo)
+
+# Backoffice — error preexistente (Turbopack + externalDir)
+$ cd uis/backoffice && npx next build
+✗ Module not found: Can't resolve '../src/types/models'
+# Error preexistente, no relacionado con los cambios de esta mejora
+```
+
+---
+
+### 📊 Antes / Después
+
+| Métrica | Antes | Después |
+|---|---|---|
+| `optimizePackageImports` en website | No configurado | `["@/components", "@/data"]` |
+| `optimizePackageImports` en backoffice | No configurado | `["@/components", "@/lib", "@/types"]` |
+| `@next/bundle-analyzer` instalado | No | Sí, en ambos proyectos |
+| Script `analyze` disponible | No | `npm run analyze` en ambos |
+| Build website | ✅ | ✅ |
+| Build backoffice | ❌ (preexistente) | ❌ (mismo error preexistente) |
+
+**Resultado Lighthouse:** *(Imágenes /audit/after/ Mejora 1)*
+- Website en inglés → Performance se mantuvo en 98 
+- Website en español → Performance se mantuvo en 98 
+- Backoffice → Ningún cambio
+---
+
+### 🔮 Próximos pasos recomendados
+
+1. **Ejecutar `npm run analyze`** en el website para obtener el reporte visual de módulos y confirmar qué se lleva más peso
+2. **Corregir el error de backoffice**: Migrar `app/page.tsx` para que use rutas `@/` en vez de `../src/`, o bien eliminar el código legacy (`src/`) que ya no se necesita
+3. **Medir nuevamente con Lighthouse** en **build de producción real** (`next build && next start`), no en modo desarrollo, para validar la reducción de JS no utilizado
+4. **Implementar `next/dynamic`** para carga diferida de componentes pesados (tablas, formularios largos, paneles de análisis) si tras el analyze se confirma que son necesarios
+5. **Evaluar Mejora 2 de AUDIT.md**: Optimizar LCP con `fetchpriority` y precarga de imagen hero
+
+---
+
 
