@@ -7,6 +7,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from models import RootResponse
+
 from routes.incidents import router as incidents_router
 
 app = FastAPI(title="HealthCore Incidents API", version="1.0.0")
@@ -57,11 +59,11 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     )
 
 
-@app.get("/")
-def root() -> dict:
-    return {
-        "service": "HealthCore Incidents API",
-        "docs": "/docs",
-        "incidents": "/api/incidents",
-        "summary": "/api/incidents/summary",
-    }
+@app.get("/", response_model=RootResponse)
+def root() -> RootResponse:
+    return RootResponse(
+        service="HealthCore Incidents API",
+        docs="/docs",
+        incidents="/api/incidents",
+        summary="/api/incidents/summary",
+    )

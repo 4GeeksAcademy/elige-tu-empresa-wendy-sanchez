@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, Response
 
 from database import init_supabase_schema
 from incidents_analysis import analyze_csv_text, report_to_csv_text
+from models import AnalysisPercentages, AnalysisResponse, AnalysisSummary, RootResponse
 from routes.auth import router as auth_router
 from routes.inventory import router as inventory_router
 from routes.profiles import router as profiles_router
@@ -87,22 +88,22 @@ _last_csv_export: str | None = None
 _repo_root = Path(__file__).resolve().parents[2]
 
 
-@app.get("/")
-def root() -> dict[str, str]:
-    return {
-        "service": "HealthCore API",
-        "docs": "/docs",
-        "analyze": "/api/incidents/analyze",
-        "analyze_sample": "/api/incidents/analyze/sample",
-        "export": "/api/incidents/results/export",
-        "suppliers": "/api/suppliers",
-        "suppliers_by_country": "/api/suppliers/by-country/{country}",
-        "suppliers_by_category": "/api/suppliers/by-category/{category}",
-    }
+@app.get("/", response_model=RootResponse)
+def root() -> RootResponse:
+    return RootResponse(
+        service="HealthCore API",
+        docs="/docs",
+        analyze="/api/incidents/analyze",
+        analyze_sample="/api/incidents/analyze/sample",
+        export="/api/incidents/results/export",
+        suppliers="/api/suppliers",
+        suppliers_by_country="/api/suppliers/by-country/{country}",
+        suppliers_by_category="/api/suppliers/by-category/{category}",
+    )
 
 
-@app.post("/api/incidents/analyze")
-async def analyze_incidents(file: UploadFile = File(...)) -> dict:
+@app.post("/api/incidents/analyze", response_model=AnalysisResponse)
+async def analyze_incidents(file: UploadFile = File(...)) -> AnalysisResponse:
     if file.filename is None or file.filename.strip() == "":
         raise HTTPException(status_code=400, detail="Debes enviar un fichero CSV")
 
@@ -131,14 +132,31 @@ async def analyze_incidents(file: UploadFile = File(...)) -> dict:
     _last_report = report
     _last_csv_export = report_to_csv_text(report)
 
-    return {
-        "source_file": file.filename,
-        "summary": report,
-    }
+    return AnalysisResponse(
+        source_file=file.filename,
+        summary=AnalysisSummary(
+            total=report["total"],
+            valid=report["valid"],
+            invalid=report["invalid"],
+            invalid_breakdown=report["invalid_breakdown"],
+            category_counts=report["category_counts"],
+            status_counts=report["status_counts"],
+            country_counts=report["country_counts"],
+            score_counts={str(k): v for k, v in report["score_counts"].items()},
+            scored_cases=report["scored_cases"],
+            closed_cases=report["closed_cases"],
+            average_score=report["average_score"],
+            percentages=AnalysisPercentages(
+                categories=report["percentages"]["categories"],
+                statuses=report["percentages"]["statuses"],
+                countries=report["percentages"]["countries"],
+            ),
+        ),
+    )
 
 
-@app.post("/api/incidents/analyze/sample")
-def analyze_sample_incidents() -> dict:
+@app.post("/api/incidents/analyze/sample", response_model=AnalysisResponse)
+def analyze_sample_incidents() -> AnalysisResponse:
     sample_path = _repo_root / "scripts" / "incidents-healthcore.csv"
     if not sample_path.exists():
         raise HTTPException(
@@ -157,10 +175,27 @@ def analyze_sample_incidents() -> dict:
     _last_report = report
     _last_csv_export = report_to_csv_text(report)
 
-    return {
-        "source_file": sample_path.name,
-        "summary": report,
-    }
+    return AnalysisResponse(
+        source_file=sample_path.name,
+        summary=AnalysisSummary(
+            total=report["total"],
+            valid=report["valid"],
+            invalid=report["invalid"],
+            invalid_breakdown=report["invalid_breakdown"],
+            category_counts=report["category_counts"],
+            status_counts=report["status_counts"],
+            country_counts=report["country_counts"],
+            score_counts={str(k): v for k, v in report["score_counts"].items()},
+            scored_cases=report["scored_cases"],
+            closed_cases=report["closed_cases"],
+            average_score=report["average_score"],
+            percentages=AnalysisPercentages(
+                categories=report["percentages"]["categories"],
+                statuses=report["percentages"]["statuses"],
+                countries=report["percentages"]["countries"],
+            ),
+        ),
+    )
 
 
 @app.get("/api/incidents/results/export")
