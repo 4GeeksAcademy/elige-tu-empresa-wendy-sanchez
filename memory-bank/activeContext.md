@@ -158,46 +158,81 @@
 | 8000 | HealthCore API (FastAPI) | ✅ Arrancó sin Supabase | http://localhost:8000/docs |
 | 8010 | Incidents API (FastAPI) | ✅ 200 | http://localhost:8010 |
 
-- `incidents-healthcore.csv` / `incidents-COMPANY.csv`: datos históricos de incidencias.
-- `results.csv`: resultados de análisis.
-- app/suppliers/page.tsx: Server Component que hace la carga inicial y enlaza desde el menú.
-- components/SuppliersDirectoryClient.tsx: tabla con filtros por país y categoría sin recarga, alta con validación en cliente, edición de tarifa inline y botones Suspender/Activar y Eliminar por fila.
-- Tres estados visuales: Activo (verde), Suspendido (ámbar) y Eliminado (rojo, con fecha de baja).
-- app/api/suppliers/**: route handlers que proxean a la API FastAPI (SUPPLIERS_API_URL) con forwarding del header Authorization.
-- lib/suppliersApi.ts, lib/suppliersProxy.ts y lib/suppliersServer.ts: cliente HTTP, proxy con formateo de errores 422 y carga server-side.
-- types/supplier.ts: contrato de datos alineado con los modelos Pydantic.
-- **Autenticación**: lib/auth.ts (tipos y utilidades de token), lib/AuthContext.tsx (React Context con proxy a /api/auth/me), lib/authHttpClient.ts (cliente HTTP con Bearer token + manejo 401), components/AuthGuard.tsx (guard de rutas con PUBLIC_ROUTES), components/BackofficeHeader.tsx (controles de sesión), app/AuthShell.tsx (composición provider+guard+header), app/login/page.tsx, app/register/page.tsx, app/account/profile/page.tsx — login/registro llama a los proxies Next.js (/api/auth/login, /api/users) que reenvían a FastAPI.
+### 19) Backend — Auditoría de serialización (completada)
 
-## Decisiones de diseño vigentes
-- **Autenticación vía React Context + localStorage**: El token JWT se almacena en localStorage (clave `healthcore_token`) y se adjunta como `Authorization: Bearer` a cada llamada protegida. No se usa middleware de Next.js. El provider se inicializa en el cliente, lee el token al montar y verifica la sesión con GET /auth/me. Al recibir 401 en cualquier llamada, se limpia el token y se redirige a /login.
-- **Dos APIs backend separadas**: La API principal (proveedores, auth, inventario) corre en puerto 8000. La API de incidencias corre en puerto 8010 como servicio independiente.
-- **Dos arquitecturas de proxy**: Backoffice usa route handlers de Next.js (`app/api/*`) para auth, suppliers y profiles (propagan Authorization). Inventario usa rewrites de `next.config.ts` para `/api/inventory/*`. Incidencias usa rewrites para `/api/incidents/*`.
-- **Website público (Hito 1) no afectado**: La app `uis/website` no contiene referencias a AuthProvider, AuthGuard, useAuth ni al token, cumpliendo el requisito de solo proteger backoffice y tracker.
-- **Talent Pipeline Tracker llama directamente** a `NEXT_PUBLIC_API_URL` desde el navegador (FastAPI), sin proxies.
-- **El CONTEXT manda**: `status` solo admite "active" y "suspended". No se añadió un tercer valor "deleted" pese a necesitarse el concepto de baja.
-- El botón Eliminar ejecuta DELETE, que archiva el registro (`archived_at`) en lugar de borrarlo.
-- Suspender y Eliminar son acciones distintas: la primera es una pausa reversible sin fecha; la segunda cierra la relación dejando constancia del momento.
-- **Inventario usa SQLModel + Supabase PostgreSQL** para datos operativos, mientras que **usuarios/autenticación siguen en TinyDB** (sin tabla User en SQLModel).
-- **`current_stock` es campo calculado** (no almacenado): `SUM(deliveries) - SUM(consumptions)`.
-- **Flujo completo de restablecimiento de contraseña**: forgot-password con rate limiting, email mediante Resend (o simulación local), reset-password con token único de un solo uso y expiración, change-password con verificación de contraseña actual.
+Se realizó una auditoría exhaustiva de serialización sobre **38 endpoints** (31 de HealthCore API + 7 de Incidents API), documentada en `docs/serialization-audit.md`.
 
-## Resumen de arquitectura documentado en memory-bank
+**Hallazgos iniciales:**
+- 21 endpoints ✅ serializados correctamente (55%)
+- 14 endpoints ⚠️ parcialmente serializados (37%) — esquemas compartidos entre listado/detalle, exposición de FK interna (`user_id`), schemas sin nombre (`dict[str,str]`)
+- 3 endpoints ❌ sin serializar (8%) — raíces y análisis de incidencias sin `response_model`
 
-### techContext.md contiene:
-- 13 decisiones de arquitectura documentadas con su rationale.
-- 11 restricciones técnicas (campos CONTEXT, bilingüismo, stock calculado, umbrales inventario).
-- 19 comandos útiles para todos los servicios, builds, tests y seeds.
+**Cambios implementados (8 schemas Pydantic nuevos, 14 endpoints actualizados):**
+| Schema | Propósito |
+|---|---|
+| `ProfilePublic` | Perfil sin `user_id` (FK interna) |
+| `MessageResponse` | Mensaje genérico para auth flows |
+| `SupplierListItem` | Listado ligero de proveedores (sin `notes`) |
+| `AnalysisResponse` / `AnalysisSummary` / `AnalysisPercentages` | Respuesta tipada de análisis de incidentes |
+| `RootResponse` (x2) | Root de descubrimiento (Main API + Incidents API) |
 
-### systemPattern.md contiene:
-- Descripción de 3 rutas de proxy distintas (route handlers vs rewrites).
-- Patrón de capa API dedicada para inventario.
-- Patrón de stock reactivo.
-- 5 principios arquitectónicos del proyecto (modularidad, validación en borde, inmutabilidad de inventario, autenticación desacoplada, consistencia con CONTEXT).
+**Endpoints actualizados:**
+- Auth: forgot/reset/change → `MessageResponse` (antes `dict[str,str]`)
+- Auth/me: ahora convierte Profile → ProfilePublic (oculta `user_id`)
+- Profiles: GET/PUT → `ProfilePublic`
+- Suppliers: 3 listados → `SupplierListItem` (sin campo `notes`)
+- Main API: Root → `RootResponse`, analyze/sample → `AnalysisResponse`
+- Incidents API: Root → `RootResponse`, summary → `IncidentSummary`
 
-## Estado operacional observado
-- Typecheck de raiz sin errores.
-- Typecheck de uis/talent-pipeline-tracker sin errores.
-- Typecheck de uis/backoffice sin errores.
+**Verificación:** 180 tests pasan (113 API + 67 Incidents API). Todos los endpoints verificados via OpenAPI `/docs`.
+
+---
+
+### 20) Frontend — Auditoría Lighthouse y refactorización (completada)
+
+Se ejecutó auditoría con Lighthouse sobre website (EN/ES) y backoffice, documentada en `audit/AUDIT.md`. Se aplicaron correcciones documentadas en `audit/REPORT.md`.
+
+**Resultados Lighthouse iniciales:**
+| Aplicación | Performance | Accessibility | Best Practices | SEO |
+|---|---|---|---|---|
+| Website (EN) | 97 | 100 | 77 | 63 |
+| Website (ES) | 83 | 100 | 77 | 63 |
+| Backoffice | 80 | 96 | 100 | 60 |
+
+**Mejoras implementadas:**
+
+1. **Extracción de tipos y constantes de incidencias (Caso 1):**
+   - Creados `types/incident.ts` y `lib/incidents.ts`
+   - Eliminadas ~255 líneas de tipos/constantes duplicadas en 4 componentes
+   - Unificados `BRANCHES` / `VALID_BRANCHES` como `BRANCH_OPTIONS`
+   - Lighthouse: Website EN 97→98, Website ES 83→98
+
+2. **Consolidación de cliente HTTP (Caso 2):**
+   - Creado `lib/httpClient.ts` como único cliente HTTP del backoffice
+   - Eliminados `authHttpClient.ts` (~75 líneas) y ~120 líneas de HTTP duplicado en `suppliersApi` e `inventoryApi`
+   - Unificado manejo de 401, extracción de errores, `ApiError`
+   - Lighthouse: sin cambios (refactorización interna)
+
+3. **Reducción de JavaScript no utilizado (Mejora 1):**
+   - Habilitado `experimental.optimizePackageImports` en website y backoffice
+   - Instalado `@next/bundle-analyzer` + script `analyze` en ambos proyectos
+   - Lighthouse: sin cambios inmediatos (medidas preventivas)
+
+4. **Optimización de LCP (Mejora 2):**
+   - Añadida prop `priority` a imagen hero en `LandingPage.tsx`
+   - Beneficia las 3 rutas del website (`, `/en`, `/es`)
+   - Lighthouse: Website EN 98→99
+
+5. **Abstracción de estados de UI (Mejora 6):**
+   - Creados `LoadingSpinner`, `ErrorMessage`, `EmptyState` en `components/ui/`
+   - Refactorizados 5 componentes del backoffice (~90 líneas eliminadas)
+   - Lighthouse: Website ES 98→99, Backoffice 80→81
+
+**Mejoras descartadas:**
+- Mejora 5 (SEO/noindex): Correcto y deseable en proyecto personal
+- Mejora 7 (minificación): Next.js ya minifica en producción
+
+**Validación:** TypeScript sin errores nuevos en todos los cambios. Build de website exitoso. Backoffice tiene error preexistente de module resolution con `../src/` (no relacionado con los cambios).
 - Typecheck de uis/website sin errores (no afectado por auth).
 - API de proveedores auditada extremo a extremo: validaciones 422, 404, filtros, seeder idempotente y persistencia tras reiniciar uvicorn.
 - Autenticación implementada en backoffice y tracker: login, registro, perfil, guard de rutas, headers Authorization, manejo 401, flujo completo de restablecimiento de contraseña.

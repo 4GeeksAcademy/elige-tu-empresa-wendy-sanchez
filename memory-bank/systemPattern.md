@@ -106,3 +106,22 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - `tsconfig.test.json`: extiende el principal, añade `types: ["jest", "node"]`, incluye `__tests__`.
 - `jest.config.ts` apunta al `tsconfig.test.json` para que Jest tenga los tipos correctos.
 - Esto evita contaminar el ámbito de producción con tipos de test (@types/jest).
+
+### 20) Schemas de serialización: entrada y salida separados (backend)
+- **Modelos Pydantic de entrada** (`*Create`, `*Update`, `*Replace`): definen exactamente lo que el cliente debe enviar, sin campos generados por el sistema.
+- **Modelos de salida para listado** (`*ListItem`, `*Public`): más ligeros que los de detalle, excluyen campos pesados o claves foráneas internas.
+- **Modelos de salida para detalle/escritura** (`Supplier`, `IncidentResponse`): incluyen todos los campos que el consumidor necesita tras una operación.
+- **Modelos de mensaje genérico** (`MessageResponse`): para flujos donde solo se devuelve un texto (auth no autenticado).
+- **Modelos de respuesta compuesta** (`AnalysisResponse` con `AnalysisSummary` y `AnalysisPercentages` anidados): estructuras complejas completamente tipadas.
+- **RootResponse**: schema explícito para endpoints de descubrimiento, eliminando `response_model=dict`.
+
+### 21) Patrón de refactorización frontend: capa de datos compartida
+- **Tipos de dominio en `types/`**: cada módulo de negocio (incident, supplier) tiene su archivo de tipos compartido.
+- **Constantes y mapeos en `lib/`**: labels, colores, opciones de select, API_BASE — todo centralizado para evitar duplicación entre componentes.
+- **Clientes HTTP en `lib/`**: un único `httpClient.ts` para todo el backoffice, con `request<T>()`, `extractErrorMessage()`, `ApiError`. Los módulos específicos importan desde ahí.
+
+### 22) Patrón de componentes UI reutilizables
+- **`LoadingSpinner`**: spinner animado con props `message`, `fullPage`, `size` (sm/md/lg).
+- **`ErrorMessage`**: bloque de error con props `title`, `message`, `onRetry`, `variant` (error/warning/info).
+- **`EmptyState`**: estado de lista vacía con props `message`, `description`, `icon`, `action`.
+- Todos en `components/ui/` con barrel export desde `index.ts`.

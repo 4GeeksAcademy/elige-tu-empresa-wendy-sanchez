@@ -99,6 +99,26 @@
 - **Website (3000) — Imágenes rotas**: Next.js intenta optimizar imágenes descargándolas de Unsplash en el servidor, el contenedor no resuelve DNS externo. Solucionado con `images: { unoptimized: true }` en website/next.config.ts.
 - **Verificación final**: los 4 servicios responden 200 OK (website:3000, backoffice:3001, backend:8000/docs, incidents-backend:8010). Imágenes visibles en website.
 
+13. **Backend — Auditoría de serialización (completada)**:
+- Auditoría de 38 endpoints (31 HealthCore API + 7 Incidents API), documentada en `docs/serialization-audit.md`.
+- 8 nuevos schemas Pydantic creados: `ProfilePublic`, `MessageResponse`, `SupplierListItem`, `AnalysisResponse`, `AnalysisSummary`, `AnalysisPercentages`, `RootResponse` (x2).
+- 14 endpoints actualizados con `response_model` explícito (auth, profiles, suppliers, root, analyze, summary).
+- 180 tests pasan (113 API + 67 Incidents API) sin regresiones.
+- Verificación via OpenAPI `/docs` de ambos servicios — todos los endpoints muestran schemas explícitos.
+- Checklist de cumplimiento final: 7/7 ítems completados.
+
+14. **Frontend — Auditoría Lighthouse y refactorización (completada)**:
+- Auditoría con Lighthouse sobre website (EN/ES) y backoffice, documentada en `audit/AUDIT.md`.
+- Correcciones aplicadas documentadas en `audit/REPORT.md`.
+- Extracción de tipos/constantes de incidencias: eliminadas ~255 líneas duplicadas en 4 componentes.
+- Consolidación de cliente HTTP: creado `lib/httpClient.ts`, eliminado `authHttpClient.ts`, ~195 líneas de HTTP duplicado eliminadas.
+- Optimización JS: habilitado `optimizePackageImports` en website y backoffice.
+- Optimización LCP: añadida prop `priority` a imagen hero en LandingPage.
+- Abstracción de estados UI: creados `LoadingSpinner`, `ErrorMessage`, `EmptyState` (~90 líneas eliminadas en 5 componentes).
+- Resultado Lighthouse final: Website EN 97→99, Website ES 83→99, Backoffice 80→81.
+
+---
+
 ## Riesgos o brechas potenciales
 - No hay pruebas automatizadas persistidas para la API de proveedores (la auditoría se ejecutó con scripts ad hoc).
 - Falta verificar formalmente métricas de rendimiento (PageSpeed) en URL pública.
@@ -118,3 +138,4 @@
 5. Ejecutar auditoría de accesibilidad y rendimiento en despliegue público, con plan de mejora si la puntuacion < 80.
 6. Continuar hitos siguientes del roadmap (telemetría, RAG y automatizaciones) reutilizando los tipos y patrones actuales.
 7. **Probar `docker compose up` real** para verificar el funcionamiento en runtime de todos los servicios.
+8. Extender tests de backend para cubrir casos borde de serialización (schemas de listado, análisis).

@@ -91,6 +91,10 @@
 16. **Init_supabase_schema graceful skip**: `database.py` verifica `if not DATABASE_URL:` antes de llamar a `get_sql_engine()`, permitiendo desarrollo local sin Supabase. La función retorna silenciosamente con un mensaje informativo en logs.
 17. **Montaje `src/` dentro del proyecto (Turbopack compatibility)**: Para que Turbopack resuelva imports compartidos, `./src:/workspace/uis/backoffice/src` se monta dentro del directorio del proyecto backoffice. Los imports cambian de `../../../src/...` a `../src/...`. Esto evita el error de Turbopack de no resolver imports fuera del directorio del proyecto.
 18. **Desactivación de optimización de imágenes en contenedor**: `next.config.ts` del website usa `images: { unoptimized: true }` para que el navegador cargue imágenes externas (Unsplash) directamente, evitando errores `EAI_AGAIN` por falta de resolución DNS en el contenedor.
+19. **Serialización explícita en todos los endpoints backend**: 38/38 endpoints tienen `response_model` declarado. Schemas separados para entrada/salida, listado/detalle, y mensajes genéricos. Ningún endpoint expone contraseñas hasheadas, tokens internos, FK internas (`user_id`) ni campos pesados en listados (`notes`).
+20. **Cliente HTTP único del backoffice (`lib/httpClient.ts`)**: Consolida la lógica de fetch + JWT + error handling que antes estaba duplicada en 3 archivos. Exporta `request<T>()`, `jsonRequest()`, `ApiError`, `extractErrorMessage()`, `ValidationIssue`.
+21. **Componentes UI reutilizables (`components/ui/`)**: `LoadingSpinner`, `ErrorMessage`, `EmptyState` — abstraen los patrones de estado de carga/error/vacío que antes estaban implementados inline en cada componente.
+22. **Optimización de imágenes LCP**: Prop `priority` en Next.js Image para la imagen hero del website, que genera `fetchpriority="high"` + `<link rel="preload">` + elimina `loading="lazy"`.
 
 ## Docker y orquestación
 
@@ -146,6 +150,8 @@
 - **Inventario**: stock insuficiente → HTTP 400 antes de escribir en BD.
 - **Inventario**: los datos de inventario son operativos, no PHI (confirmado por Claire Whitfield).
 - El proyecto tiene estructura de plantilla; no todo el monorepo está operativo en runtime aún.
+- **Serialización**: los endpoints de auth no autenticados (forgot/reset/change-password) deben devolver solo `message` — nunca reenviar el email en la respuesta.
+- **Serialización**: los schemas de listado deben ser más ligeros que los de detalle (sin `notes` en proveedores, sin `user_id` en perfiles).
 
 ## Comandos útiles
 - Preview estático en Codespaces: npx --yes serve . --listen 4173 --no-clipboard
