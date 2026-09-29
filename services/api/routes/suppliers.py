@@ -9,6 +9,7 @@ from models import (
     Supplier,
     SupplierCategory,
     SupplierCreate,
+    SupplierListItem,
     SupplierRateUpdate,
     SupplierReplace,
     SupplierStatus,
@@ -27,6 +28,24 @@ def _to_supplier(doc_id: int, record: dict) -> Supplier:
     return Supplier(id=doc_id, **record)
 
 
+def _to_supplier_list_item(supplier: Supplier) -> SupplierListItem:
+    """Convierte un Supplier completo a su versión ligera para listados."""
+    return SupplierListItem(
+        id=supplier.id,
+        name=supplier.name,
+        country=supplier.country,
+        categories=supplier.categories,
+        monthly_rate=supplier.monthly_rate,
+        currency=supplier.currency,
+        status=supplier.status,
+        compliance_agreement=supplier.compliance_agreement,
+        contract_renewal_date=supplier.contract_renewal_date,
+        contact_email=supplier.contact_email,
+        updated_at=supplier.updated_at,
+        archived_at=supplier.archived_at,
+    )
+
+
 def _read_all() -> list[Supplier]:
     return [_to_supplier(doc.doc_id, dict(doc)) for doc in get_suppliers_table().all()]
 
@@ -41,14 +60,14 @@ def _read_one(supplier_id: int) -> Supplier:
     return _to_supplier(doc.doc_id, dict(doc))
 
 
-@router.get("", response_model=list[Supplier])
+@router.get("", response_model=list[SupplierListItem])
 def list_suppliers(
     country: Country | None = Query(default=None, description="Filtra por país del contrato"),
     category: SupplierCategory | None = Query(default=None, description="Filtra por categoría"),
     supplier_status: SupplierStatus | None = Query(
         default=None, alias="status", description="Filtra por estado"
     ),
-) -> list[Supplier]:
+) -> list[SupplierListItem]:
     suppliers = _read_all()
     if country is not None:
         suppliers = [item for item in suppliers if item.country is country]
@@ -56,17 +75,17 @@ def list_suppliers(
         suppliers = [item for item in suppliers if category in item.categories]
     if supplier_status is not None:
         suppliers = [item for item in suppliers if item.status is supplier_status]
-    return suppliers
+    return [_to_supplier_list_item(s) for s in suppliers]
 
 
-@router.get("/by-country/{country}", response_model=list[Supplier])
-def list_suppliers_by_country(country: Country) -> list[Supplier]:
-    return [item for item in _read_all() if item.country is country]
+@router.get("/by-country/{country}", response_model=list[SupplierListItem])
+def list_suppliers_by_country(country: Country) -> list[SupplierListItem]:
+    return [_to_supplier_list_item(item) for item in _read_all() if item.country is country]
 
 
-@router.get("/by-category/{category}", response_model=list[Supplier])
-def list_suppliers_by_category(category: SupplierCategory) -> list[Supplier]:
-    return [item for item in _read_all() if category in item.categories]
+@router.get("/by-category/{category}", response_model=list[SupplierListItem])
+def list_suppliers_by_category(category: SupplierCategory) -> list[SupplierListItem]:
+    return [_to_supplier_list_item(item) for item in _read_all() if category in item.categories]
 
 
 @router.get("/{supplier_id}", response_model=Supplier)

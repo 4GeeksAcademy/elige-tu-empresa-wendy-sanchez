@@ -121,3 +121,10 @@ class IncidentSummary(BaseModel):
     by_category: dict[str, int]
     by_branch: dict[str, int]
     by_origin: dict[str, int]
+
+
+class RootResponse(BaseModel):
+    service: str
+    docs: str
+    incidents: str
+    summary: str

@@ -101,12 +101,33 @@ class SupplierStatusUpdate(BaseModel):
 
 
 class Supplier(SupplierBase):
-    """Modelo de respuesta: incluye identificador y trazabilidad de tarifa."""
+    """Modelo de respuesta completo: incluye identificador y trazabilidad de tarifa."""
 
     id: int
     updated_at: datetime
     archived_at: datetime | None = None
     """Momento en que se dejó de trabajar con el proveedor. El registro nunca se borra."""
+
+
+class SupplierListItem(BaseModel):
+    """Modelo de respuesta ligero para listados de proveedores.
+
+    Excluye `notes` (texto libre de hasta 500 caracteres) que no es
+    necesario en una vista de listado/tabla. La vista de detalle sigue
+    usando `Supplier` completo.
+    """
+    id: int
+    name: str
+    country: Country
+    categories: list[SupplierCategory]
+    monthly_rate: float
+    currency: Currency
+    status: SupplierStatus
+    compliance_agreement: ComplianceAgreement | None = None
+    contract_renewal_date: date | None = None
+    contact_email: EmailStr | None = None
+    updated_at: datetime
+    archived_at: datetime | None = None
 
 
 class Role(str, Enum):
@@ -173,10 +194,23 @@ class Profile(BaseModel):
     address: str | None = None
 
 
+class ProfilePublic(BaseModel):
+    """Perfil público: sin claves foráneas internas (`user_id`)."""
+    id: int
+    name: str | None = None
+    phone: str | None = None
+    address: str | None = None
+
+
 class MeResponse(BaseModel):
     email: EmailStr
     role: Role
-    profile: Profile | None = None
+    profile: ProfilePublic | None = None
+
+
+class MessageResponse(BaseModel):
+    """Respuesta genérica con un mensaje de texto."""
+    message: str
 
 
 class Token(BaseModel):
@@ -212,6 +246,57 @@ class ChangePasswordRequest(BaseModel):
 
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
+
+
+# ──────────────────────────────────────────────
+# Análisis de incidentes (incidents_analysis.py)
+# ──────────────────────────────────────────────
+
+
+class AnalysisRecordItem(BaseModel):
+    """Una fila inválida del CSV con sus razones de rechazo."""
+    row: int
+    reasons: list[str]
+
+
+class AnalysisPercentages(BaseModel):
+    categories: dict[str, float]
+    statuses: dict[str, float]
+    countries: dict[str, float]
+
+
+class AnalysisSummary(BaseModel):
+    """Resumen completo del análisis de un CSV de incidentes."""
+    total: int
+    valid: int
+    invalid: int
+    invalid_breakdown: dict[str, int]
+    category_counts: dict[str, int]
+    status_counts: dict[str, int]
+    country_counts: dict[str, int]
+    score_counts: dict[str, int]
+    scored_cases: int
+    closed_cases: int
+    average_score: float
+    percentages: AnalysisPercentages
+
+
+class AnalysisResponse(BaseModel):
+    """Respuesta del análisis de incidentes."""
+    source_file: str
+    summary: AnalysisSummary
+
+
+class RootResponse(BaseModel):
+    """Endpoint raíz de descubrimiento de la API."""
+    service: str
+    docs: str
+    analyze: str
+    analyze_sample: str
+    export: str
+    suppliers: str
+    suppliers_by_country: str
+    suppliers_by_category: str
 
 
 # ─────────────────────────────────────────────────────────────────────

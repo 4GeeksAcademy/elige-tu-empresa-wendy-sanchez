@@ -16,6 +16,7 @@ from models import (
     IncidentOrigin,
     IncidentResponse,
     IncidentStatus,
+    IncidentSummary,
     IncidentUpdate,
     utc_now,
 )
@@ -98,8 +99,8 @@ def list_incidents(
 # ── Summary (MUST come before /{incident_id} to avoid route conflict) ──
 
 
-@router.get("/summary", response_model=dict)
-def get_summary() -> dict:
+@router.get("/summary", response_model=IncidentSummary)
+def get_summary() -> IncidentSummary:
     incidents = get_incidents_table().all()
 
     total = len(incidents)
@@ -114,13 +115,13 @@ def get_summary() -> dict:
         branch_counter[doc.get("branch", "unknown")] += 1
         origin_counter[doc.get("origin", "unknown")] += 1
 
-    return {
-        "total": total,
-        "by_status": dict(status_counter),
-        "by_category": dict(category_counter),
-        "by_branch": dict(branch_counter),
-        "by_origin": dict(origin_counter),
-    }
+    return IncidentSummary(
+        total=total,
+        by_status=dict(status_counter),
+        by_category=dict(category_counter),
+        by_branch=dict(branch_counter),
+        by_origin=dict(origin_counter),
+    )
 
 
 # ── Get single incident ─────────────────────────────────────────────────

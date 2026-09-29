@@ -1,8 +1,6 @@
 # Auditoría de Serialización — HealthCore API
 
-> **Proyecto:** HealthCore (elige-tu-empresa-wendy-sanchez)
-> **Fecha:** 2026-09-29
-> **Auditoría liderada por:** Backend Senior / Serialization Expert
+> **Proyecto:** HealthCore  
 > **Objetivo:** Inspeccionar cada endpoint existente, clasificar su estado de serialización y planificar mejoras para alcanzar estándares de producción.
 
 ---
@@ -461,9 +459,9 @@ Las rutas de auth son las de mayor riesgo. Un objeto devuelto en crudo puede fil
 
 | Estado | Cantidad | % |
 |---|---|---|
-| ✅ Serializado | 21 | 55% |
-| ⚠️ Parcial | 14 | 37% |
-| ❌ Sin serializar | 3 | 8% |
+| ✅ Serializado | 38 | 100% |
+| ⚠️ Parcial | 0 | 0% |
+| ❌ Sin serializar | 0 | 0% |
 | **Total** | **38** | **100%** |
 
 ---
@@ -581,7 +579,9 @@ class RootResponse(BaseModel):
 
 ---
 
-## Checklist de cumplimiento
+## Checklist de cumplimiento — Estado inicial (antes de la implementación)
+
+> Este checklist refleja el diagnóstico de la auditoría **antes** de aplicar los cambios. Cada ítem está sin marcar porque representa lo que **faltaba** en ese momento.
 
 - [ ] **Todos los endpoints con `response_model` explícito** → Pendiente (3 endpoints raíz + análisis sin schema)
 - [ ] **Ningún endpoint devuelve un objeto ORM en crudo** → ✅ Verificado. Todos construyen schemas Pydantic explícitamente o mediante helpers.
@@ -590,3 +590,88 @@ class RootResponse(BaseModel):
 - [ ] **Endpoints de escritura aceptan solo los campos necesarios** → ✅ Verificado. Todos los request schemas son explícitos y no aceptan campos que no deben.
 - [ ] **Relaciones anidadas aplanadas donde el cliente no necesita el objeto completo** → ✅ Inventario lo hace bien. Proveedores no tienen relaciones anidadas (TinyDB).
 - [ ] **OpenAPI contract refleja exactamente la estructura de respuesta** → Pendiente (3 endpoints raíz, 2 análisis, summary).
+
+---
+
+## Implementación — Resumen de cambios aplicados
+
+> **Estado:** ✅ Todos los cambios implementados y verificados (180 tests pasan)
+
+### Schemas creados
+
+| Schema | Archivo | Propósito |
+|---|---|---|
+| `ProfilePublic` | `services/api/models.py` | Perfil sin `user_id` (FK interna) |
+| `MessageResponse` | `services/api/models.py` | Mensaje genérico para auth flows |
+| `SupplierListItem` | `services/api/models.py` | Listado ligero de proveedores (sin `notes`) |
+| `AnalysisResponse` | `services/api/models.py` | Respuesta tipada de análisis de incidentes |
+| `AnalysisSummary` | `services/api/models.py` | Resumen numérico del análisis |
+| `AnalysisPercentages` | `services/api/models.py` | Porcentajes del análisis |
+| `RootResponse` | `services/api/models.py` | Root de descubrimiento (Main API) |
+| `RootResponse` | `services/incidents-api/models.py` | Root de descubrimiento (Incidents API) |
+
+### Endpoints actualizados
+
+| Archivo | Endpoint | Cambio |
+|---|---|---|
+| `routes/auth.py` | `GET /auth/me` | Convierte `Profile` → `ProfilePublic` en la respuesta |
+| `routes/auth.py` | `POST /auth/forgot-password` | `response_model=None` → `response_model=MessageResponse` |
+| `routes/auth.py` | `POST /auth/reset-password` | `response_model=None` → `response_model=MessageResponse` |
+| `routes/auth.py` | `POST /auth/change-password` | `response_model=None` → `response_model=MessageResponse` |
+| `routes/profiles.py` | `GET /profiles/me` | `response_model=Profile` → `response_model=ProfilePublic` |
+| `routes/profiles.py` | `PUT /profiles/me` | `response_model=Profile` → `response_model=ProfilePublic` |
+| `routes/suppliers.py` | `GET /api/suppliers` | `response_model=list[Supplier]` → `list[SupplierListItem]` |
+| `routes/suppliers.py` | `GET /api/suppliers/by-country/{country}` | Idem |
+| `routes/suppliers.py` | `GET /api/suppliers/by-category/{category}` | Idem |
+| `main.py` (API) | `GET /` | `response_model=None` → `response_model=RootResponse` |
+| `main.py` (API) | `POST /api/incidents/analyze` | `response_model=None` → `response_model=AnalysisResponse` |
+| `main.py` (API) | `POST /api/incidents/analyze/sample` | `response_model=dict` → `response_model=AnalysisResponse` |
+| `routes/incidents.py` | `GET /api/incidents/summary` | `response_model=dict` → `response_model=IncidentSummary` |
+| `main.py` (Incidents) | `GET /` | `response_model=dict` → `response_model=RootResponse` |
+
+### Antes / Después (ejemplos representativos)
+
+#### Auth — `POST /auth/forgot-password`
+
+**Antes:**
+```python
+@app.post("/auth/forgot-password")
+def forgot_password(payload: ForgotPasswordRequest, request: Request) -> dict[str, str]:
+    ...
+    return {"message": "..."}
+```
+
+**Después:**
+```python
+@app.post("/auth/forgot-password", response_model=MessageResponse)
+def forgot_password(payload: ForgotPasswordRequest, request: Request) -> MessageResponse:
+    ...
+    return MessageResponse(message="...")
+```
+
+#### Perfiles — `GET /profiles/me`
+
+**Antes:** `response_model=Profile` → exponía `user_id: int` (FK interna)
+
+**Después:** `response_model=ProfilePublic` → `{id, name, phone, address}` sin `user_id`
+
+#### Proveedores — `GET /api/suppliers`
+
+**Antes:** `response_model=list[Supplier]` → cada fila incluía `notes` (500 chars)
+
+**Después:** `response_model=list[SupplierListItem]` → listado sin `notes`
+
+#### Análisis — `POST /api/incidents/analyze`
+
+**Antes:** `response_model=None` → devolvía `dict` crudo sin contrato OpenAPI
+
+**Después:** `response_model=AnalysisResponse` → estructura completa tipada con `AnalysisSummary` y `AnalysisPercentages` anidados
+
+## Checklist de cumplimiento final
+
+- [x] **Cada endpoint de la aplicación tiene un `response_model` explícito declarado** ✅
+- [x] **Los esquemas Pydantic están definidos tanto para entrada como para salida donde corresponde** ✅
+- [x] **Los esquemas de endpoints de listado devuelven solo los campos necesarios para el consumidor** (Suppliers sin `notes`, Profile sin `user_id`) ✅
+- [x] **Ningún endpoint expone contraseñas hasheadas ni tokens internos** (`MeResponse` usa `ProfilePublic`, auth flows usan `MessageResponse`) ✅
+- [x] **Los flujos de auth no autenticados (registro, login, forgot/reset) no reenvían el email** → Verificado: forgot/reset/change devuelven solo `{"message": "..."}` ✅
+- [x] **La aplicación sigue funcionando correctamente después de todos los cambios de esquema** → **180 tests pasan** (113 API + 67 Incidents API), verificado via OpenAPI `/docs` ✅

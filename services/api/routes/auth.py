@@ -12,6 +12,9 @@ from models import (
     ForgotPasswordRequest,
     LoginRequest,
     MeResponse,
+    MessageResponse,
+    Profile,
+    ProfilePublic,
     ResetPasswordRequest,
     Token,
     User,
@@ -46,11 +49,14 @@ def login(payload: LoginRequest) -> Token:
 @router.get("/me", response_model=MeResponse)
 def read_me(current_user: User = Depends(get_current_user)) -> MeResponse:
     profile = user_service.get_profile_by_user_id(current_user.id)
-    return MeResponse(email=current_user.email, role=current_user.role, profile=profile)
+    profile_public = None
+    if profile is not None:
+        profile_public = ProfilePublic(id=profile.id, name=profile.name, phone=profile.phone, address=profile.address)
+    return MeResponse(email=current_user.email, role=current_user.role, profile=profile_public)
 
 
-@router.post("/forgot-password", status_code=status.HTTP_200_OK)
-def forgot_password(payload: ForgotPasswordRequest, request: Request) -> dict[str, str]:
+@router.post("/forgot-password", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+def forgot_password(payload: ForgotPasswordRequest, request: Request) -> MessageResponse:
     """Solicita un enlace de restablecimiento para un email.
 
     Devuelve siempre 200 independientemente de si el email existe, para
@@ -69,7 +75,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request) -> dict[st
             metadata={"action": "forgot_password"},
         )
         # Devolvemos 200 aunque haya rate limit, para no filtrar información.
-        return {"message": "Si esa dirección está registrada, recibirás un enlace en breve."}
+        return MessageResponse(message="Si esa dirección está registrada, recibirás un enlace en breve.")
 
     user = user_service.get_user_by_email(email)
 
@@ -98,11 +104,11 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request) -> dict[st
             metadata={"action": "forgot_password", "reason": "user_not_found_or_inactive"},
         )
 
-    return {"message": "Si esa dirección está registrada, recibirás un enlace en breve."}
+    return MessageResponse(message="Si esa dirección está registrada, recibirás un enlace en breve.")
 
 
-@router.post("/reset-password", status_code=status.HTTP_200_OK)
-def reset_password(payload: ResetPasswordRequest, request: Request) -> dict[str, str]:
+@router.post("/reset-password", response_model=MessageResponse, status_code=status.HTTP_200_OK)
+def reset_password(payload: ResetPasswordRequest, request: Request) -> MessageResponse:
     """Restablece la contraseña usando un token de restablecimiento.
 
     Valida la firma y expiración del token, hashea la nueva contraseña,
@@ -151,15 +157,15 @@ def reset_password(payload: ResetPasswordRequest, request: Request) -> dict[str,
         metadata={"action": "reset_password"},
     )
 
-    return {"message": "Contraseña restablecida correctamente."}
+    return MessageResponse(message="Contraseña restablecida correctamente.")
 
 
-@router.post("/change-password", status_code=status.HTTP_200_OK)
+@router.post("/change-password", response_model=MessageResponse, status_code=status.HTTP_200_OK)
 def change_password(
     payload: ChangePasswordRequest,
     request: Request,
     current_user: User = Depends(get_current_user),
-) -> dict[str, str]:
+) -> MessageResponse:
     """Cambia la contraseña del usuario autenticado.
 
     Verifica la contraseña actual antes de aplicar la nueva.
@@ -194,4 +200,4 @@ def change_password(
         metadata={"action": "change_password"},
     )
 
-    return {"message": "Contraseña actualizada correctamente."}
+    return MessageResponse(message="Contraseña actualizada correctamente.")
