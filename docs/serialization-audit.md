@@ -455,13 +455,13 @@ Las rutas de auth son las de mayor riesgo. Un objeto devuelto en crudo puede fil
 
 ---
 
-## Estadísticas generales
+## Estadísticas generales — Hallazgos iniciales
 
 | Estado | Cantidad | % |
 |---|---|---|
-| ✅ Serializado | 38 | 100% |
-| ⚠️ Parcial | 0 | 0% |
-| ❌ Sin serializar | 0 | 0% |
+| ✅ Serializado | 21 | 55% |
+| ⚠️ Parcial | 14 | 37% |
+| ❌ Sin serializar | 3 | 8% |
 | **Total** | **38** | **100%** |
 
 ---
@@ -666,6 +666,15 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request) -> Message
 **Antes:** `response_model=None` → devolvía `dict` crudo sin contrato OpenAPI
 
 **Después:** `response_model=AnalysisResponse` → estructura completa tipada con `AnalysisSummary` y `AnalysisPercentages` anidados
+
+### Evolución de estadísticas
+
+| Estado | Inicial (auditoría) | Final (implementación) | Diferencia |
+|---|---|---|---|
+| ✅ Serializado | 21 (55%) | 38 (100%) | +17 |
+| ⚠️ Parcial | 14 (37%) | 0 (0%) | -14 |
+| ❌ Sin serializar | 3 (8%) | 0 (0%) | -3 |
+| **Total** | **38** | **38** | — |
 
 ## Checklist de cumplimiento final
 
