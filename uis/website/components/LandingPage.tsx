@@ -55,6 +55,7 @@ export default function LandingPage({ content }: LandingPageProps) {
 
             <figure className="rounded-2xl border border-white/20 bg-white/10 p-3 backdrop-blur-sm">
               <Image
+                priority
                 src="https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=1400&q=80"
                 alt={content.heroImageAlt}
                 className="h-72 w-full rounded-xl object-cover sm:h-80 lg:h-[26rem]"

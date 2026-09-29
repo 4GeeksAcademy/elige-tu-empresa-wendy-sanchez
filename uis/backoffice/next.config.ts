@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   experimental: {
     externalDir: true,
+    optimizePackageImports: ["@/components", "@/lib", "@/types"],
   },
   async rewrites() {
     return [

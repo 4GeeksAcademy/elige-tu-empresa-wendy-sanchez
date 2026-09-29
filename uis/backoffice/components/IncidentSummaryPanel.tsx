@@ -1,61 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-interface SummaryData {
-  total: number;
-  by_status: Record<string, number>;
-  by_category: Record<string, number>;
-  by_branch: Record<string, number>;
-  by_origin: Record<string, number>;
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  open: "Open",
-  in_progress: "In Progress",
-  resolved: "Resolved",
-  discarded: "Discarded",
-};
-
-const STATUS_ORDER = ["open", "in_progress", "resolved", "discarded"];
-
-const CATEGORY_LABELS: Record<string, string> = {
-  clinical_equipment: "Clinical Equipment",
-  it_system: "IT System",
-  billing_error: "Billing Error",
-  compliance_breach: "Compliance Breach",
-  patient_experience: "Patient Experience",
-  staff_issue: "Staff Issue",
-  facility_issue: "Facility Issue",
-  referral_issue: "Referral Issue",
-  other: "Other",
-};
-
-const BRANCH_LABELS: Record<string, string> = {
-  central: "Central — Austin Main Clinic",
-  austin_north: "Austin — North",
-  dallas_uptown: "Dallas Uptown",
-  houston_med_center: "Houston Medical Center",
-  san_antonio_west: "San Antonio West",
-  miami_brickell: "Miami Brickell",
-  miami_doral: "Miami Doral",
-  orlando_east: "Orlando East",
-  tampa_bay: "Tampa Bay",
-  atlanta_midtown: "Atlanta Midtown",
-  savannah: "Savannah",
-  london_city: "London City",
-  london_west: "London West End",
-  manchester_central: "Manchester Central",
-};
-
-const API_BASE = process.env.NEXT_PUBLIC_INCIDENTS_API_URL || "/api/incidents";
+import type { IncidentSummary } from "@/types/incident";
+import {
+  STATUS_LABELS,
+  STATUS_ORDER,
+  CATEGORY_LABELS,
+  BRANCH_LABELS,
+  API_BASE,
+} from "@/lib/incidents";
+import { LoadingSpinner, ErrorMessage } from "@/components/ui";
 
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function IncidentSummaryPanel() {
-  const [summary, setSummary] = useState<SummaryData | null>(null);
+  const [summary, setSummary] = useState<IncidentSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,37 +41,18 @@ export default function IncidentSummaryPanel() {
   // ── Loading ────────────────────────────────────────────────────────────────
 
   if (isLoading) {
-    return (
-      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-center py-20">
-          <div className="flex items-center gap-3 text-slate-500">
-            <svg className="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-            </svg>
-            <span>Loading summary...</span>
-          </div>
-        </div>
-      </div>
-    );
+    return <LoadingSpinner message="Loading summary..." />;
   }
 
   // ── Error ──────────────────────────────────────────────────────────────────
 
   if (error) {
     return (
-      <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6 lg:px-8">
-        <div className="rounded-xl border border-red-200 bg-red-50 p-6 text-red-800">
-          <h2 className="text-lg font-bold">Error de conexión</h2>
-          <p className="mt-2 text-sm">No se pudo cargar el resumen. Inténtalo de nuevo más tarde.</p>
-          <button
-            onClick={fetchSummary}
-            className="mt-4 rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
-          >
-            Reintentar
-          </button>
-        </div>
-      </div>
+      <ErrorMessage
+        title="Error de conexión"
+        message="No se pudo cargar el resumen. Inténtalo de nuevo más tarde."
+        onRetry={fetchSummary}
+      />
     );
   }
 

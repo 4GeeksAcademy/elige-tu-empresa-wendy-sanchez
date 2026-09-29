@@ -10,9 +10,9 @@ import {
   getStockLevel,
   getStockLevelLabel,
   getStockLevelColor,
-  ApiError,
   type MedicalSupply,
 } from "@/lib/inventoryApi";
+import { ApiError } from "@/lib/httpClient";
 
 // ── Clínicas HealthCore ───────────────────────────────────────────────
 

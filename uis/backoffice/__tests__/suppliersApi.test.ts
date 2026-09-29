@@ -111,10 +111,10 @@ describe("fetchSuppliers()", () => {
     await expect(fetchSuppliers({})).rejects.toThrow(TypeError);
   });
 
-  it("failure mode: respuesta no-ok lanza excepción genérica", async () => {
+  it("failure mode: respuesta no-ok lanza excepción con mensaje del servidor", async () => {
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ detail: "Server error" }, 500));
 
-    await expect(fetchSuppliers({})).rejects.toThrow("Error de comunicación");
+    await expect(fetchSuppliers({})).rejects.toThrow("Server error");
   });
 });
 
@@ -155,10 +155,10 @@ describe("createSupplier()", () => {
     await expect(createSupplier(PAYLOAD)).rejects.toThrow(TypeError);
   });
 
-  it("failure mode: 422 lanza excepción", async () => {
+  it("failure mode: 422 lanza excepción con detalle del servidor", async () => {
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ detail: "Validation error" }, 422));
 
-    await expect(createSupplier(PAYLOAD)).rejects.toThrow("Error de comunicación");
+    await expect(createSupplier(PAYLOAD)).rejects.toThrow("Validation error");
   });
 });
 
@@ -178,10 +178,10 @@ describe("archiveSupplier()", () => {
     expect(init.method).toBe("DELETE");
   });
 
-  it("failure mode: 404 lanza excepción", async () => {
+  it("failure mode: 404 lanza excepción con detalle del servidor", async () => {
     mockFetch.mockResolvedValueOnce(mockJsonResponse({ detail: "Not found" }, 404));
 
-    await expect(archiveSupplier(999)).rejects.toThrow("Error de comunicación");
+    await expect(archiveSupplier(999)).rejects.toThrow("Not found");
   });
 });
 
