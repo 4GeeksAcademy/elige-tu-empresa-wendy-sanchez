@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   sampleAppointments,
   sampleClaims,
@@ -17,22 +18,38 @@ import {
 const formatPercent = (value: number): string => `${value.toFixed(2)}%`;
 
 export default function BackofficeHomePage() {
-  const denialRate = calculateDenialRate(sampleClaims);
-  const payerRates = denialRateByPayer(sampleClaims);
-  const locationNoShowRates = noShowRateByLocation(sampleAppointments);
-
-  const selectedLocation = sampleLocations[0];
-  const weeklyNoShowCost = calculateNoShowCost(
-    sampleAppointments,
-    selectedLocation,
-    "2025-03-14",
+  const denialRate = useMemo(() => calculateDenialRate(sampleClaims), []);
+  const payerRates = useMemo(() => denialRateByPayer(sampleClaims), []);
+  const locationNoShowRates = useMemo(
+    () => noShowRateByLocation(sampleAppointments),
+    [],
   );
 
-  const sortedClaims = sortClaimsById(sampleClaims, "asc");
-  const binaryIndex = binarySearchClaimById(sortedClaims, "CLM-000003");
-  const linearClaim = findClaimById(sampleClaims, "CLM-000003");
+  const selectedLocation = sampleLocations[0];
+  const weeklyNoShowCost = useMemo(
+    () =>
+      calculateNoShowCost(
+        sampleAppointments,
+        selectedLocation,
+        "2025-03-14",
+      ),
+    [],
+  );
 
-  const cmeReport = generateCMEReport(sampleClinicians, "2025-06-01");
+  const sortedClaims = useMemo(() => sortClaimsById(sampleClaims, "asc"), []);
+  const binaryIndex = useMemo(
+    () => binarySearchClaimById(sortedClaims, "CLM-000003"),
+    [sortedClaims],
+  );
+  const linearClaim = useMemo(
+    () => findClaimById(sampleClaims, "CLM-000003"),
+    [],
+  );
+
+  const cmeReport = useMemo(
+    () => generateCMEReport(sampleClinicians, "2025-06-01"),
+    [],
+  );
 
   return (
     <main className="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-8">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -19,6 +20,7 @@ from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
 from routes.users import router as users_router
 
+timing_logger = logging.getLogger("api.timing")
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +41,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Timing Middleware ────────────────────────────────────────────────
+# Mide la latencia de cada petición. Los logs se usan para identificar
+# candidatos a caché: latencia alta + frecuencia alta + datos estables.
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = (time.perf_counter() - start) * 1000  # ms
+    timing_logger.info(
+        "%s %s → %s | %.1fms",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration,
+    )
+    return response
+
 
 app.include_router(suppliers_router)
 app.include_router(users_router)

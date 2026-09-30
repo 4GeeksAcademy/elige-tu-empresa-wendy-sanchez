@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections import Counter
 from enum import Enum
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from tinydb import Query as TinyQuery
 
+from cache import cache
 from database import get_incidents_table
 from models import (
     IncidentCategory,
@@ -21,8 +23,20 @@ from models import (
     utc_now,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/incidents", tags=["incidents"])
 IncidentQuery = TinyQuery()
+
+# ── Constantes de caché ──────────────────────────────────────────────
+# GET /api/incidents/summary: TTL 60s. El resumen agrega todos los incidentes
+# en contadores. Los datos cambian con cada operación de escritura (crear,
+# actualizar, eliminar), pero la mayoría de las lecturas son de consulta.
+# 60s es un intercambio aceptable: en el peor caso un incidente nuevo tarda
+# hasta 60s en reflejarse en el summary. Para tableros de monitoreo esto es
+# perfectamente razonable.
+_SUMMARY_CACHE_TTL = 60
+_SUMMARY_CACHE_KEY = "incidents:summary"
 
 # ── Allowed status transitions ────────────────────────────────────────────
 # open        → in_progress, discarded
@@ -74,6 +88,23 @@ def _read_one(incident_id: int) -> IncidentResponse:
     return _to_response(doc.doc_id, dict(doc))
 
 
+def _invalidate_summary_cache() -> None:
+    """Invalida el summary y las listas cacheadas tras cualquier escritura.
+
+    Cualquier cambio (crear, actualizar, eliminar) afecta tanto al resumen
+    agregado como a todas las combinaciones de filtros de la lista.
+
+    Prefijos invalidados:
+      - "incidents:summary" → el resumen agregado
+      - "incidents:list"    → todas las variantes filtradas
+    """
+    count = 0
+    count += cache.invalidate("incidents:summary")
+    count += cache.invalidate("incidents:list")
+    if count:
+        logger.info("Incidents cache invalidated (%d entries)", count)
+
+
 # ── List with optional filters ──────────────────────────────────────────
 
 
@@ -84,6 +115,14 @@ def list_incidents(
     origin: IncidentOrigin | None = Query(default=None),
     branch: str | None = Query(default=None),
 ) -> list[IncidentResponse]:
+    # Construir clave de caché específica para los filtros
+    filters = f"s:{status}|c:{category}|o:{origin}|b:{branch}"
+    cache_key = f"incidents:list:{filters}"
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     incidents = _read_all()
     if status is not None:
         incidents = [i for i in incidents if i.status == status.value]
@@ -93,6 +132,8 @@ def list_incidents(
         incidents = [i for i in incidents if i.origin == origin.value]
     if branch is not None:
         incidents = [i for i in incidents if i.branch == branch]
+
+    cache.set(cache_key, incidents, ttl_seconds=30)
     return incidents
 
 
@@ -101,6 +142,10 @@ def list_incidents(
 
 @router.get("/summary", response_model=IncidentSummary)
 def get_summary() -> IncidentSummary:
+    cached = cache.get(_SUMMARY_CACHE_KEY)
+    if cached is not None:
+        return cached
+
     incidents = get_incidents_table().all()
 
     total = len(incidents)
@@ -115,13 +160,16 @@ def get_summary() -> IncidentSummary:
         branch_counter[doc.get("branch", "unknown")] += 1
         origin_counter[doc.get("origin", "unknown")] += 1
 
-    return IncidentSummary(
+    result = IncidentSummary(
         total=total,
         by_status=dict(status_counter),
         by_category=dict(category_counter),
         by_branch=dict(branch_counter),
         by_origin=dict(origin_counter),
     )
+
+    cache.set(_SUMMARY_CACHE_KEY, result, _SUMMARY_CACHE_TTL)
+    return result
 
 
 # ── Get single incident ─────────────────────────────────────────────────
@@ -143,6 +191,9 @@ def create_incident(payload: IncidentCreate) -> IncidentResponse:
     record["created_at"] = now
     record["updated_at"] = now
     doc_id = table.insert(record)
+
+    _invalidate_summary_cache()
+
     return _to_response(doc_id, record)
 
 
@@ -162,6 +213,8 @@ def update_incident(incident_id: int, payload: IncidentUpdate) -> IncidentRespon
     if changes:
         changes["updated_at"] = utc_now().isoformat()
         get_incidents_table().update(changes, doc_ids=[incident_id])
+
+    _invalidate_summary_cache()
 
     return _read_one(incident_id)
 
@@ -194,6 +247,8 @@ def update_incident_status(
         doc_ids=[incident_id],
     )
 
+    _invalidate_summary_cache()
+
     return _read_one(incident_id)
 
 
@@ -204,3 +259,4 @@ def update_incident_status(
 def delete_incident(incident_id: int) -> None:
     _read_one(incident_id)  # ensure exists
     get_incidents_table().remove(doc_ids=[incident_id])
+    _invalidate_summary_cache()

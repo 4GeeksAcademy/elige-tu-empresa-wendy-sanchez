@@ -6,9 +6,12 @@ Requiere autenticación JWT en todas las operaciones de escritura y lectura
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session, func, select
 
+from cache import cache
 from database import get_db
 from models import MedicalSupply, SupplyConsumption, SupplyDelivery
 from schemas import (
@@ -23,8 +26,17 @@ from schemas import (
 )
 from security import get_current_user
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/inventory", tags=["inventory"])
 
+# ── Constantes de caché ──────────────────────────────────────────────
+# TTL de 30 segundos para listado de productos: el catálogo de suministros
+# cambia con poca frecuencia (altas, bajas), pero los stocks se actualizan
+# continuamente con órdenes. 30s es un intercambio aceptable entre frescura
+# del stock y reducción de carga en BD. Véase CACHING_REPORT.md.
+_INVENTORY_CACHE_TTL = 30
+_INVENTORY_CACHE_PREFIX = "inventory:products"
 
 # ── Helpers ────────────────────────────────────────────────────────────
 
@@ -52,6 +64,17 @@ def _compute_current_stock(
     return int(total_in) - int(total_out)
 
 
+def _invalidate_product_cache() -> None:
+    """Invalida toda la caché de productos.
+
+    Se llama tras cualquier operación de escritura que afecte al catálogo
+    o los stocks (creación de producto, órdenes de entrada/salida).
+    """
+    cleared = cache.invalidate(_INVENTORY_CACHE_PREFIX)
+    if cleared:
+        logger.info("Inventory cache invalidated: %d entries cleared", cleared)
+
+
 # ── Products / MedicalSupply ──────────────────────────────────────────
 
 
@@ -60,7 +83,17 @@ def list_products(
     session: Session = Depends(get_db),
     _current_user=Depends(get_current_user),
 ) -> list[MedicalSupplyResponse]:
-    """Lista todos los suministros médicos con su current_stock calculado."""
+    """Lista todos los suministros médicos con su current_stock calculado.
+
+    Cacheado: TTL 30s. Se invalida al crear/modificar productos o registrar
+    órdenes de entrada/salida.
+    """
+    cache_key = f"{_INVENTORY_CACHE_PREFIX}:list"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+
+    logger.debug("Cache MISS: recomputing product list")
     supplies = session.exec(select(MedicalSupply)).all()
     result: list[MedicalSupplyResponse] = []
     for s in supplies:
@@ -76,6 +109,8 @@ def list_products(
                 current_stock=stock,
             )
         )
+
+    cache.set(cache_key, result, _INVENTORY_CACHE_TTL)
     return result
 
 
@@ -106,6 +141,8 @@ def create_product(
     session.add(supply)
     session.commit()
     session.refresh(supply)
+
+    _invalidate_product_cache()
 
     return MedicalSupplyResponse(
         id=supply.id,
@@ -176,6 +213,8 @@ def create_inbound_order(
     session.commit()
     session.refresh(delivery)
 
+    _invalidate_product_cache()
+
     return SupplyDeliveryResponse(
         id=delivery.id,
         supply_id=delivery.supply_id,
@@ -232,6 +271,8 @@ def create_outbound_order(
     session.add(consumption)
     session.commit()
     session.refresh(consumption)
+
+    _invalidate_product_cache()
 
     return SupplyConsumptionResponse(
         id=consumption.id,
