@@ -130,6 +130,31 @@
 - **Dependencia de Supabase**: la API de inventario depende de una conexión externa a Supabase. Si la conexión falla, todo el módulo de inventario queda inoperativo.
 - **Variables de entorno**: authProxy.ts depende de SUPPLIERS_API_URL / INCIDENTS_API_URL que pueden no estar definidas (fallback a `http://backend:8000`).
 
+15. **Optimización integral de caché (completada)**:
+- Documentado exhaustivamente en `CACHING_REPORT.md` (679 líneas) con análisis, decisiones, trade-offs, bugs encontrados y glosario en lenguaje sencillo.
+- **Frontend — useMemo**: 7 wrappers en `app/page.tsx` para valores derivados (denialRate, payerRates, locationNoShowRates, weeklyNoShowCost, sortedClaims, binaryIndex, linearClaim, cmeReport). Elimina ~7 operaciones O(n) + 1 O(n log n) por render.
+- **Frontend — Lazy Loading (2 componentes)**: `AnalysisResultsPanel` y `IncidentFormPanel` extraídos a archivos independientes e importados con `next/dynamic`. Ahorro de ~25-35 KB en bundle inicial combinado.
+- **Backend — MemoryCache**: Clase singleton con dict + `time.monotonic()` expiry, invalidación por prefijo. Implementada en ambas APIs (services/api/cache.py y services/incidents-api/cache.py).
+- **Backend — HealthCore API**: `GET /products` cacheado TTL 30s, invalidación en 3 write endpoints (create_product, create_inbound_order, create_outbound_order).
+- **Backend — Incidents API**: `GET /summary` cacheado TTL 60s, `GET / list` cacheado TTL 30s con clave por filtros. Invalidación en 4 write endpoints (create, update, update_status, delete).
+- **Timing middleware**: implementado en ambas APIs (main.py) — loggea método, ruta, status y tiempo en ms para identificar cuellos de botella futuros.
+- **Bugs corregidos**: (1) dead code en `get_summary()` — `cache.set()` después de `return` impedía cachear el resumen; (2) invalidación incompleta — `_invalidate_summary_cache()` no limpiaba prefijo `"incidents:list"`.
+- **Verificación**: 82/82 tests pasan, 0 errores Python/TypeScript, documentación completa en CACHING_REPORT.md con analogías, tablas Antes/Después y glosario no-técnico.
+
+---
+
+## Riesgos o brechas potenciales
+- No hay pruebas automatizadas persistidas para la API de proveedores (la auditoría se ejecutó con scripts ad hoc).
+- Falta verificar formalmente métricas de rendimiento (PageSpeed) en URL pública.
+- README del tracker aun es plantilla genérica de Next.js, no documenta flujo de negocio/API.
+- No se observan pruebas automatizadas visibles para UI ni utilidades TS en este barrido.
+- **Inventario**: no hay tests automatizados para la API de inventario (solo se auditó manualmente contra 10 criterios).
+- **Incidencias**: los tests de incidents-api existen pero no se sabe si están integrados en un pipeline CI.
+- **Website público**: no se ha verificado su estado de build o despliegue.
+- **Dependencia de Supabase**: la API de inventario depende de una conexión externa a Supabase. Si la conexión falla, todo el módulo de inventario queda inoperativo.
+- **Variables de entorno**: authProxy.ts depende de SUPPLIERS_API_URL / INCIDENTS_API_URL que pueden no estar definidas (fallback a `http://backend:8000`).
+- **Caché en memoria**: Si la aplicación escala a múltiples workers, cada worker tendrá su propia caché en memoria sin compartir estado. Para multi-worker se debe migrar a Redis.
+
 ## Próximos pasos previstos
 1. Documentar el tracker con README especifico de dominio (setup, variables de entorno, endpoints, flujo funcional).
 2. Incorporar pruebas unitarias para utilidades de src/ y validaciones del tracker.
@@ -139,3 +164,6 @@
 6. Continuar hitos siguientes del roadmap (telemetría, RAG y automatizaciones) reutilizando los tipos y patrones actuales.
 7. **Probar `docker compose up` real** para verificar el funcionamiento en runtime de todos los servicios.
 8. Extender tests de backend para cubrir casos borde de serialización (schemas de listado, análisis).
+9. **Migrar a Redis** si el deployment escala a múltiples workers (la caché en memoria actual no comparte estado entre workers).
+10. **Implementar stale-while-revalidate** en el frontend para peticiones GET al servidor.
+11. **Evaluar SWR/TanStack Query** como sustituto de `useMemo` + fetch manual para caché de red con revalidación automática.

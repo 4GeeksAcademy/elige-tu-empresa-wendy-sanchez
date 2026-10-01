@@ -81,3 +81,6 @@ El producto en este repositorio tiene las siguientes superficies:
 - Estados claros de carga, error y éxito en acciones asíncronas.
 - Formularios con mensajes de validación accionables.
 - Navegación simple entre listado y detalle.
+- **Rendimiento de carga inicial**: la página principal debe cargar rápido incluso con bundles grandes. Los componentes pesados (AnalysisResultsPanel, IncidentFormPanel) se cargan bajo demanda (lazy loading) para no penalizar la primera impresión.
+- **Consistencia de datos**: los valores derivados (denial rates, no-show costs) se calculan una sola vez por render (useMemo) y no cambian durante la vida de la página, incluso si hay re-renders parciales.
+- **Frescura de datos en dashboards**: el resumen de incidencias y la lista de productos pueden tener hasta 30-60 segundos de desfase (caché). Esto es aceptable para dashboards operativos donde la inmediatez no es crítica.

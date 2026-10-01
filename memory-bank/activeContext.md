@@ -36,6 +36,8 @@
 - routes/profiles.py: GET/PUT /profiles/me (lectura y actualización del perfil del usuario autenticado).
 - routes/users.py: CRUD de usuarios (POST /users con hash de password + creación de perfil, GET /users listado, GET/PUT/DELETE por ID).
 - routes/inventory.py: API de inventario con SQLModel + Supabase.
+- **cache.py**: MemoryCache singleton con dict + time.monotonic() expiry e invalidación por prefijo.
+- **main.py**: timing middleware que loggea método/ruta/status/tiempo en ms.
 - seed.py: carga idempotente de 15 proveedores (`seed_suppliers()`) + inventario (`seed_inventory()`: 6 supplies, 4 deliveries, 3 consumptions). Ejecutable como `uv run seed`.
 - tests/ (9 archivos): conftest.py con seed_user + seed_admin fixtures, tests para login, forgot/reset/change password, /me, user_service, security.
 - pyproject.toml: dependencias y scripts.
@@ -74,8 +76,9 @@
 - **API independiente** en FastAPI (puerto 8010), separada de la API principal de proveedores.
 - `models.py`: IncidentCreate, IncidentResponse, IncidentUpdate con categorías, orígenes, estados, clinic_id.
 - `database.py`: inicialización de TinyDB específica para incidencias.
-- `routes/incidents.py`: CRUD de incidencias (GET listado con filtros, POST crear, GET/PUT por ID, DELETE).
-- `main.py`: app FastAPI con CORS abierto y manejadores de errores globales.
+- `routes/incidents.py`: CRUD de incidencias (GET listado con filtros, POST crear, GET/PUT por ID, DELETE) con caché en GET /summary (TTL 60s) y GET / list (TTL 30s) e invalidación en los 4 write endpoints.
+- **cache.py**: MemoryCache singleton para incidencias.
+- **main.py**: timing middleware que loggea método/ruta/status/tiempo en ms.
 - `tests/`: conftest.py, helpers.py, test_incidents.py (tests funcionales).
 - Proxy en next.config.ts: `/api/incidents/*` → `http://127.0.0.1:8010/api/incidents/*`
 
@@ -86,6 +89,8 @@
 - `/incidents/summary` — resumen/estadísticas de incidencias.
 - `/incidents-manager` — página de gestión de incidencias con `IncidentsManagerClient`.
 - Componentes: `IncidentListPanel`, `IncidentRegisterForm`, `IncidentSummaryPanel`, `IncidentsAnalyzerClient`, `IncidentsManagerClient`.
+- **Optimización de carga**: `AnalysisResultsPanel` (~200 líneas) y `IncidentFormPanel` (~150 líneas) extraídos a archivos independientes e importados con `next/dynamic` + `ssr: false` para lazy loading.
+- **Página principal optimizada**: `app/page.tsx` con 7 wrappers `useMemo` para valores derivados (denialRate, payerRates, locationNoShowRates, weeklyNoShowCost, sortedClaims, binaryIndex, linearClaim, cmeReport) que evitan recálculos en cada render.
 
 ### 10) Website público (uis/website)
 - Aplicación Next.js independiente para el sitio público de HealthCore.
@@ -191,6 +196,66 @@ Se realizó una auditoría exhaustiva de serialización sobre **38 endpoints** (
 ### 20) Frontend — Auditoría Lighthouse y refactorización (completada)
 
 Se ejecutó auditoría con Lighthouse sobre website (EN/ES) y backoffice, documentada en `audit/AUDIT.md`. Se aplicaron correcciones documentadas en `audit/REPORT.md`.
+
+---
+
+### 21) Optimización integral de caché — Frontend + Backend (completada)
+
+Se realizó una optimización integral de caching en toda la aplicación (frontend y backend) para reducir latencia, carga en base de datos y tamaño de bundle. Todo documentado en `CACHING_REPORT.md`.
+
+**Frontend — useMemo (página principal del backoffice):**
+- 7 wrappers con `useMemo` en `uis/backoffice/app/page.tsx` para valores derivados que se computan desde listas estáticas: `denialRate`, `payerRates`, `locationNoShowRates`, `weeklyNoShowCost`, `sortedClaims`, `binaryIndex`, `linearClaim`, `cmeReport`.
+- Cada `useMemo` depende de las variables que realmente necesita (ej: `[sortedClaims]` para los que usan la lista ordenada), evitando recálculos innecesarios en cada render.
+- Impacto: se eliminan ~7 operaciones O(n) + 1 O(n log n) por render.
+
+**Frontend — Lazy Loading (2 componentes):**
+- `IncidentsAnalyzerClient.tsx`: `AnalysisResultsPanel` (~200 líneas, 15-20 KB) ahora se importa con `next/dynamic` y `{ ssr: false }`. Solo se descarga cuando el usuario sube un CSV y recibe resultados.
+- `IncidentsManagerClient.tsx`: `IncidentFormPanel` (~150 líneas, 10-15 KB) ahora se importa con `next/dynamic` y `{ ssr: false }`. Solo se descarga cuando el usuario hace clic en "New" o "Edit".
+- Ambos componentes extraídos a archivos independientes para poder ser importados dinámicamente.
+
+**Backend — MemoryCache (ambas APIs):**
+- Creado `services/api/cache.py` y `services/incidents-api/cache.py`: clase `MemoryCache` singleton con almacenamiento en `dict`, expiración por `time.monotonic()`, invalidación por prefijo de clave, y métodos `get(key)`, `set(key, value, ttl)`, `invalidate(prefix)`.
+- Patrón cache-aside: check cache → hit → devolver; miss → computar → guardar en caché → devolver.
+- Es una solución ligera sin dependencias externas (no Redis), con la limitación de que no persiste entre reinicios ni comparte estado entre workers.
+
+**Backend — Caché en HealthCore API (inventario):**
+- `GET /products` cacheado con clave `"inventory:products:list"`, TTL 30 segundos.
+- Invalidación del prefijo `"inventory:products"` en:
+  - `POST /products` (crear producto)
+  - `POST /orders/inbound` (entrada de stock)
+  - `POST /orders/outbound` (salida de stock)
+- Justificación TTL 30s: el inventario cambia con frecuencia (consumos clínicos continuos), pero 30 segundos de desfase es aceptable para la visibilidad operativa.
+
+**Backend — Caché en Incidents API:**
+- `GET /summary` cacheado con clave `"incidents:summary"`, TTL 60 segundos. El resumen (conteos por estado/categoría/origen) no necesita ser instantáneo para un dashboard.
+- `GET / list` cacheado con clave dinámica `"incidents:list:s:{status}|c:{category}|o:{origin}|b:{branch}"`, TTL 30 segundos. Cada combinación de filtros tiene su propia entrada en caché.
+- Invalidación de ambos prefijos (`"incidents:summary"` e `"incidents:list"`) en:
+  - `POST /` (crear incidencia)
+  - `PUT /{id}` (actualizar)
+  - `PATCH /{id}/status` (cambiar estado)
+  - `DELETE /{id}` (eliminar)
+
+**Bugs encontrados y corregidos durante la auditoría:**
+1. **Dead code en `get_summary()`**: la línea `cache.set(...)` estaba después de `return`, por lo que NUNCA se guardaba el resumen en caché. Ningún test lo detectó porque TinyDB es rápido en datasets pequeños.
+2. **Invalidación incompleta**: `_invalidate_summary_cache()` solo limpiaba `"incidents:summary"`, pero no `"incidents:list"`. Al crear una incidencia, el listado con filtros seguía mostrando datos obsoletos.
+
+**Timing middleware (ambas APIs):**
+- Agregado middleware en `main.py` de ambas APIs que registra: método, ruta, código de estado y tiempo de respuesta en milisegundos.
+- Las métricas se loggean a consola con el formato: `"METHOD /path → 200 (12.34ms)"`.
+- Sirve para identificar los próximos cuellos de botella con datos reales.
+
+**Pruebas y verificación:**
+- 82/82 tests pasan (sin regresiones).
+- 0 errores de TypeScript en backoffice.
+- 0 errores de Python en ambas APIs.
+- Documentación completa en `CACHING_REPORT.md` (679 líneas) con:
+  - Analogías para lectores no técnicos (post-it, restaurante, maleta, supermercado)
+  - Tablas "Antes/Después" por cada decisión
+  - Desglose de costes por operación ("Traducción a números")
+  - Análisis de riesgos por trade-off ("¿Qué tan grave es?")
+  - Justificación detallada de cada TTL
+  - Sección "¿Qué no se cacheó y por qué?" con análisis por endpoint
+  - Glosario de 12 términos técnicos en lenguaje sencillo
 
 **Resultados Lighthouse iniciales:**
 | Aplicación | Performance | Accessibility | Best Practices | SEO |
