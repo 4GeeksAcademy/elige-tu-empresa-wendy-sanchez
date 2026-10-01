@@ -125,3 +125,23 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - **`ErrorMessage`**: bloque de error con props `title`, `message`, `onRetry`, `variant` (error/warning/info).
 - **`EmptyState`**: estado de lista vacía con props `message`, `description`, `icon`, `action`.
 - Todos en `components/ui/` con barrel export desde `index.ts`.
+
+### 23) Patrón de caché — Cache-Aside (backend)
+- **Estrategia cache-aside**: el código pregunta primero a la caché (`cache.get(key)`); si existe el valor, lo devuelve sin tocar la base de datos. Si no existe, ejecuta la operación (consulta DB, cálculo), almacena el resultado en caché con `cache.set(key, value, ttl)`, y lo devuelve.
+- **Clave única por combinación de parámetros**: en endpoints con filtros (GET /incidents), la clave incluye todos los parámetros de consulta serializados para que cada combinación de filtros tenga su propia entrada en caché.
+- **Invalidación por prefijo de clave**: en lugar de rastrear claves individuales, se invalida un prefijo completo (`\"incidents:list\"` → elimina todas las claves que empiecen por `\"incidents:list:\"`). Es más simple y seguro que la invalidación selectiva.
+- **TTL cortos (30-60s)**: se prioriza la frescura de datos sobre el ahorro máximo de consultas. Suficiente para reducir carga repetitiva sin riesgos de obsolescencia.
+
+### 24) Patrón de Lazy Loading (frontend)
+- **`next/dynamic` con `ssr: false`**: los componentes pesados que no se ven en carga inicial se importan dinámicamente. `ssr: false` evita que el servidor los procese, dejando la descarga al navegador bajo demanda.
+- **Extracción a archivo independiente**: para poder usar `next/dynamic`, el componente debe estar en un archivo separado con `export default`. No funciona con exportaciones nombradas inline.
+
+### 25) Patrón de `useMemo` con dependencias explícitas (frontend)
+- Cada `useMemo` declara exactamente las variables de las que depende en su array de dependencias. Si el valor usa `sortedClaims`, la dependencia es `[sortedClaims]` — no la lista original.
+- Esto evita recálculos en cadena: si cambia una variable que no afecta a cierto cómputo, ese cómputo no se repite.
+- Los valores computados (derivados de otros `useMemo`) se encadenan correctamente respetando el grafo de dependencias.
+
+### 26) Patrón de Timing Middleware (backend)
+- Middleware FastAPI que captura el tiempo de inicio antes de procesar la request y calcula la diferencia después de enviar la respuesta.
+- Loggea al formato: `METODO /ruta → CODIGO (X.XXms)` para permitir identificación de cuellos de botella sin herramientas externas de APM.
+- No interfiere con el flujo de la request ni añade latencia medible.

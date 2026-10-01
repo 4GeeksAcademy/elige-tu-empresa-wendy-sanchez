@@ -152,6 +152,11 @@
 - El proyecto tiene estructura de plantilla; no todo el monorepo está operativo en runtime aún.
 - **Serialización**: los endpoints de auth no autenticados (forgot/reset/change-password) deben devolver solo `message` — nunca reenviar el email en la respuesta.
 - **Serialización**: los schemas de listado deben ser más ligeros que los de detalle (sin `notes` en proveedores, sin `user_id` en perfiles).
+- **Caché — MemoryCache**: implementación ligera con `dict` + `time.monotonic()` para expiración. No requiere dependencias externas (no Redis). La invalidación es por prefijo de clave, no selectiva.
+- **Caché — Limitación**: la caché en memoria no persiste entre reinicios del servidor ni comparte estado entre workers. Si la aplicación escala horizontalmente, cada worker tendrá entradas de caché independientes y el beneficio se reduce. Para multi-worker se requiere migrar a Redis.
+- **Caché — TTLs**: se usan TTLs cortos (30-60 segundos) para equilibrar frescura de datos con reducción de carga. No se usan TTLs largos (>5 min) en ningún endpoint por la naturaleza operativa de los datos.
+- **Caché — Frontend (useMemo)**: la dependencia explícita en el array de `useMemo` es crítica para evitar recálculos en cadena. Si un `useMemo` depende de otro valor computado, debe declarar esa dependencia (ej: `[sortedClaims]`).
+- **Caché — Lazy Loading**: los componentes importados con `next/dynamic` y `ssr: false` se descargan bajo demanda desde el navegador. El servidor no los procesa en SSR. Requieren `export default` en un archivo independiente.
 
 ## Comandos útiles
 - Preview estático en Codespaces: npx --yes serve . --listen 4173 --no-clipboard

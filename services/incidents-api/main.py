@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import time
+
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +13,9 @@ from fastapi.responses import JSONResponse
 from models import RootResponse
 
 from routes.incidents import router as incidents_router
+
+timing_logger = logging.getLogger("incidents-api.timing")
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="HealthCore Incidents API", version="1.0.0")
 
@@ -20,6 +26,25 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ── Timing Middleware ────────────────────────────────────────────────
+
+
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = (time.perf_counter() - start) * 1000  # ms
+    timing_logger.info(
+        "%s %s → %s | %.1fms",
+        request.method,
+        request.url.path,
+        response.status_code,
+        duration,
+    )
+    return response
+
 
 app.include_router(incidents_router)
 

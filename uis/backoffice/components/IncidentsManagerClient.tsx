@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import type {
   Incident,
   IncidentSummary,
   IncidentStatus,
   IncidentCategory,
-  IncidentOrigin,
   IncidentFormState,
 } from "@/types/incident";
 import {
@@ -19,6 +19,11 @@ import {
   EMPTY_FORM,
 } from "@/lib/incidents";
 import { LoadingSpinner, ErrorMessage } from "@/components/ui";
+
+const IncidentFormPanel = dynamic(
+  () => import("@/components/IncidentFormPanel"),
+  { ssr: false },
+);
 
 // ── API helpers ──────────────────────────────────────────────────────────────
 
@@ -553,7 +558,7 @@ export default function IncidentsManagerClient() {
         </div>
       )}
 
-      {/* Create / Edit form modal */}
+      {/* Create / Edit form modal (lazy-loaded) */}
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
@@ -581,175 +586,20 @@ export default function IncidentsManagerClient() {
               This system must comply with HIPAA and UK GDPR regulations.
             </div>
 
-            <div className="space-y-4">
-              {/* Title */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700">Title *</label>
-                <input
-                  type="text"
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="Brief title of the incident"
-                />
-                {formErrors.title && (
-                  <p className="mt-1 text-xs text-red-600">{formErrors.title}</p>
-                )}
-              </div>
-
-              {/* Description */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Description *
-                </label>
-                <textarea
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  rows={4}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="Detailed description — no patient data"
-                />
-                <div className="mt-1 flex justify-between">
-                  {formErrors.description ? (
-                    <p className="text-xs text-red-600">{formErrors.description}</p>
-                  ) : (
-                    <span />
-                  )}
-                  <span className="text-xs text-slate-400">
-                    {form.description.length}/2000
-                  </span>
-                </div>
-              </div>
-
-              {/* Category + Status + Origin */}
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Category *
-                  </label>
-                  <select
-                    value={form.category}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        category: e.target.value as IncidentCategory,
-                      })
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    <option value="">Select category</option>
-                    {(
-                      [
-                        "clinical_equipment",
-                        "it_system",
-                        "billing_error",
-                        "compliance_breach",
-                        "patient_experience",
-                        "staff_issue",
-                        "facility_issue",
-                        "referral_issue",
-                        "other",
-                      ] as IncidentCategory[]
-                    ).map((c) => (
-                      <option key={c} value={c}>
-                        {CATEGORY_LABELS[c]}
-                      </option>
-                    ))}
-                  </select>
-                  {formErrors.category && (
-                    <p className="mt-1 text-xs text-red-600">{formErrors.category}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Status
-                  </label>
-                  <select
-                    value={form.status}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        status: e.target.value as IncidentStatus,
-                      })
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    {(["open", "in_progress", "resolved", "discarded"] as IncidentStatus[]).map(
-                      (s) => (
-                        <option key={s} value={s}>
-                          {STATUS_LABELS[s]}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700">
-                    Origin
-                  </label>
-                  <select
-                    value={form.origin}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        origin: e.target.value as IncidentOrigin,
-                      })
-                    }
-                    className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                  >
-                    {(["customer", "branch", "internal"] as IncidentOrigin[]).map((o) => (
-                      <option key={o} value={o}>
-                        {ORIGIN_LABELS[o]}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Branch */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700">
-                  Branch *
-                </label>
-                <select
-                  value={form.branch}
-                  onChange={(e) => setForm({ ...form, branch: e.target.value })}
-                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">Select branch</option>
-                  {VALID_BRANCHES.map((b) => (
-                    <option key={b.value} value={b.value}>
-                      {b.label}
-                    </option>
-                  ))}
-                </select>
-                {formErrors.branch && (
-                  <p className="mt-1 text-xs text-red-600">{formErrors.branch}</p>
-                )}
-              </div>
-            </div>
-
-            {/* Actions */}
-            <div className="mt-6 flex justify-end gap-3">
-              <button
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingId(null);
-                  setForm(EMPTY_FORM);
-                  setFormErrors({});
-                }}
-                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={editingId ? handleUpdate : handleCreate}
-                disabled={isSaving}
-                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-              >
-                {isSaving ? "Saving..." : editingId ? "Update Incident" : "Create Incident"}
-              </button>
-            </div>
+            <IncidentFormPanel
+              form={form}
+              editingId={editingId}
+              isSaving={isSaving}
+              formErrors={formErrors}
+              onChange={setForm}
+              onSave={editingId ? handleUpdate : handleCreate}
+              onCancel={() => {
+                setShowForm(false);
+                setEditingId(null);
+                setForm(EMPTY_FORM);
+                setFormErrors({});
+              }}
+            />
           </div>
         </div>
       )}
