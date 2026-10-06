@@ -82,3 +82,31 @@ def test_router_registered_in_main(monkeypatch):
     assert response.status_code == 200
     assert response.json() == {"received": 2}
     assert main.app.state.telemetry_endpoint
+
+
+@pytest.mark.parametrize("timestamp", ["123", "20261006", "2026-10-06", "2026-10-06 12:00:00Z", "2026-02-31T12:00:00Z"])
+def test_timestamp_must_be_iso_datetime(telemetry_client, timestamp):
+    payload = event()
+    payload["timestamp"] = timestamp
+    assert telemetry_client.post("/telemetry/events", json={"events": [payload]}).status_code == 422
+
+
+@pytest.mark.parametrize("field,value", [
+    ("route_template", "/account/email-canary@example.com"),
+    ("route_template", "/account/profile?password=private"),
+    ("component", "JaneSmith"), ("app_version", "private-password"),
+    ("error_code", "jane_smith"),
+])
+def test_pii_in_allowlisted_values_rejected(telemetry_client, field, value):
+    payload = event()
+    payload["event_type"] = "frontend_error_captured"
+    payload["properties"] = {"application": "backoffice", "app_version": "0.1.0", "route_template": "/account/profile", "component": "window", "error_code": "uncaught_error", "error_class": "unknown"}
+    payload["properties"][field] = value
+    assert telemetry_client.post("/telemetry/events", json={"events": [payload]}).status_code == 422
+
+
+def test_diagnostic_event_reference_cannot_contain_arbitrary_names():
+    from telemetry import validate_property_privacy
+    with pytest.raises(ValueError):
+        validate_property_privacy("event_type", "jane_smith")
+    validate_property_privacy("event_type", "inbound_order_created")

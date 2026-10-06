@@ -22,6 +22,7 @@ from routes.suppliers import router as suppliers_router
 from routes.telemetry import router as telemetry_router
 from routes.users import router as users_router
 from telemetry import TELEMETRY_ENDPOINT
+import telemetry_delivery
 
 timing_logger = logging.getLogger("api.timing")
 logger = logging.getLogger(__name__)
@@ -32,7 +33,11 @@ async def lifespan(application: FastAPI):
     """Inicializa el esquema de Supabase al arrancar la aplicación."""
     init_supabase_schema()
     logger.info("Supabase schema initialized (tables created if not exist).")
-    yield
+    telemetry_delivery.service.start()
+    try:
+        yield
+    finally:
+        telemetry_delivery.service.stop()
 
 
 app = FastAPI(title="HealthCore API", version="1.1.0", lifespan=lifespan)
@@ -59,8 +64,14 @@ async def timing_middleware(request: Request, call_next):
         request_id = str(UUID(request.headers.get("X-Request-ID", "")))
     except ValueError:
         request_id = str(uuid4())
+    request.state.telemetry_request_id = request_id
     start = time.perf_counter()
-    response = await call_next(request)
+    context_token = telemetry_delivery.request_context.set(request)
+    try:
+        response = await call_next(request)
+    finally:
+        telemetry_delivery.request_context.reset(context_token)
+    telemetry_delivery.capture_inventory_signals(request, response)
     response.headers["X-Request-ID"] = request_id
     duration = (time.perf_counter() - start) * 1000  # ms
     timing_logger.info(

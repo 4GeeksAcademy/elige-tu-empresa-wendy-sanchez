@@ -7,6 +7,12 @@ const tracked = jest.mocked(track);
 
 afterEach(() => jest.clearAllMocks());
 
+test("diagnostic event references reject names outside the registry", () => {
+  const properties = { producer: "backoffice", event_type: "inbound_order_created", drop_reason: "privacy_rejected", schema_version: "1.0.0", count_bucket: "1" };
+  expect(validTelemetryProperties("telemetry_event_dropped", properties)).toBe(true);
+  expect(validTelemetryProperties("telemetry_event_dropped", { ...properties, event_type: "jane_smith" })).toBe(false);
+});
+
 test("normalizes routes and excludes user input and query strings", () => {
   expect(telemetryRoute("/inventory/products/42?email=secret@example.test")).toBe("/inventory/products/{id}");
   expect(telemetryRoute("/private/secret@example.test")).toBe("/other");

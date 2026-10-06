@@ -15,7 +15,22 @@ REGISTRY = json.loads(
     (Path(__file__).resolve().parents[2] / "docs/telemetry/event-schemas.json").read_text()
 )
 CONTRACTS = {event["event_type"]: event for event in REGISTRY["events"]}
+ISO_TIMESTAMP = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-][0-9]{2}:[0-9]{2})"
 OpaqueId = Annotated[StrictStr, Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
+
+
+def validate_property_privacy(name: str, value: JsonValue) -> None:
+    rules = REGISTRY["privacyValidation"]
+    if name in rules["registeredEventProperties"] and value not in CONTRACTS:
+        raise ValueError("Unapproved telemetry event reference")
+    if name in rules["routeProperties"] and value not in rules["routes"]:
+        raise ValueError("Unapproved telemetry route")
+    pattern = rules["propertyPatterns"].get(name)
+    if pattern and (not isinstance(value, str) or re.fullmatch(pattern, value) is None):
+        raise ValueError("Unapproved telemetry property value")
+    allowed = rules["propertyEnums"].get(name)
+    if allowed and value not in allowed:
+        raise ValueError("Unapproved telemetry dimension")
 
 
 def validate_property(value: JsonValue, rule: dict) -> None:
@@ -68,7 +83,7 @@ class TelemetryEvent(BaseModel):
     @field_validator("timestamp", mode="before")
     @classmethod
     def iso_timestamp(cls, value: object) -> object:
-        if not isinstance(value, (str, datetime)):
+        if not isinstance(value, datetime) and (not isinstance(value, str) or re.fullmatch(ISO_TIMESTAMP, value) is None):
             raise ValueError("ISO timestamp required")
         return value
 
@@ -83,6 +98,7 @@ class TelemetryEvent(BaseModel):
             raise ValueError("Missing event properties")
         for name, value in self.properties.items():
             validate_property(value, contract["properties"][name])
+            validate_property_privacy(name, value)
         if len(self.model_dump_json().encode()) > REGISTRY["validationRules"]["maxEventBytes"]:
             raise ValueError("Event too large")
         return self

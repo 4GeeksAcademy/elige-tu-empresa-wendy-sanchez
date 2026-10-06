@@ -55,7 +55,7 @@ def test_all_mandatory_events_and_real_clinic_stock(inventory_client):
     assert outbound.status_code == 201
     assert {item["event_type"] for item in events(outbound)} == {"outbound_order_created", "stock_threshold_triggered"}
     assert client.get(f"/inventory/products/{product_id}?clinic_id=1").json()["current_stock"] == 4
-    assert events(client.get(f"/inventory/products/{product_id}")) == []
+    assert [item["event_type"] for item in events(client.get(f"/inventory/products/{product_id}"))] == ["supply_expiry_flagged"]
     outbound_payload["clinic_id"] = 2
     rejected = client.post("/inventory/orders/outbound", json=outbound_payload)
     assert rejected.status_code == 400

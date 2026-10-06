@@ -1,14 +1,16 @@
 import { track } from "./telemetry";
-import { getTelemetrySession } from "./telemetrySession";
+import { getTelemetrySession, withTelemetrySessionForExpiry } from "./telemetrySession";
 import { telemetryRoute } from "./telemetryInstrumentation";
 
 let expiredSession: string | undefined;
 export function reportSessionExpired(): void {
-  const session = getTelemetrySession();
-  if (!session || expiredSession === session.sessionId) return;
-  expiredSession = session.sessionId;
-  track("auth_session_expired", {
-    application: "backoffice", expiry_reason: "timeout", route_template: telemetryRoute(window.location.pathname),
+  withTelemetrySessionForExpiry(() => {
+    const session = getTelemetrySession();
+    if (!session || expiredSession === session.sessionId) return;
+    expiredSession = session.sessionId;
+    track("auth_session_expired", {
+      application: "backoffice", expiry_reason: "timeout", route_template: telemetryRoute(window.location.pathname),
+    });
   });
 }
 

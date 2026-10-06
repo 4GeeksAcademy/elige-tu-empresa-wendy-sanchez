@@ -4,10 +4,8 @@ import { createRequire } from "node:module";
 
 const require = createRequire(new URL("../uis/backoffice/package.json", import.meta.url));
 const { chromium } = require("@playwright/test");
-const { build } = require("esbuild");
 const frontend = process.env.TELEMETRY_TEST_FRONTEND ?? "http://127.0.0.1:3001";
 const backend = process.env.TELEMETRY_TEST_BACKEND ?? "http://127.0.0.1:8000";
-const endpoint = process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT ?? "http://localhost:8000/telemetry/events";
 const browser = await chromium.launch();
 const context = await browser.newContext();
 const page = await context.newPage();
@@ -44,10 +42,10 @@ try {
 
   await page.goto(`${frontend}/login`);
   await page.getByLabel("Email", { exact: true }).fill(email);
-  await page.getByLabel("Contraseña", { exact: true }).fill("Invalid.Test.Password!");
+  await page.locator('input[type="password"]').fill("Invalid.Test.Password!");
   await page.getByRole("button", { name: "Iniciar sesión", exact: true }).click();
   await page.getByText("No se pudo iniciar sesión. Comprueba tus credenciales.").waitFor();
-  await page.getByLabel("Contraseña", { exact: true }).fill(password);
+  await page.locator('input[type="password"]').fill(password);
   await page.getByRole("button", { name: "Iniciar sesión", exact: true }).click();
   await page.waitForURL(`${frontend}/`);
   await page.goto(`${frontend}/inventory/products`);
@@ -75,30 +73,21 @@ try {
   await page.getByRole("button", { name: "Registrar salida", exact: true }).click();
   await page.getByText(/Salida registrada correctamente/).waitFor();
 
-  const me = await (await context.request.get(`${backend}/auth/me`, { headers })).json();
-  const bundle = await build({
-    stdin: {
-      contents: 'export { requestDirectStockEdit } from "./lib/inventoryApi"; export { beginTelemetrySession } from "./lib/telemetrySession";',
-      resolveDir: new URL("../uis/backoffice/", import.meta.url).pathname,
-    },
-    bundle: true, write: false, platform: "browser", format: "iife", globalName: "telemetryVerification",
-    define: { "process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT": JSON.stringify(endpoint), "process.env.NEXT_PUBLIC_INVENTORY_API_URL": '""' },
+  const direct = await context.request.patch(`${backend}/inventory/products/${productId}/stock`, {
+    headers, data: { clinic_id: 1, quantity: 4 },
   });
-  await page.addScriptTag({ content: bundle.outputFiles[0].text });
-  await page.evaluate(async ({ productId, userId }) => {
-    window.telemetryVerification.beginTelemetrySession(userId, true);
-    try { await window.telemetryVerification.requestDirectStockEdit(productId, 1, 4); }
-    catch (error) { if (error.status !== 403) throw error; }
-  }, { productId, userId: me.telemetry_user_id });
+  assert.equal(direct.status(), 403);
   await page.evaluate(() => {
     setTimeout(() => { throw new Error("frontend-error-canary"); }, 0);
     Promise.reject(new Error("rejection-canary"));
   });
   const containsAll = () => {
     const types = new Set(batches.flatMap((batch) => batch.events.map((event) => event.event_type)));
-    return ["inbound_order_created", "outbound_order_created", "stock_threshold_triggered", "supply_expiry_flagged", "direct_stock_edit_rejected", "frontend_error_captured"].every((name) => types.has(name));
+    return ["auth_login_failed", "auth_login_succeeded", "backoffice_page_viewed", "frontend_error_captured", "client_performance_recorded"].every((name) => types.has(name));
   };
-  while (!containsAll()) await page.waitForResponse((response) => response.url().endsWith("/telemetry/events"), { timeout: 20000 });
+  const deadline = Date.now() + 60000;
+  while (!containsAll() && Date.now() < deadline) await page.waitForResponse((response) => response.url().endsWith("/telemetry/events"), { timeout: 20000 });
+  assert(containsAll(), "Missing frontend events; backend mandatory delivery is verified by test_telemetry_delivery.py");
   await page.goto(`${frontend}/suppliers`);
   await page.getByRole("heading", { name: /proveedores/i }).first().waitFor();
   await page.waitForResponse((response) => response.url().endsWith("/telemetry/events"), { timeout: 20000 });
@@ -116,7 +105,7 @@ try {
     assert(Array.isArray(batch.events) && batch.events.length <= 20);
     for (const event of batch.events) assert.deepEqual(Object.keys(event).sort(), ["eventId", "timestamp", "sessionId", "userId", "event_type", "schemaVersion", "requestId", "properties"].sort());
   }
-  console.log(JSON.stringify({ batches: batches.length, devtoolsBatches, statuses: responses, events: [...new Set(batches.flatMap((batch) => batch.events.map((event) => event.event_type)))].sort(), privacyCanariesAbsent: true }, null, 2));
+  console.log(JSON.stringify({ scope: "frontend Network; server mandatory events require backend integration tests", batches: batches.length, devtoolsBatches, statuses: responses, events: [...new Set(batches.flatMap((batch) => batch.events.map((event) => event.event_type)))].sort(), privacyCanariesAbsent: true }, null, 2));
 } finally {
   await browser.close();
 }

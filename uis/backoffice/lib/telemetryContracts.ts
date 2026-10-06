@@ -27,6 +27,16 @@ export function telemetrySchemaVersion(eventType: string): string {
   return contracts.get(eventType)?.schemaVersion ?? TELEMETRY_SCHEMA_VERSION;
 }
 
+function validPropertyPrivacy(name: string, value: unknown): boolean {
+  const rules = registry.privacyValidation;
+  if (rules.registeredEventProperties.includes(name) && (typeof value !== "string" || !contracts.has(value))) return false;
+  if (rules.routeProperties.includes(name) && (typeof value !== "string" || !rules.routes.includes(value))) return false;
+  const patterns: Record<string, string | undefined> = rules.propertyPatterns;
+  if (patterns[name] && (typeof value !== "string" || !new RegExp(patterns[name]).test(value))) return false;
+  const enums: Record<string, readonly string[] | undefined> = rules.propertyEnums;
+  return !enums[name] || (typeof value === "string" && enums[name].includes(value));
+}
+
 export function validTelemetryProperties(eventType: string, properties: Record<string, unknown>): boolean {
   const contract = contracts.get(eventType);
   if (!contract
@@ -34,7 +44,7 @@ export function validTelemetryProperties(eventType: string, properties: Record<s
     || contract.requiredProperties.some((name) => !Object.hasOwn(properties, name))) return false;
   return Object.entries(properties).every(([name, value]) => {
     const rule = contract.properties[name];
-    if (!rule) return false;
+    if (!rule || !validPropertyPrivacy(name, value)) return false;
     if (rule.type === "integer" ? !Number.isInteger(value) : typeof value !== rule.type) return false;
     if (typeof value === "number" && (!Number.isFinite(value)
       || value < (rule.minimum ?? -Infinity) || value > (rule.maximum ?? Infinity))) return false;

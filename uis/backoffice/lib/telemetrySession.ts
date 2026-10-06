@@ -23,6 +23,20 @@ export function clearTelemetrySession(): void {
   session = undefined;
 }
 
+export function withTelemetrySessionForExpiry(action: () => void): void {
+  const previous = session;
+  if (previous?.userId) { action(); return; }
+  try {
+    session = {
+      sessionId: previous?.sessionId || crypto.randomUUID(),
+      userId: `anonymous_${crypto.randomUUID()}`, authenticated: false,
+    };
+    action();
+  } finally {
+    session = previous;
+  }
+}
+
 export function getTelemetrySession(): { sessionId: string; userId: string } | undefined {
   if (!session) {
     session = {

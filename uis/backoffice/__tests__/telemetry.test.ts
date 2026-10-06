@@ -119,6 +119,18 @@ describe("telemetry capture and delivery", () => {
     expect(events[1].userId).toBe("b".repeat(64));
   });
 
+  test("rejects sensitive values inside approved fields before sending", async () => {
+    for (let index = 0; index < 20; index++) track("backoffice_page_viewed", {
+      application: "backoffice", route_template: "/account/email-canary@example.com",
+      section: "account", country: "unknown", role_group: "staff",
+    });
+    track("frontend_error_captured", { application: "backoffice", app_version: "0.1.0", route_template: "/", component: "JaneSmith", error_code: "uncaught_error", error_class: "unknown" });
+    await jest.advanceTimersByTimeAsync(10000);
+    expect(fetchMock).not.toHaveBeenCalled();
+    window.dispatchEvent(new Event("pagehide"));
+    expect(beaconMock).not.toHaveBeenCalled();
+  });
+
   test("no configured endpoint disables capture", async () => {
     jest.resetModules();
     delete process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT;
@@ -126,6 +138,20 @@ describe("telemetry capture and delivery", () => {
     disabledTrack("auth_logout_completed", properties);
     await jest.advanceTimersByTimeAsync(20000);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("expired restored sessions emit anonymously once without enabling normal authenticated capture", async () => {
+    session.beginTelemetrySession(undefined, true);
+    const { reportSessionExpired } = await import("../lib/telemetryAuth");
+    reportSessionExpired();
+    reportSessionExpired();
+    track("auth_logout_completed", properties);
+    await jest.advanceTimersByTimeAsync(10000);
+    const events = JSON.parse(fetchMock.mock.calls[0][1].body).events;
+    expect(events).toHaveLength(1);
+    expect(events[0].event_type).toBe("auth_session_expired");
+    expect(events[0].userId).toMatch(/^anonymous_/);
+    expect(session.getTelemetrySession()).toBeUndefined();
   });
 
   test("events captured during a request stay in a separate batch", async () => {

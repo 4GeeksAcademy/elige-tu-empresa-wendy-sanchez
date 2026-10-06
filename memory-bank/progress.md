@@ -2,6 +2,11 @@
 
 ## Estado actual del desarrollo
 
+### Telemetría: brechas de auditoría corregidas (2026-10-06)
+- Privacidad de valores y formato temporal reforzados en ambas fronteras; expiración sin HMAC válido deja de perderse.
+- Entrega de hechos obligatorios independiente del cliente: cola backend, lotes, reintentos y deduplicación de caducidad posterior a recepción confirmada; el stub no almacena eventos.
+- 152 pruebas backend y 59 frontend pasan. Tipos focalizados y lint correctos; quedan cuatro errores globales ajenos y verificación integral de navegador pendiente. Detalle añadido al final del plan de telemetría.
+
 ### Telemetría: fase 1 completada (2026-10-06)
 - Router receptor y modelo Pydantic cerrados, validación contra `docs/telemetry/event-schemas.json`, logs mínimos y ninguna escritura en base de datos.
 - `TELEMETRY_ENDPOINT` leído al iniciar; catálogo empaquetado para Docker. 16 pruebas focalizadas pasan, incluidos los cinco contratos obligatorios y el montaje en la app real.

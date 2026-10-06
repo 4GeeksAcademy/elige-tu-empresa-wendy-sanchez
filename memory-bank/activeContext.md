@@ -2,6 +2,13 @@
 
 ## Entregables activos en el repositorio
 
+### Telemetría: correcciones de auditoría (2026-10-06)
+- Reglas de privacidad compartidas cierran valores sensibles en campos allowlisted; timestamp ISO estricto y expiración restaurada con identidad efímera segura.
+- Productor `services/api/telemetry_delivery.py` captura señales en origen y las envía por lotes sin depender del navegador. Caducidad se deduplica tras acuse del stub. Cola en memoria, sin almacenamiento analítico.
+- Proxy frontend delega HTTP a `TelemetryService.server.ts`; componentes siguen usando solo `track()`.
+- Verificado: 152 pruebas backend y 59 frontend; integración real de middleware → lote de cinco obligatorios + alta → stub 200. Canario de auditoría bloqueado.
+- Pendientes: recorrido completo en Chromium, cuatro errores TypeScript preexistentes y persistencia/outbox futura. Reiniciar backend para activar el nuevo worker.
+
 ### Telemetría: conectividad de navegador (2026-10-06)
 - Endpoints públicos loopback pasan por `/api/telemetry/events` del backoffice, evitando apuntar al localhost del operador en Codespaces. Colectores externos mantienen su URL.
 - Proxy con `TELEMETRY_ENDPOINT` de servidor y soporte de backend interno mediante `SUPPLIERS_API_URL`; no reenvía cookies ni Authorization al colector.

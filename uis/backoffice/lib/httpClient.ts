@@ -25,6 +25,7 @@
 import { getToken, removeToken } from "./auth";
 import { captureApiResult, captureResponseSignals } from "./telemetryApi";
 import { reportSessionExpired } from "./telemetryAuth";
+import { getTelemetrySession } from "./telemetrySession";
 
 // ── Tipos auxiliares ──────────────────────────────────────────────────
 
@@ -119,6 +120,10 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
 
   const requestId = crypto.randomUUID();
   headers["X-Request-ID"] = requestId;
+  if (typeof window !== "undefined") {
+    const session = getTelemetrySession();
+    if (session) headers["X-Telemetry-Session"] = session.sessionId;
+  }
   const start = performance.now();
   let response: Response;
   try {

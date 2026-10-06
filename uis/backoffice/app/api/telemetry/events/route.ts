@@ -1,3 +1,5 @@
+import { forwardTelemetryBatch } from "@/lib/TelemetryService.server";
+
 export async function POST(request: Request): Promise<Response> {
   const configured = process.env.TELEMETRY_ENDPOINT ?? process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT;
   let endpoint: URL;
@@ -19,16 +21,5 @@ export async function POST(request: Request): Promise<Response> {
   if (new TextEncoder().encode(body).length > 819200) {
     return Response.json({ detail: "Lote de telemetría demasiado grande." }, { status: 413 });
   }
-  try {
-    const upstream = await fetch(endpoint, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body,
-      cache: "no-store", credentials: "omit", signal: AbortSignal.timeout(10000),
-    });
-    return new Response(await upstream.arrayBuffer(), {
-      status: upstream.status,
-      headers: { "Content-Type": upstream.headers.get("Content-Type") ?? "application/json" },
-    });
-  } catch {
-    return Response.json({ detail: "El receptor de telemetría no está disponible." }, { status: 502 });
-  }
+  return forwardTelemetryBatch(endpoint, body);
 }

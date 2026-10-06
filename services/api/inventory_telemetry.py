@@ -7,7 +7,8 @@ from fastapi import Response
 from sqlmodel import Session
 
 from models import InventoryAlertState, MedicalSupply
-from telemetry import CONTRACTS, validate_property
+from telemetry import CONTRACTS, validate_property, validate_property_privacy
+from telemetry_delivery import enqueue_signal
 
 CATEGORIES = {"ppe": "ppe", "medications": "medication", "consumables": "consumable", "wound_care": "consumable", "diagnostics": "consumable"}
 logger = logging.getLogger("api.telemetry")
@@ -18,7 +19,7 @@ def dimensions(supply: MedicalSupply, clinic_id: int, quantity: int) -> dict:
             "product_id": supply.id, "product_category": CATEGORIES.get(supply.category, ""), "quantity": quantity}
 
 
-def signal(event_type: str, properties: dict) -> dict | None:
+def signal(event_type: str, properties: dict, dedup_key: str | None = None) -> dict | None:
     contract = CONTRACTS[event_type]
     if set(properties) - set(contract["propertiesAllowlist"]) or set(contract["requiredProperties"]) - set(properties):
         logger.warning("Telemetry signal dropped: contract")
@@ -26,11 +27,20 @@ def signal(event_type: str, properties: dict) -> dict | None:
     try:
         for name, value in properties.items():
             validate_property(value, contract["properties"][name])
+            validate_property_privacy(name, value)
     except (ValueError, TypeError):
         logger.warning("Telemetry signal dropped: properties")
         return None
-    return {"event_type": event_type, "properties": properties, "eventId": str(uuid4()),
-            "timestamp": datetime.now(timezone.utc).isoformat()}
+    event = {"event_type": event_type, "properties": properties, "eventId": str(uuid4()),
+             "timestamp": datetime.now(timezone.utc).isoformat()}
+    if dedup_key:
+        event["_dedup_key"] = dedup_key
+    try:
+        if enqueue_signal(event):
+            event["_server_owned"] = True
+    except Exception:
+        logger.warning("Telemetry signal discarded: enqueue")
+    return event
 
 
 def attach_signals(response: Response, signals: list[dict]) -> None:
@@ -61,8 +71,9 @@ def expiry_signals(supply: MedicalSupply, session: Session, stock_for_clinic) ->
         quantity = stock_for_clinic(supply.id, session, clinic_id)
         key = f"expiry:{supply.id}:{clinic_id}:{supply.expiry_date.isoformat()}"
         if quantity > 0 and session.get(InventoryAlertState, key) is None:
-            session.add(InventoryAlertState(key=key))
-            events.append(signal("supply_expiry_flagged", {
+            event = signal("supply_expiry_flagged", {
                 **dimensions(supply, clinic_id, quantity), "days_to_expiry": days, "expiry_window_days": 30,
-            }))
+            }, dedup_key=key)
+            if event:
+                events.append(event)
     return events

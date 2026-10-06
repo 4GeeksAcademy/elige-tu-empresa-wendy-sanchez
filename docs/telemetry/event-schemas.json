@@ -1,6 +1,18 @@
 {
 	"format": "healthcore-event-registry",
 	"formatVersion": "1.0.0",
+	"privacyValidation": {
+		"registeredEventProperties": ["event_type"],
+		"routeProperties": ["route_template", "source_route", "target_route"],
+		"routes": ["/", "/other", "/login", "/register", "/forgot-password", "/reset-password", "/suppliers", "/suppliers/{id}", "/api/suppliers", "/api/suppliers/{id}", "/inventory/products", "/inventory/products/{id}", "/inventory/products/{id}/policy", "/inventory/products/{id}/stock", "/inventory/orders", "/inventory/orders/inbound", "/inventory/orders/outbound", "/auth/login", "/auth/me", "/auth/forgot-password", "/auth/reset-password", "/auth/change-password", "/users", "/users/{id}", "/profiles/me", "/incidents", "/incidents/{id}", "/incidents/list", "/incidents/register", "/incidents/summary", "/incidents/analyze", "/incidents-manager", "/api/incidents", "/api/incidents/{id}", "/api/incidents/summary", "/api/incidents/analyze", "/api/incidents/analyze/sample", "/api/incidents/results/export", "/account/profile", "/account/change-password", "/candidates", "/candidates/{id}", "/candidates/new", "/candidates/{id}/edit"],
+		"propertyPatterns": {
+			"app_version": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+			"threshold_version": "^(?:[a-f0-9]{32}|[0-9]+)$",
+			"snapshot_date": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+			"error_code": "^(?:http_[45][0-9]{2}|network_error|uncaught_error|unhandled_rejection|unknown_error|render_error|request_failed|timeout|dependency_error)$"
+		},
+		"propertyEnums": {"component": ["window", "TelemetryObserver", "AuthGuard", "InventoryPolicyForm", "unknown"]}
+	},
 	"description": "Registro personalizado de contratos de telemetría. Cada evento se valida contra envelope.required y contra su allowlist; las propiedades adicionales se rechazan. Este archivo es un catálogo validable por un validador que aplique las reglas documentadas.",
 	"validationRules": {
 		"envelopeAdditionalProperties": false,

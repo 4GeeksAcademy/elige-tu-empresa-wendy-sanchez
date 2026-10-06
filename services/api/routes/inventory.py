@@ -10,14 +10,14 @@ import logging
 import json
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlmodel import Session, func, select
 
 from cache import cache
 from database import get_db
 from models import MedicalSupply, StockPolicy, SupplyConsumption, SupplyDelivery
 from inventory_telemetry import CATEGORIES, attach_signals, capture_expiry, dimensions, signal
-from telemetry_identity import vendor_pseudonym
+from telemetry_identity import user_pseudonym, vendor_pseudonym
 from schemas import (
     MedicalSupplyCreate,
     MedicalSupplyResponse,
@@ -34,7 +34,11 @@ from security import get_current_user
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/inventory", tags=["inventory"])
+def inventory_actor(request: Request, current_user=Depends(get_current_user)):
+    request.state.telemetry_user_id = user_pseudonym(current_user.id)
+
+
+router = APIRouter(prefix="/inventory", tags=["inventory"], dependencies=[Depends(inventory_actor)])
 
 # ── Constantes de caché ──────────────────────────────────────────────
 # TTL de 30 segundos para listado de productos: el catálogo de suministros
