@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  turbopack: { root: path.resolve(__dirname, "../..") },
   experimental: {
     externalDir: true,
     optimizePackageImports: ["@/components", "@/lib", "@/types"],
@@ -16,7 +18,7 @@ const nextConfig: NextConfig = {
       // Proxy /api/inventory/* → HealthCore API (nombre Docker: backend)
       {
         source: "/api/inventory/:path*",
-        destination: "http://backend:8000/inventory/:path*",
+        destination: `${process.env.SUPPLIERS_API_URL ?? "http://backend:8000"}/inventory/:path*`,
       },
     ];
   },

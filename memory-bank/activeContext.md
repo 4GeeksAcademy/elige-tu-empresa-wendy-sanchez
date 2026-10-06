@@ -2,6 +2,11 @@
 
 ## Entregables activos en el repositorio
 
+### Telemetría: conectividad de navegador (2026-10-06)
+- Endpoints públicos loopback pasan por `/api/telemetry/events` del backoffice, evitando apuntar al localhost del operador en Codespaces. Colectores externos mantienen su URL.
+- Proxy con `TELEMETRY_ENDPOINT` de servidor y soporte de backend interno mediante `SUPPLIERS_API_URL`; no reenvía cookies ni Authorization al colector.
+- Verificado: 14 pruebas focalizadas y lint pasan; lote real de dos eventos responde 200 a través de Next.js. El recorrido completo de navegador de fases 3/4 sigue sin completarse.
+
 ### Telemetría: fase 1 (2026-10-06)
 - Stub `POST /telemetry/events` en router propio: valida lotes y contratos del catálogo, registra solo cantidad/tipos y responde `{ "received": N }` sin persistencia.
 - `TelemetryEvent` reutilizable en `services/api/telemetry.py`; configuración backend mediante `TELEMETRY_ENDPOINT`. Catálogo incluido en la imagen Docker.

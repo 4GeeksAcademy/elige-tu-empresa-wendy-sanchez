@@ -23,9 +23,13 @@ const contracts = new Map<string, Contract>(
   registry.events.map((contract) => [contract.event_type, contract]),
 );
 
+export function telemetrySchemaVersion(eventType: string): string {
+  return contracts.get(eventType)?.schemaVersion ?? TELEMETRY_SCHEMA_VERSION;
+}
+
 export function validTelemetryProperties(eventType: string, properties: Record<string, unknown>): boolean {
   const contract = contracts.get(eventType);
-  if (!contract || contract.schemaVersion !== TELEMETRY_SCHEMA_VERSION
+  if (!contract
     || !properties || Array.isArray(properties)
     || contract.requiredProperties.some((name) => !Object.hasOwn(properties, name))) return false;
   return Object.entries(properties).every(([name, value]) => {

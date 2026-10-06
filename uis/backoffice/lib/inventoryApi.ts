@@ -12,6 +12,7 @@
  */
 
 import { request } from "./httpClient";
+import { track } from "./telemetry";
 
 // ── Tipos ─────────────────────────────────────────────────────────────
 
@@ -23,6 +24,7 @@ export interface MedicalSupply {
   unit: string;
   country: string;
   current_stock: number;
+  expiry_date?: string | null;
 }
 
 export interface SupplyDeliveryCreate {
@@ -47,6 +49,7 @@ export interface SupplyConsumptionCreate {
   quantity: number;
   consumption_type: string;
   clinic_id: number;
+  department: string;
 }
 
 export interface SupplyConsumptionResponse {
@@ -139,7 +142,7 @@ function apiPath(endpoint: string): string {
 // ApiError, ValidationIssue están ahora en ./httpClient.ts (único punto de mantenimiento).
 
 async function requestInventory<T>(path: string, init?: RequestInit): Promise<T> {
-  return request<T>(apiPath(path), init);
+  return request<T>(apiPath(path), { ...init, headers: { "Content-Type": "application/json", ...init?.headers } });
 }
 
 // ── Endpoints ─────────────────────────────────────────────────────────
@@ -150,8 +153,27 @@ export function fetchProducts(): Promise<MedicalSupply[]> {
 }
 
 /** Obtiene un suministro por ID con su stock calculado. GET /inventory/products/{id} */
-export function fetchProduct(id: number): Promise<MedicalSupply> {
-  return requestInventory<MedicalSupply>(`/inventory/products/${id}`);
+export async function fetchProduct(id: number, clinicId?: number): Promise<MedicalSupply> {
+  const start = performance.now();
+  let result = "error";
+  try {
+    const product = await requestInventory<MedicalSupply>(`/inventory/products/${id}${clinicId ? `?clinic_id=${clinicId}` : ""}`);
+    result = "success";
+    return product;
+  } finally {
+    if (clinicId && clinicId >= 1 && clinicId <= 12) track("inventory_product_lookup_completed", {
+      clinic_id: clinicId, country: clinicId <= 9 ? "US" : "UK", product_id: id, operation: "outbound",
+      duration_ms: Math.min(120000, Math.max(0, Math.round(performance.now() - start))), result,
+    });
+  }
+}
+
+export function updateStockPolicy(id: number, payload: { clinic_id: number; minimum_quantity: number; expiry_date?: string | null }): Promise<MedicalSupply> {
+  return requestInventory(`/inventory/products/${id}/policy`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+}
+
+export function requestDirectStockEdit(id: number, clinicId: number, quantity: number): Promise<never> {
+  return requestInventory(`/inventory/products/${id}/stock`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clinic_id: clinicId, quantity }) });
 }
 
 /** Registra un nuevo suministro médico. POST /inventory/products */

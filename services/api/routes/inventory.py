@@ -7,13 +7,17 @@ Requiere autenticación JWT en todas las operaciones de escritura y lectura
 from __future__ import annotations
 
 import logging
+import json
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlmodel import Session, func, select
 
 from cache import cache
 from database import get_db
-from models import MedicalSupply, SupplyConsumption, SupplyDelivery
+from models import MedicalSupply, StockPolicy, SupplyConsumption, SupplyDelivery
+from inventory_telemetry import CATEGORIES, attach_signals, capture_expiry, dimensions, signal
+from telemetry_identity import vendor_pseudonym
 from schemas import (
     MedicalSupplyCreate,
     MedicalSupplyResponse,
@@ -23,6 +27,8 @@ from schemas import (
     SupplyConsumptionResponse,
     SupplyDeliveryCreate,
     SupplyDeliveryResponse,
+    StockPolicyUpdate,
+    DirectStockAttempt,
 )
 from security import get_current_user
 
@@ -42,13 +48,14 @@ _INVENTORY_CACHE_PREFIX = "inventory:products"
 
 
 def _compute_current_stock(
-    supply_id: int, session: Session
+    supply_id: int, session: Session, clinic_id: int | None = None
 ) -> int:
     """Calcula current_stock = SUM(deliveries) - SUM(consumptions) para un supply."""
     total_in = (
         session.exec(
             select(func.coalesce(func.sum(SupplyDelivery.quantity), 0)).where(
-                SupplyDelivery.supply_id == supply_id
+                SupplyDelivery.supply_id == supply_id,
+                True if clinic_id is None else SupplyDelivery.clinic_id == clinic_id,
             )
         ).one()
         or 0
@@ -56,7 +63,8 @@ def _compute_current_stock(
     total_out = (
         session.exec(
             select(func.coalesce(func.sum(SupplyConsumption.quantity), 0)).where(
-                SupplyConsumption.supply_id == supply_id
+                SupplyConsumption.supply_id == supply_id,
+                True if clinic_id is None else SupplyConsumption.clinic_id == clinic_id,
             )
         ).one()
         or 0
@@ -80,6 +88,7 @@ def _invalidate_product_cache() -> None:
 
 @router.get("/products", response_model=list[MedicalSupplyResponse])
 def list_products(
+    response: Response,
     session: Session = Depends(get_db),
     _current_user=Depends(get_current_user),
 ) -> list[MedicalSupplyResponse]:
@@ -96,8 +105,10 @@ def list_products(
     logger.debug("Cache MISS: recomputing product list")
     supplies = session.exec(select(MedicalSupply)).all()
     result: list[MedicalSupplyResponse] = []
+    events = []
     for s in supplies:
         stock = _compute_current_stock(s.id, session)
+        events.extend(capture_expiry(s, session, _compute_current_stock))
         result.append(
             MedicalSupplyResponse(
                 id=s.id,
@@ -107,9 +118,11 @@ def list_products(
                 unit=s.unit,
                 country=s.country,
                 current_stock=stock,
+                expiry_date=s.expiry_date,
             )
         )
 
+    attach_signals(response, events)
     cache.set(cache_key, result, _INVENTORY_CACHE_TTL)
     return result
 
@@ -117,6 +130,7 @@ def list_products(
 @router.post("/products", response_model=MedicalSupplyResponse, status_code=status.HTTP_201_CREATED)
 def create_product(
     payload: MedicalSupplyCreate,
+    response: Response,
     session: Session = Depends(get_db),
     _current_user=Depends(get_current_user),
 ) -> MedicalSupplyResponse:
@@ -137,12 +151,18 @@ def create_product(
         category=payload.category,
         unit=payload.unit,
         country=payload.country,
+        expiry_date=payload.expiry_date,
     )
     session.add(supply)
     session.commit()
     session.refresh(supply)
 
     _invalidate_product_cache()
+
+    attach_signals(response, [signal("inventory_product_created", {
+        "product_id": supply.id, "product_category": CATEGORIES.get(supply.category, ""),
+        "country": supply.country, "unit_category": supply.unit,
+    })])
 
     return MedicalSupplyResponse(
         id=supply.id,
@@ -152,12 +172,15 @@ def create_product(
         unit=supply.unit,
         country=supply.country,
         current_stock=0,
+        expiry_date=supply.expiry_date,
     )
 
 
 @router.get("/products/{supply_id}", response_model=MedicalSupplyResponse)
 def get_product(
     supply_id: int,
+    response: Response,
+    clinic_id: int | None = None,
     session: Session = Depends(get_db),
     _current_user=Depends(get_current_user),
 ) -> MedicalSupplyResponse:
@@ -169,7 +192,11 @@ def get_product(
             detail=f"Supply with id {supply_id} not found",
         )
 
-    stock = _compute_current_stock(supply.id, session)
+    if clinic_id is not None and not 1 <= clinic_id <= 12:
+        raise HTTPException(status_code=422, detail="Invalid clinic")
+    stock = _compute_current_stock(supply.id, session, clinic_id)
+    events = capture_expiry(supply, session, _compute_current_stock)
+    attach_signals(response, events)
     return MedicalSupplyResponse(
         id=supply.id,
         name=supply.name,
@@ -178,6 +205,7 @@ def get_product(
         unit=supply.unit,
         country=supply.country,
         current_stock=stock,
+        expiry_date=supply.expiry_date,
     )
 
 
@@ -191,6 +219,7 @@ def get_product(
 )
 def create_inbound_order(
     payload: SupplyDeliveryCreate,
+    response: Response,
     session: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> SupplyDeliveryResponse:
@@ -215,6 +244,12 @@ def create_inbound_order(
 
     _invalidate_product_cache()
 
+    events = [signal("inbound_order_created", {
+        **dimensions(supply, payload.clinic_id, payload.quantity), "vendor_ref": vendor_pseudonym(payload.vendor_name),
+    })]
+    events.extend(capture_expiry(supply, session, _compute_current_stock))
+    attach_signals(response, events)
+
     return SupplyDeliveryResponse(
         id=delivery.id,
         supply_id=delivery.supply_id,
@@ -236,6 +271,7 @@ def create_inbound_order(
 )
 def create_outbound_order(
     payload: SupplyConsumptionCreate,
+    response: Response,
     session: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ) -> SupplyConsumptionResponse:
@@ -243,7 +279,7 @@ def create_outbound_order(
 
     Rechaza la operación si resultara en stock negativo (HTTP 400).
     """
-    supply = session.get(MedicalSupply, payload.supply_id)
+    supply = session.exec(select(MedicalSupply).where(MedicalSupply.id == payload.supply_id).with_for_update()).first()
     if supply is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -251,7 +287,7 @@ def create_outbound_order(
         )
 
     # Calcular stock disponible antes de registrar
-    available = _compute_current_stock(payload.supply_id, session)
+    available = _compute_current_stock(payload.supply_id, session, payload.clinic_id)
     if available < payload.quantity:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -259,12 +295,16 @@ def create_outbound_order(
                 f"Insufficient stock for supply '{supply.name}'. "
                 f"Available: {available}, requested: {payload.quantity}."
             ),
+            headers={"X-Telemetry-Events": json.dumps([signal("inventory_order_rejected", {
+                **dimensions(supply, payload.clinic_id, payload.quantity), "operation": "outbound", "rejection_code": "insufficient_stock",
+            })])},
         )
 
     consumption = SupplyConsumption(
         supply_id=payload.supply_id,
         quantity=payload.quantity,
         consumption_type=payload.consumption_type,
+        department=payload.department,
         clinic_id=payload.clinic_id,
         user_uuid=str(current_user.id),
     )
@@ -274,6 +314,24 @@ def create_outbound_order(
 
     _invalidate_product_cache()
 
+    events = [signal("outbound_order_created", {
+        **dimensions(supply, payload.clinic_id, payload.quantity), "department": payload.department,
+        "consumption_type": payload.consumption_type,
+    })]
+    try:
+        policy = session.get(StockPolicy, (payload.supply_id, payload.clinic_id))
+    except Exception:
+        session.rollback()
+        logger.warning("Telemetry signal dropped: stock_policy_read")
+        policy = None
+    remaining = available - payload.quantity
+    if policy and available >= policy.minimum_quantity > remaining:
+        events.append(signal("stock_threshold_triggered", {
+            **dimensions(supply, payload.clinic_id, remaining), "threshold_quantity": policy.minimum_quantity,
+            "threshold_version": policy.version,
+        }))
+    attach_signals(response, events)
+
     return SupplyConsumptionResponse(
         id=consumption.id,
         supply_id=consumption.supply_id,
@@ -282,7 +340,41 @@ def create_outbound_order(
         clinic_id=consumption.clinic_id,
         created_at=consumption.created_at,
         user_uuid=consumption.user_uuid,
+        department=consumption.department,
     )
+
+
+@router.put("/products/{supply_id}/policy", response_model=MedicalSupplyResponse)
+def update_stock_policy(supply_id: int, payload: StockPolicyUpdate, session: Session = Depends(get_db), _current_user=Depends(get_current_user)):
+    supply = session.get(MedicalSupply, supply_id)
+    if supply is None:
+        raise HTTPException(status_code=404, detail="Unknown supply")
+    policy = session.get(StockPolicy, (supply_id, payload.clinic_id))
+    if policy is None:
+        policy = StockPolicy(supply_id=supply_id, clinic_id=payload.clinic_id, minimum_quantity=payload.minimum_quantity, version=uuid4().hex)
+    else:
+        policy.minimum_quantity = payload.minimum_quantity
+        policy.version = uuid4().hex
+    if "expiry_date" in payload.model_fields_set:
+        supply.expiry_date = payload.expiry_date
+    session.add(policy)
+    session.add(supply)
+    session.commit()
+    session.refresh(supply)
+    _invalidate_product_cache()
+    return MedicalSupplyResponse(**supply.model_dump(), current_stock=_compute_current_stock(supply_id, session))
+
+
+@router.patch("/products/{supply_id}/stock", response_model=dict)
+@router.put("/products/{supply_id}/stock", response_model=dict)
+def reject_direct_stock(supply_id: int, payload: DirectStockAttempt, session: Session = Depends(get_db), _current_user=Depends(get_current_user)):
+    supply = session.get(MedicalSupply, supply_id)
+    if supply is None:
+        raise HTTPException(status_code=404, detail="Unknown supply")
+    event = signal("direct_stock_edit_rejected", {
+        **dimensions(supply, payload.clinic_id, payload.quantity), "rejection_code": "direct_edit_not_allowed", "source_surface": "api",
+    })
+    raise HTTPException(status_code=403, detail="Stock changes require an order", headers={"X-Telemetry-Events": json.dumps([event])})
 
 
 # ── List all orders ───────────────────────────────────────────────────

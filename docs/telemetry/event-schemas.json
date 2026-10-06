@@ -340,7 +340,7 @@
 		},
 		{
 			"event_type": "auth_login_failed",
-			"schemaVersion": "1.0.0",
+			"schemaVersion": "1.1.0",
 			"category": "authentication",
 			"classification": "identified_opportunity",
 			"description": "Intento de login rechazado, clasificado sin registrar el identificador usado.",
@@ -349,7 +349,7 @@
 			"requiredProperties": ["application", "failure_code", "auth_method", "rate_limited"],
 			"properties": {
 				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación que recibió el intento."},
-				"failure_code": {"type": "string", "enum": ["authentication_rejected", "invalid_token", "service_error"], "description": "Clase normalizada; credenciales incorrectas y cuentas inactivas se agrupan para no revelar existencia/estado de cuenta."},
+				"failure_code": {"type": "string", "enum": ["authentication_rejected", "invalid_token", "service_error", "invalid_credentials", "session_expired", "network_error"], "description": "Razón normalizada; invalid_credentials agrupa credenciales incorrectas y cuentas inactivas sin revelar existencia/estado de cuenta. session_expired y network_error no contienen identificadores ni mensajes crudos."},
 				"auth_method": {"type": "string", "enum": ["password", "sso", "other"], "description": "Método normalizado."},
 				"rate_limited": {"type": "boolean", "description": "Indica si el limitador bloqueó la solicitud."}
 			},

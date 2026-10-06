@@ -6,7 +6,7 @@ un objeto ORM directamente desde un endpoint.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -22,6 +22,7 @@ class MedicalSupplyCreate(BaseModel):
     category: str = Field(min_length=1, max_length=50)
     unit: str = Field(min_length=1, max_length=20)
     country: str = Field(min_length=2, max_length=2)
+    expiry_date: date | None = None
 
     @field_validator("country")
     @classmethod
@@ -57,6 +58,7 @@ class MedicalSupplyResponse(BaseModel):
     unit: str
     country: str
     current_stock: int = 0
+    expiry_date: date | None = None
 
 
 # ── SupplyDelivery ────────────────────────────────────────────────────
@@ -90,6 +92,14 @@ class SupplyConsumptionCreate(BaseModel):
     quantity: int = Field(gt=0)
     consumption_type: str = Field(min_length=1, max_length=20)
     clinic_id: int = Field(ge=1, le=12)
+    department: str
+
+    @field_validator("department")
+    @classmethod
+    def validate_department(cls, value: str) -> str:
+        if value not in {"primary_care", "specialist", "chronic_care", "preventive", "behavioral_health", "operations", "other"}:
+            raise ValueError("Invalid department")
+        return value
 
     @field_validator("consumption_type")
     @classmethod
@@ -109,6 +119,18 @@ class SupplyConsumptionResponse(BaseModel):
     clinic_id: int
     created_at: datetime
     user_uuid: str
+    department: str | None = None
+
+
+class StockPolicyUpdate(BaseModel):
+    clinic_id: int = Field(ge=1, le=12)
+    minimum_quantity: int = Field(ge=0)
+    expiry_date: date | None = None
+
+
+class DirectStockAttempt(BaseModel):
+    clinic_id: int = Field(ge=1, le=12)
+    quantity: int = Field(gt=0)
 
 
 # ── Order listing ─────────────────────────────────────────────────────

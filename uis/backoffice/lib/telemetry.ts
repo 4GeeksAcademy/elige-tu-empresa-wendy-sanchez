@@ -1,6 +1,8 @@
 import { getTelemetrySession } from "./telemetrySession";
+import { telemetryEnvelopeContext } from "./telemetryContext";
+import { browserTelemetryEndpoint } from "./telemetryEndpoint";
 import {
-  TELEMETRY_MAX_EVENT_BYTES, TELEMETRY_SCHEMA_VERSION, validTelemetryProperties,
+  TELEMETRY_MAX_EVENT_BYTES, telemetrySchemaVersion, validTelemetryProperties,
 } from "./telemetryContracts";
 
 interface TelemetryEvent {
@@ -23,7 +25,7 @@ const FLUSH_INTERVAL_MS = 10_000;
 const MAX_BATCH_BYTES = 48_000;
 const MAX_QUEUE_SIZE = 200;
 const MAX_RETRIES = 3;
-const endpoint = process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT;
+const endpoint = browserTelemetryEndpoint(process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT);
 const queue: TelemetryEvent[] = [];
 let pending: PendingBatch | undefined;
 let sending = false;
@@ -57,7 +59,7 @@ async function flush(): Promise<void> {
     const response = await fetch(endpoint, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ events: batch.events }), signal: abortController.signal,
-      credentials: "omit",
+      credentials: endpoint.startsWith("/") ? "same-origin" : "omit",
     });
     if (!response.ok) throw new Error("telemetry_delivery_failed");
     if (pending === batch) pending = undefined;
@@ -134,9 +136,10 @@ export function track(eventType: string, properties: Record<string, unknown>): v
       return;
     }
     const event: TelemetryEvent = {
-      ...session, eventId: crypto.randomUUID(), timestamp: new Date().toISOString(),
-      event_type: eventType, schemaVersion: TELEMETRY_SCHEMA_VERSION,
-      requestId: crypto.randomUUID(), properties: { ...properties },
+      ...session, eventId: telemetryEnvelopeContext()?.eventId ?? crypto.randomUUID(),
+      timestamp: telemetryEnvelopeContext()?.timestamp ?? new Date().toISOString(),
+      event_type: eventType, schemaVersion: telemetrySchemaVersion(eventType),
+      requestId: telemetryEnvelopeContext()?.requestId ?? crypto.randomUUID(), properties: { ...properties },
     };
     if (new Blob([JSON.stringify(event)]).size > TELEMETRY_MAX_EVENT_BYTES
       || queue.length + (pending?.events.length ?? 0) >= MAX_QUEUE_SIZE) {

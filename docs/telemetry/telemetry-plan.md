@@ -239,3 +239,13 @@ Los avances de implementación se documentan aquí, después del plan original y
 - El catálogo se incluye en `uis/Dockerfile` para resolver la misma fuente de contratos dentro de la imagen.
 - Verificación: diez pruebas focalizadas de telemetría y las 46 pruebas de la suite del backoffice pasan; chequeo TypeScript focalizado sin errores. El typecheck global sigue fallando por 11 errores ajenos a esta fase (pruebas de proveedores, imports compartidos de la página principal y resumen de incidencias). Lint confirma un aviso preexistente en el efecto de `AuthContext`; los archivos nuevos no presentan errores.
 - Pruebas: `cd uis/backoffice && npm test -- --runInBand`. La instalación local de dependencias reportó 28 vulnerabilidades; no se actualizaron dependencias ni lockfiles dentro de esta fase.
+
+### Corrección de conectividad: localhost en Codespaces
+
+- El navegador del operador no comparte `localhost` con el contenedor. Una URL pública `http://localhost:8000/telemetry/events` puede producir `net::ERR_CONNECTION_REFUSED` aunque FastAPI esté activo en Codespaces.
+- `telemetryEndpoint.ts` transforma endpoints loopback en `/api/telemetry/events`, tanto para `fetch` como para `sendBeacon`. Las URLs externas HTTP/HTTPS se conservan y continúan controladas por `NEXT_PUBLIC_TELEMETRY_ENDPOINT`.
+- El route handler de Next.js reenvía el lote completo al receptor. `TELEMETRY_ENDPOINT` configura el destino del servidor y tiene prioridad; sin él, un endpoint público local usa `SUPPLIERS_API_URL` si está definido, permitiendo `http://backend:8000` en Docker.
+- El request del navegador al proxy permite únicamente credenciales de mismo origen para acceder a puertos privados de Codespaces. El proxy nunca reenvía cookies ni `Authorization` al colector. Un colector externo recibe requests con `credentials: omit`.
+- Un receptor caído devuelve `502` desde el proxy y activa los reintentos acotados existentes; no se altera el resultado de operaciones de negocio. Se conserva el código `422` del stub para lotes inválidos.
+- Verificación: 14 pruebas focalizadas pasan y lint del cambio sin errores. Una petición real a `http://127.0.0.1:3001/api/telemetry/events` devolvió `200` con `{ "received": 2 }`. Esta comprobación valida el transporte, no sustituye el recorrido completo de instrumentación en navegador.
+- Tras cargar esta corrección, recargar el backoffice. En Network, el destino local esperado es la ruta `/api/telemetry/events` del propio backoffice, no `localhost:8000` del equipo del operador.

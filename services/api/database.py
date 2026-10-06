@@ -60,6 +60,8 @@ def init_supabase_schema() -> None:
         return
     engine = get_sql_engine()
     SQLModel.metadata.create_all(engine)
+    from inventory_migration import migrate_inventory
+    migrate_inventory(engine)
 
 
 # ── TinyDB existing ──────────────────────────────────────────────────

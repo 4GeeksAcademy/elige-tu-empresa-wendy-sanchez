@@ -23,6 +23,8 @@
  */
 
 import { getToken, removeToken } from "./auth";
+import { captureApiResult, captureResponseSignals } from "./telemetryApi";
+import { reportSessionExpired } from "./telemetryAuth";
 
 // ── Tipos auxiliares ──────────────────────────────────────────────────
 
@@ -85,6 +87,7 @@ export function extractErrorMessage(payload: unknown, fallback: string): string 
 
 function handle401(): void {
   if (typeof window !== "undefined") {
+    reportSessionExpired();
     removeToken();
     window.location.href = "/login";
   }
@@ -114,10 +117,18 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch(url, {
-    ...init,
-    headers,
-  });
+  const requestId = crypto.randomUUID();
+  headers["X-Request-ID"] = requestId;
+  const start = performance.now();
+  let response: Response;
+  try {
+    response = await fetch(url, { ...init, headers });
+  } catch (error) {
+    captureApiResult(url, init?.method ?? "GET", 503, performance.now() - start, requestId);
+    throw error;
+  }
+  captureApiResult(url, init?.method ?? "GET", response.status, performance.now() - start, requestId);
+  captureResponseSignals(response, requestId);
 
   if (response.status === 401) {
     handle401();

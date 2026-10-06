@@ -12,7 +12,7 @@ export function beginTelemetrySession(userId?: string, newLogin = false): void {
     if (newLogin || !session?.authenticated || (session.userId && pseudonym && session.userId !== pseudonym)) {
       session = { sessionId: crypto.randomUUID(), userId: pseudonym, authenticated: true };
     } else {
-      session.userId = pseudonym;
+      if (pseudonym) session.userId = pseudonym;
     }
   } catch {
     session = { sessionId: "", authenticated: true };

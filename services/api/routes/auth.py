@@ -7,6 +7,7 @@ import database
 import email_service
 import rate_limiter
 import user_service
+from telemetry_identity import user_pseudonym
 from models import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -52,7 +53,8 @@ def read_me(current_user: User = Depends(get_current_user)) -> MeResponse:
     profile_public = None
     if profile is not None:
         profile_public = ProfilePublic(id=profile.id, name=profile.name, phone=profile.phone, address=profile.address)
-    return MeResponse(email=current_user.email, role=current_user.role, profile=profile_public)
+    return MeResponse(email=current_user.email, role=current_user.role, profile=profile_public,
+                      telemetry_user_id=user_pseudonym(current_user.id))
 
 
 @router.post("/forgot-password", response_model=MessageResponse, status_code=status.HTTP_200_OK)

@@ -53,7 +53,7 @@ describe("telemetry capture and delivery", () => {
     expect(events[0].eventId).not.toBe(events[1].eventId);
     expect(events[0].sessionId).toBe(events[1].sessionId);
     expect(events[0].requestId).toMatch(/^[a-f0-9-]{36}$/);
-    expect(fetchMock.mock.calls[0][1].credentials).toBe("omit");
+    expect(fetchMock.mock.calls[0][1].credentials).toBe("same-origin");
   });
 
   test("flushes twenty events in one request, not one request per event", () => {
@@ -89,7 +89,7 @@ describe("telemetry capture and delivery", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     document.dispatchEvent(new Event("visibilitychange"));
     expect(beaconMock).toHaveBeenCalledTimes(2);
-    expect(beaconMock.mock.calls[0][0]).toBe(ENDPOINT);
+    expect(beaconMock.mock.calls[0][0]).toBe("/api/telemetry/events");
     expect(beaconMock.mock.calls[0][1].type).toBe("application/json");
     document.dispatchEvent(new Event("visibilitychange"));
     expect(beaconMock).toHaveBeenCalledTimes(2);

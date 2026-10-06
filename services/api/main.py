@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from uuid import UUID, uuid4
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -43,6 +44,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Telemetry-Events", "X-Request-ID"],
 )
 
 
@@ -53,15 +55,21 @@ app.add_middleware(
 
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
+    try:
+        request_id = str(UUID(request.headers.get("X-Request-ID", "")))
+    except ValueError:
+        request_id = str(uuid4())
     start = time.perf_counter()
     response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
     duration = (time.perf_counter() - start) * 1000  # ms
     timing_logger.info(
-        "%s %s → %s | %.1fms",
+        "%s %s → %s | %.1fms requestId=%s",
         request.method,
         request.url.path,
         response.status_code,
         duration,
+        request_id,
     )
     return response
 

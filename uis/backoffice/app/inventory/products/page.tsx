@@ -10,6 +10,7 @@ import {
   type MedicalSupply,
 } from "@/lib/inventoryApi";
 import { LoadingSpinner, ErrorMessage, EmptyState } from "@/components/ui";
+import InventoryPolicyForm from "@/components/InventoryPolicyForm";
 
 // ── Mapa de categorías para etiquetas legibles ────────────────────────
 
@@ -85,6 +86,7 @@ export default function InventoryProductsPage() {
         </div>
       </section>
 
+      <InventoryPolicyForm supplies={supplies} />
       {/* Tabla de productos */}
       <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
