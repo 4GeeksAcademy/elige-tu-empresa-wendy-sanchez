@@ -213,7 +213,7 @@ Propagar `requestId` generado en el borde por header confiable; reemplazar valor
 
 Los avances de implementación se documentan aquí, después del plan original y en el orden en que se construyen.
 
-**Estado actual:** Stub, servicio e instrumentación implementados; brechas de privacidad, timestamp, entrega obligatoria y expiración corregidas. Recorrido integral en Chromium pendiente; almacenamiento analítico todavía no implementado.
+**Estado actual:** Stub, servicio e instrumentación implementados; brechas de privacidad, timestamp, entrega obligatoria y expiración corregidas. Control channel refactorizado (2026-10-06). Error 422 resuelto recargando backend. Recorrido integral en Chromium pendiente; almacenamiento analítico todavía no implementado.
 
 ### Fase 1 de implementación: stub receptor
 
@@ -265,6 +265,46 @@ Los avances de implementación se documentan aquí, después del plan original y
 - **Evidencia:** 152 pruebas de backend y 59 de frontend pasan; lint y tipos focalizados del servicio sin errores. La reproducción de la auditoría pasó de enviar el canario a `pii_canary_blocked: true`. Una integración ejecuta las cinco operaciones mediante el middleware real y envía automáticamente seis eventos (cinco obligatorios y alta de producto) al stub, que valida el lote con `200`; la marca de caducidad se verifica antes/después del acuse.
 - **Límites de verificación:** persisten cuatro errores TypeScript preexistentes en pruebas de proveedores y resumen de incidencias, fuera de estas correcciones. `scripts/verify_telemetry_browser.mjs` se adaptó a productores independientes: Network del navegador solo muestra sus lotes; los eventos de servidor se verifican con las pruebas backend. No se certificó todavía el recorrido completo en Chromium.
 - **Operación:** reiniciar FastAPI para activar el worker nuevo y recargar el backoffice. En Docker configurar `TELEMETRY_ENDPOINT=http://backend:8000/telemetry/events` en el backend; en ejecución local usar `http://127.0.0.1:8000/telemetry/events`. El stub sigue sin persistir eventos. La cola en memoria puede perderse al reiniciar; persistencia/outbox, retención y deduplicación final del colector siguen perteneciendo a la fase de almacenamiento.
+
+### Corrección de error 422 en navegador (2026-10-06)
+
+El backoffice en Codespaces mostraba errores HTTP 422 en las peticiones POST a `/api/telemetry/events` desde el navegador.
+
+**Causa raíz:** Existían dos procesos FastAPI ejecutándose simultáneamente en el contenedor:
+- PID 42927 en puerto 8000, iniciado a las 18:01, con código desactualizado
+- PID 104447 en puerto 8400, con código más reciente pero puerto incorrecto
+
+El proxy de Next.js reenviaba al puerto 8000, donde el proceso viejo no tenía las rutas de telemetría completas o validaba con un esquema antiguo.
+
+**Solución:**
+1. Verificar procesos: `ps aux | grep uvicorn`
+2. Matar ambos procesos: `kill 42927 104447`
+3. Reiniciar en puerto 8000 con `--reload` para asegurar código fresco:
+   ```bash
+   cd services/api && TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events uv run uvicorn main:app --port 8000 --reload
+   ```
+4. Verificar OpenAPI `/docs` confirma ambas rutas: `/telemetry/events` y `/telemetry/control`
+5. Recargar backoffice (matar proceso Next.js y reiniciar):
+   ```bash
+   kill <backoffice_pid> && cd uis/backoffice && npm run dev
+   ```
+
+**Verificación:** POST a `http://localhost:3401/api/telemetry/events` devuelve `{"received":1}` con código 200. El navegador ya no muestra errores 422 en la consola de red. Los eventos de telemetría fluyen correctamente.
+
+**Lección:** Al desarrollar en Codespaces, un backend iniciado temprano en la sesión puede quedar ejecutando código antiguo aunque los archivos en disco hayan cambiado. Es necesario reiniciar el proceso explícitamente — el `--reload` de uvicorn ayuda pero solo si el proceso se inició con esa bandera desde el principio. Siempre verificar OpenAPI `/docs` para confirmar que las rutas esperadas están registradas.
+
+### Refactor del canal de control frontend (2026-10-06)
+
+`lib/TelemetryService.control.ts` fue refactorizado para eliminar una violación arquitectónica: tenía su propia cola independiente, fetch pipeline y reintentos enviando a `POST /api/telemetry/control`, lo que quebraba el principio de "única función pública `track()`".
+
+**Cambio aplicado:**
+- `recordTelemetryControl(eventType, properties)` ahora valida propiedades con `validTelemetryProperties()` y llama a `track(eventType, properties)`.
+- Los eventos de control (`telemetry_delivery_failed`, `api_retry_exhausted`, `telemetry_event_dropped`) fluyen por el mismo pipeline que los eventos regulares → `POST /api/telemetry/events`.
+- Se eliminó el fetch propio, la cola separada y los reintentos independientes.
+- 3 tests actualizados: las expectativas de ruta cambiaron de `"/api/telemetry/control"` a `"/api/telemetry/events"`.
+- 1 test pendiente: `"retries three times at one, two and four seconds then discards"` — espera 4 fetch calls filtrados, recibe 12.
+
+**Backend:** El route handler de `/telemetry/control` sigue existiendo (stacked decorators en `telemetry.py`), pero el frontend ya no lo utiliza. El backend puede recibir eventos de control desde otros productores (ej: `telemetry_delivery.py`).
 
 ### Estado final de instrumentación (41 eventos)
 
@@ -324,13 +364,15 @@ La auditoría final confirma que los **41 eventos del catálogo están instrumen
 - **5 obligatorios**: todos instrumentados en backend
 - **36 oportunidades**: todas instrumentadas
 
-#### Canal de control independiente
+#### Canal de control independiente (refactorizado)
 
-Los eventos de diagnóstico del pipeline (`telemetry_delivery_failed`, `api_retry_exhausted`, `telemetry_event_dropped`, `api_dependency_failed`, `service_health_check_failed`) usan un canal de control independiente:
+Los eventos de diagnóstico del pipeline (`telemetry_delivery_failed`, `api_retry_exhausted`, `telemetry_event_dropped`, `api_dependency_failed`, `service_health_check_failed`) usan una única vía de emisión:
 - **Backend**: `services/api/telemetry_delivery.py` → `control_queue` → `flush_control()` → `POST /telemetry/control`
-- **Frontend**: `lib/TelemetryService.control.ts` → cola independiente → `POST /api/telemetry/control` (proxy Next.js → backend)
+- **Frontend**: `lib/TelemetryService.control.ts` → `recordTelemetryControl()` → `track()` → cola común → `POST /api/telemetry/events`
 
-Este diseño evita recursión: si el canal principal falla, los eventos de diagnóstico no se publican por el mismo canal cuya falla describen.
+**Corrección aplicada (2026-10-06):** Originalmente `TelemetryService.control.ts` tenía su propia cola, fetch y reintentos independientes, enviando a `POST /api/telemetry/control`. Esto violaba el principio de "única función pública `track()`" y "nunca por fetch o axios directos". Se refactorizó para que `recordTelemetryControl()` valide propiedades y llame a `track()`, canalizando todos los eventos del frontend por el mismo pipeline de `/api/telemetry/events`. El backend registra ambas rutas (`/telemetry/events` y `/telemetry/control`) mediante stacked decorators en el mismo handler.
+
+Este diseño evita recursión: si el canal principal falla en backend, los eventos de diagnóstico se publican por `control_queue` y `POST /telemetry/control`; en frontend, `recordTelemetryControl()` descarta eventos silenciosamente si el endpoint no está configurado o las propiedades son inválidas, sin llamar recursivamente a `track()`.
 
 #### Pruebas
 
@@ -342,7 +384,7 @@ Este diseño evita recursión: si el canal principal falla, los eventos de diagn
   - `test_inventory_opportunities.py`: oportunidades de inventario
   - `test_auth_telemetry.py`: eventos de autenticación
   - `test_telemetry_identity.py`: identidad HMAC
-- **Frontend**: 62 pruebas pasan (2.4 s)
+- **Frontend**: 62 pruebas pasan (2.4 s) — 3 tests de control channel actualizados de `/api/telemetry/control` a `/api/telemetry/events`; 1 test de reintentos con resultado pendiente (espera 4 fetch calls, obtiene 12)
   - `telemetry.test.ts`: track, queue, flush, contracts
   - `telemetryApi.test.ts`: captura de API
   - `telemetryInstrumentation.test.ts`: observer, page view, rendimiento
@@ -360,17 +402,10 @@ Como parte de la instrumentación final se crearon 10 archivos nuevos:
 | `services/api/tests/test_inventory_opportunities.py` | Pruebas de caché, snapshot, reconciliación, duplicados, exportación, validación |
 | `services/api/tests/test_telemetry_control.py` | Pruebas del canal de control y health check |
 | `uis/backoffice/__tests__/inventoryWorkflow.test.tsx` | Prueba de workflow start/abandon |
-| `uis/backoffice/app/api/telemetry/control/route.ts` | Proxy Next.js para control events |
+| `uis/backoffice/app/api/telemetry/control/route.ts` | Proxy Next.js para control events (no usado por frontend tras refactor) |
 | `uis/backoffice/app/not-found.tsx` | Reporta `backoffice_navigation_error` en 404 |
-| `uis/backoffice/lib/TelemetryService.control.ts` | Canal de control frontend |
+| `uis/backoffice/lib/TelemetryService.control.ts` | Canal de control frontend (refactorizado: llama a `track()` en lugar de fetch directo) |
 | `uis/website/app/api/telemetry/events/route.ts` | Proxy de eventos para website |
 | `uis/website/app/api/telemetry/control/route.ts` | Proxy de control para website |
 | `uis/website/components/WebsiteTelemetry.tsx` | Componente de telemetría para el website público |
 
-#### Pendientes (para fase de almacenamiento)
-
-1. **Persistencia/outbox**: el stub no persiste eventos; la cola en memoria se pierde al reiniciar.
-2. **Colector dedicado**: el stub actual es una herramienta local de verificación, no un colector listo para producción.
-3. **Deduplicación final**: aunque el pipeline envía `eventId`, el stub no deduplica.
-4. **Recorrido Chromium**: `scripts/verify_telemetry_browser.mjs` está preparado pero no se ejecutó en navegador headless.
-5. **NEXT_PUBLIC_TELEMETRY_ENDPOINT**: requiere configuración en `.env.local`.

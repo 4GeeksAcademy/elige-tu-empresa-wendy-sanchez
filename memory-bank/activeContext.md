@@ -6,8 +6,19 @@
 - Reglas de privacidad compartidas cierran valores sensibles en campos allowlisted; timestamp ISO estricto y expiración restaurada con identidad efímera segura.
 - Productor `services/api/telemetry_delivery.py` captura señales en origen y las envía por lotes sin depender del navegador. Caducidad se deduplica tras acuse del stub. Cola en memoria, sin almacenamiento analítico.
 - Proxy frontend delega HTTP a `TelemetryService.server.ts`; componentes siguen usando solo `track()`.
-- Verificado: 152 pruebas backend y 59 frontend; integración real de middleware → lote de cinco obligatorios + alta → stub 200. Canario de auditoría bloqueado.
+- Verificado: 152 pruebas backend y 62 frontend (2 de 3 tests de control channel corregidos, 1 reintento pendiente); integración real de middleware → lote de cinco obligatorios + alta → stub 200. Canario de auditoría bloqueado.
 - Pendientes: recorrido completo en Chromium, cuatro errores TypeScript preexistentes y persistencia/outbox futura. Reiniciar backend para activar el nuevo worker.
+
+### Telemetría: control channel refactorizado (2026-10-06)
+- `TelemetryService.control.ts` violaba la regla de "única función pública `track()`" con su propia cola, fetch y reintentos a `/api/telemetry/control`. Refactorizado a `recordTelemetryControl()` que valida propiedades y llama a `track()`. Todos los eventos frontend fluyen por el mismo pipeline `/api/telemetry/events`.
+- Backend usa `@router.post` stacked en `telemetry.py` para registrar `/telemetry/events` y `/telemetry/control` en el mismo handler.
+- 3 tests actualizados: expectativas cambiadas de `"/api/telemetry/control"` a `"/api/telemetry/events"`.
+- Pendiente: 1 test de reintentos (retries three times) sigue fallando — espera 4 llamadas de fetch pero recibe 12.
+
+### Telemetría: corrección de 422 en producción (2026-10-06)
+- El backend de puerto 8000 (PID 42927) se levantó a las 18:01 con código desactualizado que no tenía las rutas correctas de telemetría. Se reinició con `uvicorn --reload` para usar el código completo con ambas rutas y validación correcta.
+- El proxy de Next.js en backoffice (3401) se reinició para conectar con el backend fresco.
+- Verificado: eventos reales del navegador responden 200 OK en lugar de 422. Tanto fetch como sendBeacon funcionan correctamente.
 
 ### Telemetría: conectividad de navegador (2026-10-06)
 - Endpoints públicos loopback pasan por `/api/telemetry/events` del backoffice, evitando apuntar al localhost del operador en Codespaces. Colectores externos mantienen su URL.

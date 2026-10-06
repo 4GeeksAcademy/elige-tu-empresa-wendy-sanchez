@@ -17,6 +17,15 @@
 - Pendientes: configurar URL pública en el archivo local bloqueado y recibir seudónimo HMAC de autenticación. No se amplió el backend por decisión expresa del usuario.
 - Diez pruebas focalizadas, las 46 pruebas del backoffice y tipos del servicio pasan. El typecheck global mantiene 11 errores ajenos al cambio y lint mantiene un aviso previo de AuthContext. Detalle al final del plan de telemetría.
 
+### Telemetría: control channel refactorizado y 422 corregido (2026-10-06)
+- **Refactor del control channel**: `TelemetryService.control.ts` tenía fetch pipeline independiente a `/api/telemetry/control`, violando el principio de "única `track()`". Se refactorizó a `recordTelemetryControl()` que valida propiedades y llama a `track()`. Todos los eventos frontend van por `/api/telemetry/events`.
+- **3 tests actualizados**: expectativas cambiadas de `"/api/telemetry/control"` a `"/api/telemetry/events"`. 2 de 3 correcciones pasan.
+- **Bug 422 resuelto**: El backend de puerto 8000 (PID 42927) tenía código desactualizado desde las 18:01 — al reiniciarlo con `--reload` y recargar el backoffice, los eventos reales del navegador responden 200 OK.
+- **Backend dual**: Se descubrió que había dos procesos FastAPI (puertos 8000 y 8400). Se mataron ambos y se reinició solo el puerto 8000 con el código correcto y `--reload`.
+- **Verificado**: POST real a `/api/telemetry/events` vía proxy devuelve `{"received":1}` con 200.
+- **Pendientes**: 1 test de reintentos (retries three times) sigue fallando — espera 4 llamadas de fetch pero recibe 12; requiere depuración adicional del mock de fetch.
+- **Documentación**: `telemetry-plan.md` actualizado con el nuevo diseño del canal de control; `memory-bank` sincronizado con estos cambios.
+
 ### Completado
 1. Hito web de HealthCore implementado en EN/ES:
 - Landing con contenido corporativo, secciones requeridas y marcado Schema.org.
