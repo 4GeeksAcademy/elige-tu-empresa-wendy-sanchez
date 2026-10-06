@@ -1,0 +1,872 @@
+{
+	"format": "healthcore-event-registry",
+	"formatVersion": "1.0.0",
+	"description": "Registro personalizado de contratos de telemetría. Cada evento se valida contra envelope.required y contra su allowlist; las propiedades adicionales se rechazan. Este archivo es un catálogo validable por un validador que aplique las reglas documentadas.",
+	"validationRules": {
+		"envelopeAdditionalProperties": false,
+		"eventPropertiesAdditionalProperties": false,
+		"eventTypeMustBeRegistered": true,
+		"schemaVersionMustMatchEvent": true,
+		"timestampFormat": "date-time (ISO 8601 con zona horaria; UTC recomendado)",
+		"maxEventBytes": 8192,
+		"unknownPropertiesAction": "reject_without_logging_payload",
+		"propertyTypeRules": "Cada propiedad declara type y description; format, pattern, minLength, maxLength, enum, minimum y maximum se aplican cuando están presentes. Las claves declaradas bajo properties deben ser exactamente propertiesAllowlist. Solo requiredProperties son obligatorias; las demás claves allowlisted pueden omitirse. No se permiten claves adicionales.",
+		"privacyRules": [
+			"No PHI ni datos personales directos en properties.",
+			"Nunca incluir nombre, identificador, diagnóstico, contacto ni texto libre de paciente.",
+			"Nunca incluir credenciales, JWT, token de recuperación, cabeceras, cookies ni cuerpo HTTP.",
+			"userId del envelope es HMAC seudónimo rotatorio; sessionId y requestId son aleatorios y opacos.",
+			"Errores solo con códigos/clases normalizados; no stack trace, mensaje crudo ni URL completa."
+		]
+	},
+	"envelope": {
+		"required": [
+			"eventId",
+			"timestamp",
+			"sessionId",
+			"userId",
+			"event_type",
+			"schemaVersion",
+			"requestId",
+			"properties"
+		],
+		"additionalProperties": false,
+		"fields": {
+			"eventId": {
+				"type": "string",
+				"format": "uuid",
+				"description": "Identificador aleatorio único del evento; sirve como clave de idempotencia."
+			},
+			"timestamp": {
+				"type": "string",
+				"format": "date-time",
+				"description": "Instante ISO 8601 con zona horaria; eventos de escritura usan timestamp del servidor post-commit."
+			},
+			"sessionId": {
+				"type": "string",
+				"minLength": 16,
+				"maxLength": 128,
+				"description": "Identificador aleatorio, efímero y opaco; no es token ni cookie."
+			},
+			"userId": {
+				"type": "string",
+				"minLength": 16,
+				"maxLength": 128,
+				"description": "Seudónimo HMAC del identificador interno; usar seudónimo anónimo efímero antes de autenticación. Nunca enviar user_uuid, email o ID TinyDB."
+			},
+			"event_type": {
+				"type": "string",
+				"enumSource": "events[].event_type",
+				"pattern": "^[a-z]+(_[a-z]+)+$",
+				"description": "Nombre registrado entidad_acción en snake_case."
+			},
+			"schemaVersion": {
+				"type": "string",
+				"pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+				"description": "Versión semántica del contrato; los eventos definidos aquí usan 1.0.0."
+			},
+			"requestId": {
+				"type": "string",
+				"minLength": 16,
+				"maxLength": 128,
+				"description": "ID aleatorio generado o validado en el borde y propagado frontend-proxy-API-logs; nunca derivado de datos del negocio."
+			},
+			"properties": {
+				"type": "object",
+				"description": "Payload específico del evento, validado contra propertiesAllowlist."
+			}
+		}
+	},
+	"commonPropertyDefinitions": {
+		"clinic_id": {
+			"type": "integer",
+			"minimum": 1,
+			"maximum": 12,
+			"description": "ID operativo de clínica HealthCore (1–12), no identificador de paciente."
+		},
+		"country": {
+			"type": "string",
+			"enum": ["US", "UK"],
+			"description": "Jurisdicción de la clínica."
+		},
+		"product_id": {
+			"type": "integer",
+			"minimum": 1,
+			"description": "ID interno del suministro."
+		},
+		"product_category": {
+			"type": "string",
+			"enum": ["medication", "ppe", "consumable", "equipment"],
+			"description": "Categoría de producto definida por el contexto de telemetría."
+		},
+		"quantity": {
+			"type": "integer",
+			"minimum": 0,
+			"description": "Cantidad operacional; en consumo/entrada es unidades del movimiento, en umbral/snapshot es stock disponible, en rechazo directo es ajuste intentado."
+		},
+		"department": {
+			"type": "string",
+			"enum": ["primary_care", "specialist", "chronic_care", "preventive", "behavioral_health", "operations", "other"],
+			"description": "Área de operación, nunca persona ni contexto individual de paciente."
+		}
+	},
+	"normalizationMappings": {
+		"MedicalSupply.category_to_product_category": {
+			"ppe": "ppe",
+			"medications": "medication",
+			"consumables": "consumable",
+			"wound_care": "consumable",
+			"diagnostics": "consumable"
+		},
+		"unsupported_source_categories": ["equipment"],
+		"unsupported_source_categories_note": "La API actual no acepta equipment. No emitir eventos de esa categoría hasta que el dominio y su validación la admitan; no inferir una categoría desde el nombre del producto.",
+		"vendor_ref": "Calcular HMAC-SHA256 en el servidor sobre vendor_name normalizado (Unicode NFC, trim, espacios consecutivos colapsados, casefold), con secreto dedicado y versionado. Nunca transmitir ni almacenar el valor original en el pipeline analítico."
+	},
+	"events": [
+		{
+			"event_type": "inbound_order_created",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "mandatory_context",
+			"description": "Una clínica confirma una entrega de suministros de proveedor, después del commit.",
+			"delivery": {
+				"mode": "stream",
+				"targetLatencySecondsP95": 10,
+				"rationale": "Operaciones de inventario confirmadas deben alimentar disponibilidad y compras sin esperar el lote periódico."
+			},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "vendor_ref"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "vendor_ref"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica que recibe el suministro."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica receptora."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del suministro."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del suministro."},
+				"quantity": {"type": "integer", "minimum": 1, "description": "Unidades recibidas."},
+				"vendor_ref": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "HMAC-SHA256 del nombre de proveedor normalizado, calculado solo en servidor con clave de telemetría versionada; permite agrupar proveedores sin exportar el texto."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["properties.vendor_ref"], "sanitization": "No incluir vendor_name ni datos de contacto. Normalizar con Unicode NFC, trim, espacios colapsados y casefold; calcular HMAC-SHA256 en servidor con clave separada de userId y gestionar rotación/versionado de clave."}
+		},
+		{
+			"event_type": "outbound_order_created",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "mandatory_context",
+			"description": "Una clínica confirma consumo de suministro asociado a un departamento, después del commit.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "El consumo modifica stock y su ritmo informa reposición clínica urgente."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "department", "consumption_type"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "department", "consumption_type"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica donde ocurre el consumo."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del suministro."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del suministro."},
+				"quantity": {"type": "integer", "minimum": 1, "description": "Unidades consumidas."},
+				"department": {"type": "string", "enum": ["primary_care", "specialist", "chronic_care", "preventive", "behavioral_health", "operations", "other"], "description": "Departamento; no representa ni identifica pacientes."},
+				"consumption_type": {"type": "string", "enum": ["clinical_use", "expiry_waste"], "description": "Tipo de consumo operacional permitido por el dominio."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No añadir patient_id, encounter_id, diagnósticos, notas ni texto de atención. department es dimensión agregada."}
+		},
+		{
+			"event_type": "stock_threshold_triggered",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "mandatory_context",
+			"description": "El saldo por clínica cruza por debajo del mínimo configurado para el producto.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Permite priorizar reabastecimiento urgente antes de que falte el insumo."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "threshold_quantity", "threshold_version"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "threshold_quantity", "threshold_version"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica con saldo bajo."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del producto."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del producto."},
+				"quantity": {"type": "integer", "minimum": 0, "description": "Saldo actual de esa clínica al cruzar el mínimo."},
+				"threshold_quantity": {"type": "integer", "minimum": 0, "description": "Mínimo configurado para clínica/producto."},
+				"threshold_version": {"type": "string", "maxLength": 32, "description": "Versión de regla para deduplicación y auditoría de configuración."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "Solo cantidades y dimensiones de stock; no asociar a pacientes."}
+		},
+		{
+			"event_type": "direct_stock_edit_rejected",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "mandatory_context",
+			"description": "Backend rechaza un intento de ajustar stock fuera de una orden trazable.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Una elusión de trazabilidad requiere detección y posible intervención inmediata."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "rejection_code", "source_surface"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "rejection_code", "source_surface"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica asociada al intento."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del producto si se pudo resolver."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del producto."},
+				"quantity": {"type": "integer", "minimum": 1, "description": "Magnitud absoluta del ajuste intentado; no es movimiento registrado."},
+				"rejection_code": {"type": "string", "enum": ["direct_edit_not_allowed", "invalid_stock_operation"], "description": "Código normalizado del rechazo."},
+				"source_surface": {"type": "string", "enum": ["api", "backoffice"], "description": "Capa donde se identificó el intento; emitir desde el servidor."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No copiar cuerpo de petición, token, IP ni identidad de operador a properties; el actor solo se seudonimiza en userId."}
+		},
+		{
+			"event_type": "supply_expiry_flagged",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "mandatory_context",
+			"description": "Un suministro/lote en una clínica entra en la ventana de alerta previa a caducidad.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "El caso detectado debe priorizarse antes de una pérdida o riesgo de cumplimiento; detección puede ser job diario."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "days_to_expiry", "expiry_window_days"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "days_to_expiry", "expiry_window_days"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica con unidades de ese lote."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del suministro."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del suministro."},
+				"quantity": {"type": "integer", "minimum": 0, "description": "Unidades del lote afectado en la clínica."},
+				"days_to_expiry": {"type": "integer", "minimum": 0, "maximum": 30, "description": "Días calendario hasta caducidad."},
+				"expiry_window_days": {"type": "integer", "enum": [30], "description": "Ventana configurada de alerta, inicialmente 30 días."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No incluir lote identificado con información personal; usar clave interna de lote solo si se aprueba y no contiene datos personales."}
+		},
+		{
+			"event_type": "inventory_order_validation_failed",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "El API rechaza una orden por una regla de validación de forma o dominio.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Detectar rápidamente una regla que bloquea un flujo de inventario activo permite resolver errores operativos."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "operation", "field_name", "validation_code"],
+			"requiredProperties": ["operation", "field_name", "validation_code"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica si la validación pudo resolverla; omitir si falta o es inválida."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País si pudo resolverse una clínica válida; omitir en caso contrario."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID del suministro si pudo resolverse."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría canónica si pudo resolverse el suministro."},
+				"operation": {"type": "string", "enum": ["inbound", "outbound", "product_create"], "description": "Operación en validación."},
+				"field_name": {"type": "string", "enum": ["supply_id", "quantity", "clinic_id", "consumption_type", "vendor_name", "department"], "description": "Nombre allowlisted del campo fallido, nunca su valor."},
+				"validation_code": {"type": "string", "enum": ["required", "out_of_range", "invalid_enum", "unknown_supply", "invalid_format"], "description": "Código normalizado de validación."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No registrar valores de campo, request body, mensajes de error libres ni nombres enviados por usuario."}
+		},
+		{
+			"event_type": "inventory_order_rejected",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Una orden válida en forma se rechaza por regla de negocio, por ejemplo stock insuficiente.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Stock insuficiente exige revisar reposición y la orden no debe quedar registrada."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "operation", "rejection_code"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "operation", "rejection_code"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica de la operación."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del producto."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del producto."},
+				"quantity": {"type": "integer", "minimum": 1, "description": "Cantidad solicitada que no se registró."},
+				"operation": {"type": "string", "enum": ["inbound", "outbound"], "description": "Tipo de operación."},
+				"rejection_code": {"type": "string", "enum": ["insufficient_stock", "business_rule"], "description": "Código normalizado de rechazo; suministro desconocido se registra como fallo de validación, antes de este evento."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No incluir mensaje HTTP completo ni nombre de producto; solo código normalizado e IDs operativos."}
+		},
+		{
+			"event_type": "inventory_product_lookup_completed",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Finaliza la consulta de producto/stock que apoya un flujo de inventario.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La decisión es mejorar disponibilidad y UX con tendencias de latencia, no reaccionar a una lectura individual."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "operation", "duration_ms", "result"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "operation", "duration_ms", "result"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica del flujo."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID del producto consultado."},
+				"operation": {"type": "string", "enum": ["inbound", "outbound", "product_detail"], "description": "Flujo que originó la consulta."},
+				"duration_ms": {"type": "integer", "minimum": 0, "maximum": 120000, "description": "Duración total de consulta en milisegundos."},
+				"result": {"type": "string", "enum": ["success", "not_found", "error"], "description": "Resultado normalizado."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "Sin SKU escrito, query string, request body o identidad directa."}
+		},
+		{
+			"event_type": "inventory_stock_snapshot_recorded",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Snapshot batch de saldo derivado por clínica y producto para tendencia operativa.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 86400, "rationale": "Planificación de compras usa tendencias diarias; no necesita cada lectura en segundos."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "quantity", "snapshot_date"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "quantity", "snapshot_date"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica con saldo calculado."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del producto."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría del producto."},
+				"quantity": {"type": "integer", "minimum": 0, "description": "Saldo derivado al instante de corte."},
+				"snapshot_date": {"type": "string", "format": "date", "description": "Fecha UTC del snapshot."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "Emitir solo tras disponer de saldo correcto por clínica; no inferir clinic_id de una agregación global."}
+		},
+		{
+			"event_type": "inventory_cache_served",
+			"schemaVersion": "1.0.0",
+			"category": "performance",
+			"classification": "identified_opportunity",
+			"description": "Respuesta de lectura de inventario servida desde caché o base de datos.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La calibración de TTL depende de proporciones agregadas y tolera retraso de minutos."},
+			"propertiesAllowlist": ["route_template", "cache_result", "cache_age_ms", "status_code"],
+			"requiredProperties": ["route_template", "cache_result", "cache_age_ms", "status_code"],
+			"properties": {
+				"route_template": {"type": "string", "enum": ["/inventory/products", "/inventory/products/{id}", "/inventory/orders"], "description": "Ruta template sin IDs concretos ni query string."},
+				"cache_result": {"type": "string", "enum": ["hit", "miss"], "description": "Resultado de caché."},
+				"cache_age_ms": {"type": "integer", "minimum": 0, "maximum": 86400000, "description": "Edad del valor cacheado; cero para miss."},
+				"status_code": {"type": "integer", "minimum": 100, "maximum": 599, "description": "Código HTTP."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No capturar URL completa, query string, ID dinámico ni respuesta cacheada."}
+		},
+		{
+			"event_type": "auth_login_succeeded",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "Un usuario completa autenticación válida; publicar como agregado batch.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La adopción/acceso por aplicación y rol agregado no requiere alertar de cada login exitoso."},
+			"propertiesAllowlist": ["application", "role_group", "country", "auth_method"],
+			"requiredProperties": ["application", "role_group", "country", "auth_method"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación que autenticó."},
+				"role_group": {"type": "string", "enum": ["admin", "staff", "unknown"], "description": "Rol agregado; no ID/nombre de cuenta."},
+				"country": {"type": "string", "enum": ["US", "UK", "unknown"], "description": "Jurisdicción organizacional si se conoce, no ubicación precisa."},
+				"auth_method": {"type": "string", "enum": ["password", "sso", "other"], "description": "Método normalizado."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No incluir email, username, IP ni token. Proteger seudónimos como dato personal."}
+		},
+		{
+			"event_type": "auth_login_failed",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "Intento de login rechazado, clasificado sin registrar el identificador usado.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Ráfagas de fallos pueden indicar abuso y requieren mitigación rápida; agregar/limitar eventos individuales."},
+			"propertiesAllowlist": ["application", "failure_code", "auth_method", "rate_limited"],
+			"requiredProperties": ["application", "failure_code", "auth_method", "rate_limited"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación que recibió el intento."},
+				"failure_code": {"type": "string", "enum": ["authentication_rejected", "invalid_token", "service_error"], "description": "Clase normalizada; credenciales incorrectas y cuentas inactivas se agrupan para no revelar existencia/estado de cuenta."},
+				"auth_method": {"type": "string", "enum": ["password", "sso", "other"], "description": "Método normalizado."},
+				"rate_limited": {"type": "boolean", "description": "Indica si el limitador bloqueó la solicitud."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No incluir email/username, contraseña, IP, fingerprint de dispositivo, token ni mensaje de auth. userId debe ser seudónimo anónimo efímero."}
+		},
+		{
+			"event_type": "auth_session_expired",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "Una sesión de backoffice expira durante o al revalidar una operación.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La tasa agregada guía ajustes de UX/expiración y no requiere alertar por sesión."},
+			"propertiesAllowlist": ["application", "expiry_reason", "route_template"],
+			"requiredProperties": ["application", "expiry_reason", "route_template"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación de la sesión."},
+				"expiry_reason": {"type": "string", "enum": ["timeout", "revoked", "invalidated"], "description": "Motivo normalizado."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta template sin parámetros o identificadores."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "Nunca adjuntar JWT, cookie, query string ni datos de perfil."}
+		},
+		{
+			"event_type": "auth_logout_completed",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "El cliente invalida/limpia la sesión activa correctamente.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La evaluación de cierre de sesión es agregada y no requiere acción inmediata por evento."},
+			"propertiesAllowlist": ["application", "logout_reason"],
+			"requiredProperties": ["application", "logout_reason"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación que cerró sesión."},
+				"logout_reason": {"type": "string", "enum": ["user_action", "session_expired", "security_action"], "description": "Motivo normalizado."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No incluir credenciales, token o información de perfil."}
+		},
+		{
+			"event_type": "auth_authorization_denied",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "Una petición autenticada no tiene autorización para la ruta/acción solicitada.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Denegaciones repetidas o inesperadas pueden señalar permisos mal configurados o acceso anómalo."},
+			"propertiesAllowlist": ["application", "route_template", "method", "denial_code", "role_group"],
+			"requiredProperties": ["application", "route_template", "method", "denial_code", "role_group"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta template sin ID/query."},
+				"method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "Método HTTP."},
+				"denial_code": {"type": "string", "enum": ["unauthenticated", "forbidden", "account_unavailable"], "description": "Motivo normalizado; estados de cuenta sensibles se agrupan."},
+				"role_group": {"type": "string", "enum": ["admin", "staff", "unknown"], "description": "Rol agregado disponible en servidor."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No registrar token, nombre de usuario, IP ni path param concreto."}
+		},
+		{
+			"event_type": "api_latency_recorded",
+			"schemaVersion": "1.0.0",
+			"category": "performance",
+			"classification": "identified_opportunity",
+			"description": "Observación de latencia HTTP normalizada para agregación de percentiles y SLO.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "Los percentiles por ventanas cortas habilitan ajuste de capacidad sin procesar cada éxito como alerta."},
+			"propertiesAllowlist": ["service", "route_template", "method", "status_code", "duration_ms", "cache_result"],
+			"requiredProperties": ["service", "route_template", "method", "status_code", "duration_ms", "cache_result"],
+			"properties": {
+				"service": {"type": "string", "enum": ["healthcore_api", "incidents_api", "backoffice", "website"], "description": "Servicio medido."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Plantilla de ruta, nunca URL completa ni parámetros."},
+				"method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "Método HTTP."},
+				"status_code": {"type": "integer", "minimum": 100, "maximum": 599, "description": "Código de respuesta."},
+				"duration_ms": {"type": "number", "minimum": 0, "maximum": 300000, "description": "Duración en milisegundos."},
+				"cache_result": {"type": "string", "enum": ["hit", "miss", "bypass", "not_applicable"], "description": "Estado de caché si aplica."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.requestId", "envelope.sessionId"], "sanitization": "No usar IDs de request/session como dimensiones; eliminar query string y valores de path."}
+		},
+		{
+			"event_type": "api_request_failed",
+			"schemaVersion": "1.0.0",
+			"category": "reliability",
+			"classification": "identified_opportunity",
+			"description": "Una petición termina en error técnico o HTTP 5xx, con clase normalizada.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Una tasa de errores elevada requiere alerta y diagnóstico durante el incidente."},
+			"propertiesAllowlist": ["service", "route_template", "method", "status_code", "error_class", "error_code"],
+			"requiredProperties": ["service", "route_template", "method", "status_code", "error_class", "error_code"],
+			"properties": {
+				"service": {"type": "string", "enum": ["healthcore_api", "incidents_api", "backoffice", "website"], "description": "Servicio afectado."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta template."},
+				"method": {"type": "string", "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"], "description": "Método HTTP."},
+				"status_code": {"type": "integer", "minimum": 400, "maximum": 599, "description": "Código HTTP fallido."},
+				"error_class": {"type": "string", "enum": ["validation", "authentication", "authorization", "dependency", "timeout", "internal"], "description": "Clase general normalizada."},
+				"error_code": {"type": "string", "maxLength": 64, "pattern": "^[a-z0-9_]+$", "description": "Código estable, no mensaje ni excepción."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.requestId"], "sanitization": "Eliminar error.message, stack trace, SQL, body, headers, URL/query y cualquier valor no allowlisted."}
+		},
+		{
+			"event_type": "api_dependency_failed",
+			"schemaVersion": "1.0.0",
+			"category": "reliability",
+			"classification": "identified_opportunity",
+			"description": "Una dependencia necesaria falla una llamada o chequeo de disponibilidad.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "La caída de persistencia/proxy requiere recuperación y posible degradación inmediata."},
+			"propertiesAllowlist": ["service", "dependency", "operation", "failure_code", "duration_ms"],
+			"requiredProperties": ["service", "dependency", "operation", "failure_code", "duration_ms"],
+			"properties": {
+				"service": {"type": "string", "enum": ["healthcore_api", "incidents_api", "backoffice"], "description": "Servicio llamador."},
+				"dependency": {"type": "string", "enum": ["supabase_postgres", "tinydb", "next_proxy", "telemetry_collector", "email_provider"], "description": "Dependencia clasificada; sin host/DSN."},
+				"operation": {"type": "string", "enum": ["read", "write", "health_check", "publish"], "description": "Operación afectada."},
+				"failure_code": {"type": "string", "enum": ["timeout", "connection_error", "unavailable", "rejected", "unknown"], "description": "Clase normalizada."},
+				"duration_ms": {"type": "integer", "minimum": 0, "maximum": 300000, "description": "Duración hasta fallo."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.requestId"], "sanitization": "No registrar endpoint remoto, credenciales, DSN, error crudo ni headers."}
+		},
+		{
+			"event_type": "frontend_error_captured",
+			"schemaVersion": "1.0.0",
+			"category": "frontend_error",
+			"classification": "identified_opportunity",
+			"description": "Error no capturado del backoffice convertido a código seguro y agrupable.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Errores que rompen tareas deben detectarse durante su ocurrencia para corregir regresión."},
+			"propertiesAllowlist": ["application", "app_version", "route_template", "component", "error_code", "error_class"],
+			"requiredProperties": ["application", "app_version", "route_template", "component", "error_code", "error_class"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación del cliente."},
+				"app_version": {"type": "string", "maxLength": 32, "description": "Versión desplegada."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta template sin IDs/query."},
+				"component": {"type": "string", "maxLength": 64, "pattern": "^[A-Za-z0-9_.-]+$", "description": "Nombre de componente conocido, nunca contenido dinámico."},
+				"error_code": {"type": "string", "maxLength": 64, "pattern": "^[a-z0-9_]+$", "description": "Código normalizado del error."},
+				"error_class": {"type": "string", "enum": ["render", "network", "validation", "state", "unknown"], "description": "Clase del error."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId", "envelope.userId"], "sanitization": "No enviar message, stack, source maps, console output, props, input values, DOM snapshot o URL completa; deduplicar por firma normalizada."}
+		},
+		{
+			"event_type": "client_performance_recorded",
+			"schemaVersion": "1.0.0",
+			"category": "performance",
+			"classification": "identified_opportunity",
+			"description": "Métricas web vitales agregables para rutas de backoffice.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La optimización se decide en percentiles por página/versión, no por una lectura individual."},
+			"propertiesAllowlist": ["application", "route_template", "metric_name", "metric_value", "metric_rating", "app_version"],
+			"requiredProperties": ["application", "route_template", "metric_name", "metric_value", "metric_rating", "app_version"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación medida."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta template sin query ni identificadores."},
+				"metric_name": {"type": "string", "enum": ["LCP", "INP", "CLS", "TTFB"], "description": "Métrica estándar de rendimiento."},
+				"metric_value": {"type": "number", "minimum": 0, "maximum": 120000, "description": "Valor medido en unidad estándar de la métrica."},
+				"metric_rating": {"type": "string", "enum": ["good", "needs_improvement", "poor"], "description": "Clasificación normalizada."},
+				"app_version": {"type": "string", "maxLength": 32, "description": "Versión de cliente."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId"], "sanitization": "No fingerprint de dispositivo, IP, user-agent completo ni datos de navegación externa; limitar una muestra por sesión/ruta/ventana."}
+		},
+		{
+			"event_type": "backoffice_page_viewed",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "Cambio efectivo a una ruta funcional del backoffice.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 3600, "rationale": "Uso por sección se evalúa agregado por hora/día y no necesita alertas en segundos."},
+			"propertiesAllowlist": ["application", "route_template", "section", "country", "role_group"],
+			"requiredProperties": ["application", "route_template", "section", "country", "role_group"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta normalizada sin IDs o query string."},
+				"section": {"type": "string", "enum": ["inventory", "suppliers", "incidents", "account", "candidates", "dashboard", "other"], "description": "Sección de producto."},
+				"country": {"type": "string", "enum": ["US", "UK", "unknown"], "description": "Jurisdicción organizacional agregada, no ubicación precisa."},
+				"role_group": {"type": "string", "enum": ["admin", "staff", "unknown"], "description": "Grupo de rol agregado para priorizar navegación; no identifica a una persona."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No grabar URL, query strings, título con datos dinámicos, clicks, teclas, ni ruta con ID de candidato/registro."}
+		},
+		{
+			"event_type": "inventory_filter_applied",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "Se confirma un filtro controlado en un listado de inventario.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La demanda de filtros y resultados informa UX/índices y puede analizarse en lotes cortos."},
+			"propertiesAllowlist": ["filter_name", "filter_value_category", "result_count_bucket", "route_template"],
+			"requiredProperties": ["filter_name", "filter_value_category", "result_count_bucket", "route_template"],
+			"properties": {
+				"filter_name": {"type": "string", "enum": ["country", "category", "status", "clinic_id"], "description": "Filtro de interfaz allowlisted."},
+				"filter_value_category": {"type": "string", "enum": ["US", "UK", "ppe", "medication", "consumable", "equipment", "active", "suspended", "clinic_1_4", "clinic_5_8", "clinic_9_12", "all", "other"], "description": "Categoría agregada; nunca texto libre."},
+				"result_count_bucket": {"type": "string", "enum": ["0", "1_10", "11_50", "51_plus"], "description": "Rango de resultados, no datos de filas."},
+				"route_template": {"type": "string", "enum": ["/inventory/products", "/inventory/orders"], "description": "Ruta de listado normalizada."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No incluir query, búsqueda escrita, IDs de producto/orden ni contenido de resultado."}
+		},
+		{
+			"event_type": "inventory_workflow_abandoned",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "Flujo de entrada/salida iniciado y no completado dentro de la ventana de abandono.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La decisión es mejorar el funnel agregado por paso, no intervenir sobre el operador en tiempo real."},
+			"propertiesAllowlist": ["operation", "last_step", "abandonment_reason", "elapsed_seconds", "clinic_id", "country"],
+			"requiredProperties": ["operation", "last_step", "abandonment_reason", "elapsed_seconds", "clinic_id", "country"],
+			"properties": {
+				"operation": {"type": "string", "enum": ["inbound", "outbound", "product_create"], "description": "Flujo iniciado."},
+				"last_step": {"type": "string", "enum": ["select_product", "enter_quantity", "select_clinic", "validate", "confirm"], "description": "Último paso completado; no incluir valores introducidos."},
+				"abandonment_reason": {"type": "string", "enum": ["navigation_away", "session_expired", "validation_blocked", "unknown"], "description": "Motivo inferido de forma normalizada."},
+				"elapsed_seconds": {"type": "integer", "minimum": 0, "maximum": 86400, "description": "Tiempo desde inicio hasta abandono."},
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica seleccionada/validada en el flujo."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de esa clínica."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No capturar valores de formulario, texto tecleado, datos de producto más allá de dimensiones autorizadas, ni session replay."}
+		},
+		{
+			"event_type": "inventory_product_created",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Se crea un producto en el catálogo de suministros.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La gobernanza del catálogo se revisa en agregados; el alta no requiere respuesta operativa en segundos."},
+			"propertiesAllowlist": ["product_id", "product_category", "country", "unit_category"],
+			"requiredProperties": ["product_id", "product_category", "country", "unit_category"],
+			"properties": {
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del producto creado."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría canónica según normalizationMappings."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "Jurisdicción del catálogo."},
+				"unit_category": {"type": "string", "enum": ["box", "unit", "pack", "vial", "other"], "description": "Tipo de unidad agrupado, sin nombre comercial."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No incluir name, SKU, descripción ni valores de texto libre."}
+		},
+		{
+			"event_type": "inventory_cache_invalidated",
+			"schemaVersion": "1.0.0",
+			"category": "performance",
+			"classification": "identified_opportunity",
+			"description": "Una escritura invalida entradas de caché del módulo de inventario.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La frecuencia y costo de invalidación se optimizan por tendencias, no requieren intervención por cada escritura."},
+			"propertiesAllowlist": ["cache_namespace", "trigger", "entries_cleared", "duration_ms"],
+			"requiredProperties": ["cache_namespace", "trigger", "entries_cleared", "duration_ms"],
+			"properties": {
+				"cache_namespace": {"type": "string", "enum": ["inventory:products"], "description": "Prefijo lógico invalidado."},
+				"trigger": {"type": "string", "enum": ["product_created", "inbound_order_created", "outbound_order_created"], "description": "Tipo de operación que causó la invalidación."},
+				"entries_cleared": {"type": "integer", "minimum": 0, "description": "Entradas quitadas de la caché."},
+				"duration_ms": {"type": "integer", "minimum": 0, "maximum": 120000, "description": "Duración de invalidación."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No incluir claves de caché que incorporen IDs, claves completas ni valores almacenados."}
+		},
+		{
+			"event_type": "inventory_stock_reconciliation_flagged",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Un recuento físico autorizado no coincide con el saldo de libro por clínica/producto.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 3600, "rationale": "La conciliación física se programa y revisa por lotes; no requiere stream salvo que una política de seguridad lo escale."},
+			"propertiesAllowlist": ["clinic_id", "country", "product_id", "product_category", "ledger_quantity", "counted_quantity", "variance_quantity"],
+			"requiredProperties": ["clinic_id", "country", "product_id", "product_category", "ledger_quantity", "counted_quantity", "variance_quantity"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica conciliada."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"product_id": {"type": "integer", "minimum": 1, "description": "ID interno del suministro."},
+				"product_category": {"type": "string", "enum": ["medication", "ppe", "consumable", "equipment"], "description": "Categoría canónica del producto."},
+				"ledger_quantity": {"type": "integer", "minimum": 0, "description": "Saldo de movimientos al corte."},
+				"counted_quantity": {"type": "integer", "minimum": 0, "description": "Recuento físico agregado."},
+				"variance_quantity": {"type": "integer", "description": "Diferencia firmada entre recuento y saldo."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "Solo cantidades de stock y dimensiones de suministro; no asociar conteos a pacientes."}
+		},
+		{
+			"event_type": "inventory_order_duplicate_suspected",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Dos intentos de orden comparten una clave idempotente o huella operacional dentro de la ventana.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La tendencia de duplicados guía idempotencia; el registro contable autoritativo sigue siendo el movimiento confirmado."},
+			"propertiesAllowlist": ["clinic_id", "country", "operation", "duplicate_reason", "window_seconds"],
+			"requiredProperties": ["clinic_id", "country", "operation", "duplicate_reason", "window_seconds"],
+			"properties": {
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica relacionada con el intento."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"operation": {"type": "string", "enum": ["inbound", "outbound"], "description": "Tipo de orden."},
+				"duplicate_reason": {"type": "string", "enum": ["idempotency_key_reused", "same_operation_window", "client_retry"], "description": "Regla normalizada que detectó duplicado probable."},
+				"window_seconds": {"type": "integer", "minimum": 1, "maximum": 3600, "description": "Ventana temporal aplicada."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No incluir idempotency key, request body, usuario directo ni hash derivado del contenido libre."}
+		},
+		{
+			"event_type": "inventory_order_history_exported",
+			"schemaVersion": "1.0.0",
+			"category": "inventory",
+			"classification": "identified_opportunity",
+			"description": "Un operador exporta un extracto del historial de órdenes de inventario.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 900, "rationale": "La demanda de exportación se usa para priorizar reportes y revisar acceso en lotes; la auditoría de acceso debe quedar en el sistema de seguridad."},
+			"propertiesAllowlist": ["country_scope", "period_bucket", "row_count_bucket", "export_format"],
+			"requiredProperties": ["country_scope", "period_bucket", "row_count_bucket", "export_format"],
+			"properties": {
+				"country_scope": {"type": "string", "enum": ["US", "UK", "both"], "description": "Jurisdicción incluida, sin lista de clínicas."},
+				"period_bucket": {"type": "string", "enum": ["day", "week", "month", "quarter", "custom"], "description": "Granularidad solicitada, no fechas libres."},
+				"row_count_bucket": {"type": "string", "enum": ["0", "1_100", "101_1000", "1001_plus"], "description": "Tamaño agregado del extracto."},
+				"export_format": {"type": "string", "enum": ["csv", "xlsx", "json"], "description": "Formato de salida."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId"], "sanitization": "No capturar filas exportadas, nombres de archivo, filtros/fechas exactos, destinatario ni contenido; revisar permisos y retención del archivo exportado."}
+		},
+		{
+			"event_type": "auth_password_reset_requested",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "Se solicita recuperación de acceso; el resultado se registra sin revelar si existe la cuenta.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La demanda agregada informa soporte y UX; controles de abuso se notifican separadamente por auth_rate_limit_triggered."},
+			"propertiesAllowlist": ["application", "request_outcome", "rate_limited"],
+			"requiredProperties": ["application", "request_outcome", "rate_limited"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación que recibió la solicitud."},
+				"request_outcome": {"type": "string", "enum": ["accepted", "rejected", "rate_limited", "service_error"], "description": "Resultado genérico no distinguible por existencia de cuenta."},
+				"rate_limited": {"type": "boolean", "description": "Indica si el limitador actuó."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId"], "sanitization": "No incluir email, userId de cuenta, token reset, IP ni resultado que permita enumeración; usar seudónimo anónimo efímero."}
+		},
+		{
+			"event_type": "auth_rate_limit_triggered",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "Un control de frecuencia bloquea solicitudes repetidas de autenticación o acceso.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Un patrón de abuso requiere mitigación y revisión inmediata, sin esperar al análisis agregado."},
+			"propertiesAllowlist": ["application", "endpoint_group", "limit_window_seconds", "observed_count", "limit_action"],
+			"requiredProperties": ["application", "endpoint_group", "limit_window_seconds", "observed_count", "limit_action"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker", "healthcore_api"], "description": "Componente protegido."},
+				"endpoint_group": {"type": "string", "enum": ["login", "password_reset", "inventory_write", "api_general"], "description": "Grupo funcional; sin ruta/usuario exacto."},
+				"limit_window_seconds": {"type": "integer", "minimum": 1, "maximum": 86400, "description": "Ventana configurada."},
+				"observed_count": {"type": "integer", "minimum": 1, "description": "Conteo de solicitudes que activó el límite."},
+				"limit_action": {"type": "string", "enum": ["throttled", "blocked", "challenged"], "description": "Acción de protección aplicada."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "Nunca registrar IP, email, fingerprint, credencial ni clave de rate-limit que contenga identidad; límite de cardinalidad por ventana."}
+		},
+		{
+			"event_type": "auth_token_validation_failed",
+			"schemaVersion": "1.0.0",
+			"category": "authentication",
+			"classification": "identified_opportunity",
+			"description": "La validación de credencial de sesión falla con código normalizado.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La distribución de causas guía expiración y compatibilidad; ráfagas de abuso se escalan con auth_rate_limit_triggered."},
+			"propertiesAllowlist": ["application", "failure_code", "route_template"],
+			"requiredProperties": ["application", "failure_code", "route_template"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker", "healthcore_api"], "description": "Aplicación/servicio que validó."},
+				"failure_code": {"type": "string", "enum": ["expired", "malformed", "signature_invalid", "revoked", "missing"], "description": "Motivo normalizado; nunca el token ni fragmentos."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta template sin parámetros/IDs."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId"], "sanitization": "No incluir token, claims JWT, cookie, IP o mensaje de parser."}
+		},
+		{
+			"event_type": "api_retry_exhausted",
+			"schemaVersion": "1.0.0",
+			"category": "reliability",
+			"classification": "identified_opportunity",
+			"description": "Una operación agota su política de reintentos contra una dependencia.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Agotar reintentos indica que la recuperación automática falló y requiere intervención técnica rápida."},
+			"propertiesAllowlist": ["service", "dependency", "operation", "attempt_count", "failure_code"],
+			"requiredProperties": ["service", "dependency", "operation", "attempt_count", "failure_code"],
+			"properties": {
+				"service": {"type": "string", "enum": ["healthcore_api", "incidents_api", "backoffice"], "description": "Servicio que agotó reintentos."},
+				"dependency": {"type": "string", "enum": ["supabase_postgres", "tinydb", "next_proxy", "telemetry_collector", "email_provider"], "description": "Dependencia categorizada, sin host/DSN."},
+				"operation": {"type": "string", "enum": ["read", "write", "publish", "health_check"], "description": "Tipo de operación."},
+				"attempt_count": {"type": "integer", "minimum": 1, "maximum": 20, "description": "Intentos realizados."},
+				"failure_code": {"type": "string", "enum": ["timeout", "connection_error", "unavailable", "rejected", "unknown"], "description": "Código de fallo normalizado."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.requestId"], "sanitization": "Sin excepciones crudas, DSN, host, cabeceras o datos de request."}
+		},
+		{
+			"event_type": "telemetry_delivery_failed",
+			"schemaVersion": "1.0.0",
+			"category": "observability",
+			"classification": "identified_opportunity",
+			"description": "El productor no consigue entregar un lote/evento al colector tras la política de reintentos.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Pérdida de telemetría compromete detección de riesgos y debe activar recuperación del pipeline."},
+			"propertiesAllowlist": ["producer", "destination", "failure_code", "retry_count", "batch_size"],
+			"requiredProperties": ["producer", "destination", "failure_code", "retry_count", "batch_size"],
+			"properties": {
+				"producer": {"type": "string", "enum": ["healthcore_api", "backoffice", "telemetry_relay"], "description": "Componente productor."},
+				"destination": {"type": "string", "enum": ["telemetry_collector", "durable_outbox"], "description": "Destino lógico sin host."},
+				"failure_code": {"type": "string", "enum": ["timeout", "unavailable", "rejected", "serialization_error"], "description": "Causa normalizada."},
+				"retry_count": {"type": "integer", "minimum": 0, "maximum": 20, "description": "Reintentos hechos."},
+				"batch_size": {"type": "integer", "minimum": 1, "maximum": 10000, "description": "Número de eventos afectados, nunca sus contenidos."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "No incluir evento fallido, payload, IDs de evento ni endpoint/datos de conexión; informar solo cantidad y clase."}
+		},
+		{
+			"event_type": "telemetry_event_dropped",
+			"schemaVersion": "1.0.0",
+			"category": "observability",
+			"classification": "identified_opportunity",
+			"description": "El validador descarta un evento por esquema, privacidad o política de volumen.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Un aumento de eventos descartados puede ocultar señales obligatorias; alertar evita pérdida silenciosa."},
+			"propertiesAllowlist": ["producer", "event_type", "drop_reason", "schema_version", "count_bucket"],
+			"requiredProperties": ["producer", "event_type", "drop_reason", "schema_version", "count_bucket"],
+			"properties": {
+				"producer": {"type": "string", "enum": ["healthcore_api", "backoffice", "telemetry_relay"], "description": "Componente productor."},
+				"event_type": {"type": "string", "pattern": "^[a-z]+(_[a-z]+)+$", "description": "Tipo registrado del evento descartado, sin payload."},
+				"drop_reason": {"type": "string", "enum": ["unknown_event", "schema_invalid", "unknown_property", "privacy_rejected", "sampling_limit", "oversized"], "description": "Razón controlada."},
+				"schema_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$", "description": "Versión recibida."},
+				"count_bucket": {"type": "string", "enum": ["1", "2_10", "11_100", "101_plus"], "description": "Cantidad agregada de eventos con ese motivo."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "Nunca copiar el evento, propiedad ofensora, valor rechazado, requestId ni payload a este evento de diagnóstico."}
+		},
+		{
+			"event_type": "service_health_check_failed",
+			"schemaVersion": "1.0.0",
+			"category": "reliability",
+			"classification": "identified_opportunity",
+			"description": "Falla un chequeo sintético de disponibilidad de un servicio HealthCore.",
+			"delivery": {"mode": "stream", "targetLatencySecondsP95": 10, "rationale": "Una caída de servicio requiere alerta inmediata al equipo de operación."},
+			"propertiesAllowlist": ["service", "check_name", "failure_code", "duration_ms", "consecutive_failures"],
+			"requiredProperties": ["service", "check_name", "failure_code", "duration_ms", "consecutive_failures"],
+			"properties": {
+				"service": {"type": "string", "enum": ["healthcore_api", "incidents_api", "backoffice", "website", "telemetry_collector"], "description": "Servicio probado."},
+				"check_name": {"type": "string", "enum": ["liveness", "readiness", "synthetic_route"], "description": "Tipo de chequeo."},
+				"failure_code": {"type": "string", "enum": ["timeout", "unavailable", "unexpected_status", "dependency_failed"], "description": "Resultado normalizado."},
+				"duration_ms": {"type": "integer", "minimum": 0, "maximum": 300000, "description": "Tiempo hasta fallo."},
+				"consecutive_failures": {"type": "integer", "minimum": 1, "maximum": 1000, "description": "Fallos consecutivos observados."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": false, "sensitiveProperties": [], "sanitization": "Chequear solo rutas sintéticas sin datos reales; no guardar URL/host completo, body o cabeceras."}
+		},
+		{
+			"event_type": "frontend_route_load_recorded",
+			"schemaVersion": "1.0.0",
+			"category": "performance",
+			"classification": "identified_opportunity",
+			"description": "Se mide el tiempo de carga de una ruta funcional del backoffice.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "Los percentiles por ruta y versión permiten priorizar optimización y toleran ventana de minutos."},
+			"propertiesAllowlist": ["application", "route_template", "duration_ms", "load_result", "app_version"],
+			"requiredProperties": ["application", "route_template", "duration_ms", "load_result", "app_version"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación cliente."},
+				"route_template": {"type": "string", "maxLength": 128, "description": "Ruta normalizada, sin identificadores/query."},
+				"duration_ms": {"type": "integer", "minimum": 0, "maximum": 300000, "description": "Tiempo de navegación/carga en milisegundos."},
+				"load_result": {"type": "string", "enum": ["success", "timeout", "error"], "description": "Resultado controlado."},
+				"app_version": {"type": "string", "maxLength": 32, "description": "Versión publicada."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId"], "sanitization": "No enviar URL completa, query, referer externo, user-agent ni datos de ruta dinámica."}
+		},
+		{
+			"event_type": "inventory_workflow_started",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "Un operador comienza un flujo de creación de entrada, salida o producto.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "El funnel de inicio/terminación se analiza en agregado para dimensionar soporte, no requiere respuesta por sesión."},
+			"propertiesAllowlist": ["operation", "clinic_id", "country", "entry_surface"],
+			"requiredProperties": ["operation", "clinic_id", "country", "entry_surface"],
+			"properties": {
+				"operation": {"type": "string", "enum": ["inbound", "outbound", "product_create"], "description": "Flujo que se inicia."},
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica elegida/activa."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de esa clínica."},
+				"entry_surface": {"type": "string", "enum": ["products_list", "inbound_form", "outbound_form", "orders_history"], "description": "Pantalla de inicio."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No incluir valores aún no confirmados del formulario ni IDs de producto; medir inicio y abandono de forma agregada."}
+		},
+		{
+			"event_type": "inventory_form_validation_failed",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "La validación de cliente bloquea el envío del formulario de inventario.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La mejora de formularios usa frecuencia por campo/regla agregada, no atención en segundos."},
+			"propertiesAllowlist": ["operation", "field_name", "validation_code", "clinic_id", "country"],
+			"requiredProperties": ["operation", "field_name", "validation_code", "clinic_id", "country"],
+			"properties": {
+				"operation": {"type": "string", "enum": ["inbound", "outbound", "product_create"], "description": "Formulario validado."},
+				"field_name": {"type": "string", "enum": ["supply_id", "quantity", "clinic_id", "vendor_name", "consumption_type", "department"], "description": "Campo allowlisted, nunca valor introducido."},
+				"validation_code": {"type": "string", "enum": ["required", "out_of_range", "invalid_enum", "invalid_format"], "description": "Regla normalizada."},
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica seleccionada; enviar solo tras validarse."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País correspondiente a la clínica validada."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "No registrar valor del campo ni texto libre; cliente debe emitir códigos constantes y allowlisted."}
+		},
+		{
+			"event_type": "inventory_order_confirmation_viewed",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "El cliente muestra la confirmación del resultado de una orden ya procesada.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La métrica compara confirmaciones agregadas con escrituras aceptadas para localizar fallos de feedback."},
+			"propertiesAllowlist": ["operation", "clinic_id", "country", "result"],
+			"requiredProperties": ["operation", "clinic_id", "country", "result"],
+			"properties": {
+				"operation": {"type": "string", "enum": ["inbound", "outbound", "product_create"], "description": "Operación confirmada."},
+				"clinic_id": {"type": "integer", "minimum": 1, "maximum": 12, "description": "Clínica del movimiento."},
+				"country": {"type": "string", "enum": ["US", "UK"], "description": "País de la clínica."},
+				"result": {"type": "string", "enum": ["success", "error_displayed"], "description": "Estado de presentación, no contenido del mensaje."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId"], "sanitization": "No incluir número de orden, producto, mensaje visible ni detalle de error."}
+		},
+		{
+			"event_type": "inventory_search_performed",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "Se completa una búsqueda dentro del catálogo/historial de inventario.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "La frecuencia y latencia por tipo de búsqueda sirven a UX; no se requiere reacción a cada consulta."},
+			"propertiesAllowlist": ["search_surface", "search_mode", "duration_ms", "result_count_bucket"],
+			"requiredProperties": ["search_surface", "search_mode", "duration_ms", "result_count_bucket"],
+			"properties": {
+				"search_surface": {"type": "string", "enum": ["products", "orders"], "description": "Vista donde se buscó."},
+				"search_mode": {"type": "string", "enum": ["sku", "category", "date_range", "other_filter"], "description": "Tipo de búsqueda, nunca el texto consultado."},
+				"duration_ms": {"type": "integer", "minimum": 0, "maximum": 120000, "description": "Duración hasta resultados."},
+				"result_count_bucket": {"type": "string", "enum": ["0", "1_10", "11_50", "51_plus"], "description": "Rango de resultados."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.userId", "envelope.sessionId"], "sanitization": "Descartar texto de búsqueda, SKU introducido, filtros libres y cualquier valor de query string."}
+		},
+		{
+			"event_type": "backoffice_navigation_error",
+			"schemaVersion": "1.0.0",
+			"category": "navigation",
+			"classification": "identified_opportunity",
+			"description": "Una navegación interna termina en destino no disponible o error de ruta.",
+			"delivery": {"mode": "batch", "batchIntervalSeconds": 300, "rationale": "Los destinos rotos se corrigen mediante tendencias por origen/destino y no suelen requerir respuesta en segundos."},
+			"propertiesAllowlist": ["application", "source_route", "target_route", "failure_code", "app_version"],
+			"requiredProperties": ["application", "source_route", "target_route", "failure_code", "app_version"],
+			"properties": {
+				"application": {"type": "string", "enum": ["backoffice", "talent_tracker"], "description": "Aplicación."},
+				"source_route": {"type": "string", "maxLength": 128, "description": "Ruta de origen en formato template."},
+				"target_route": {"type": "string", "maxLength": 128, "description": "Destino interno allowlisted/template, sin ID o query."},
+				"failure_code": {"type": "string", "enum": ["not_found", "forbidden", "navigation_exception", "redirect_loop"], "description": "Clase normalizada de fallo."},
+				"app_version": {"type": "string", "maxLength": 32, "description": "Versión de frontend."}
+			},
+			"privacy": {"containsPHI": false, "containsDirectPII": false, "containsPseudonymousData": true, "sensitiveProperties": ["envelope.sessionId"], "sanitization": "No copiar href libre, URL completa, path params, query, referrer externo o texto de error."}
+		}
+	]
+}
