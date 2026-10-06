@@ -18,7 +18,9 @@ from routes.auth import router as auth_router
 from routes.inventory import router as inventory_router
 from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
+from routes.telemetry import router as telemetry_router
 from routes.users import router as users_router
+from telemetry import TELEMETRY_ENDPOINT
 
 timing_logger = logging.getLogger("api.timing")
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ async def lifespan(application: FastAPI):
 
 
 app = FastAPI(title="HealthCore API", version="1.1.0", lifespan=lifespan)
+app.state.telemetry_endpoint = TELEMETRY_ENDPOINT
 
 app.add_middleware(
     CORSMiddleware,
@@ -68,6 +71,7 @@ app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
 app.include_router(inventory_router)
+app.include_router(telemetry_router)
 
 
 # ── Global exception handlers ──────────────────────────────────────────

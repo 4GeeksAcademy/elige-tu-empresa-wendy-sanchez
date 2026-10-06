@@ -2,6 +2,11 @@
 
 ## Estado actual del desarrollo
 
+### Telemetría: fase 1 completada (2026-10-06)
+- Router receptor y modelo Pydantic cerrados, validación contra `docs/telemetry/event-schemas.json`, logs mínimos y ninguna escritura en base de datos.
+- `TELEMETRY_ENDPOINT` leído al iniciar; catálogo empaquetado para Docker. 16 pruebas focalizadas pasan, incluidos los cinco contratos obligatorios y el montaje en la app real.
+- No se implementaron servicio ni captura frontend. Validación ejecutada con un entorno Python temporal porque `uv` y `pytest` no estaban instalados en el contenedor.
+
 ### Completado
 1. Hito web de HealthCore implementado en EN/ES:
 - Landing con contenido corporativo, secciones requeridas y marcado Schema.org.

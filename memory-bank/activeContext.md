@@ -2,6 +2,11 @@
 
 ## Entregables activos en el repositorio
 
+### Telemetría: fase 1 (2026-10-06)
+- Stub `POST /telemetry/events` en router propio: valida lotes y contratos del catálogo, registra solo cantidad/tipos y responde `{ "received": N }` sin persistencia.
+- `TelemetryEvent` reutilizable en `services/api/telemetry.py`; configuración backend mediante `TELEMETRY_ENDPOINT`. Catálogo incluido en la imagen Docker.
+- Servicio, variable pública e instrumentación frontend pendientes por indicación expresa del usuario. Verificación: 16 pruebas focalizadas pasan, sin Supabase.
+
 ### 1) Landing y formulario bilingüe
 - index.html e index.es.html: secciones corporativas de HealthCore con JSON-LD requerido.
 - application.html y application.es.html: formulario de consulta de pacientes.

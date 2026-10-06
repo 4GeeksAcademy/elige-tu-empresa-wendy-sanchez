@@ -1,6 +1,6 @@
 # Plan de Telemetría de HealthCore
 
-**Estado:** Diseño previo a instrumentación  
+**Estado:** Diseño previo a instrumentación
 **Ámbito:** Inventario clínico, backoffice y servicios que lo soportan  
 **Contratos:** [`event-schemas.json`](event-schemas.json)
 
@@ -208,3 +208,19 @@ Propagar `requestId` generado en el borde por header confiable; reemplazar valor
 - Dashboard/alertas cubren retraso, pérdida, volumen y eventos rechazados.
 - Pruebas verifican emisión post-commit, ausencia de emisión tras rollback, consumo sin stock sin `outbound_order_created`, y redacción de valores sensibles.
 - La telemetría no bloquea ni modifica respuestas HTTP o flujos operativos.
+
+## Implementación construida
+
+Los avances de implementación se documentan aquí, después del plan original y en el orden en que se construyen.
+
+**Estado actual:** Stub receptor implementado; servicio e instrumentación pendientes.
+
+### Fase 1 de implementación: stub receptor
+
+- `POST /telemetry/events` recibe `{ "events": [...] }` con entre 1 y 100 eventos. Devuelve `200` con `{ "received": N }`; un contrato inválido rechaza el lote completo con `422`.
+- `services/api/telemetry.py` define `TelemetryEvent`, el envelope cerrado y la validación del catálogo, incluyendo propiedades, versión y límite de 8192 bytes por evento.
+- El router `services/api/routes/telemetry.py` solo registra cantidad y tipos de evento. No persiste, deduplica ni modifica datos de negocio.
+- El backend lee `TELEMETRY_ENDPOINT` al iniciar, por defecto `http://localhost:8000/telemetry/events`, y lo expone internamente en `app.state.telemetry_endpoint`. Todavía no redirige tráfico.
+- Ejecución local: `cd services/api && TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events uv run uvicorn main:app --port 8000 --reload`.
+- Pruebas: `cd services/api && uv run pytest tests/test_telemetry.py -q`.
+- La configuración `NEXT_PUBLIC_TELEMETRY_ENDPOINT`, el servicio del backoffice y la instrumentación quedan para las siguientes fases. El stub no autentica emisores: es una herramienta local de verificación, no un colector listo para producción.
