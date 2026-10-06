@@ -7,6 +7,12 @@
 - `TelemetryEvent` reutilizable en `services/api/telemetry.py`; configuración backend mediante `TELEMETRY_ENDPOINT`. Catálogo incluido en la imagen Docker.
 - Servicio, variable pública e instrumentación frontend pendientes por indicación expresa del usuario. Verificación: 16 pruebas focalizadas pasan, sin Supabase.
 
+### Telemetría: fase 2 (2026-10-06)
+- Servicio único `uis/backoffice/lib/telemetry.ts`: cola en memoria, lotes cada 10 s/20 eventos, beacon al ocultar/cerrar y tres reintentos con backoff. Sin instrumentación de negocio.
+- Sesión en memoria enlazada a auth; captura autenticada desactivada hasta recibir `telemetry_user_id` HMAC. El usuario rechazó ampliar el backend en esta fase. No enviar email, ID interno ni JWT al colector.
+- Configuración de `NEXT_PUBLIC_TELEMETRY_ENDPOINT` pendiente en el archivo local bloqueado para edición. Avances documentados solo al final de `docs/telemetry/telemetry-plan.md`, después del plan original.
+- Diez pruebas focalizadas pasan; tipos focalizados sin errores. Typecheck global: 11 errores ajenos; aviso lint de AuthContext confirmado en HEAD. Dependencias locales reportan 28 vulnerabilidades, sin cambios de lockfiles.
+
 ### 1) Landing y formulario bilingüe
 - index.html e index.es.html: secciones corporativas de HealthCore con JSON-LD requerido.
 - application.html y application.es.html: formulario de consulta de pacientes.

@@ -213,7 +213,7 @@ Propagar `requestId` generado en el borde por header confiable; reemplazar valor
 
 Los avances de implementación se documentan aquí, después del plan original y en el orden en que se construyen.
 
-**Estado actual:** Stub receptor implementado; servicio e instrumentación pendientes.
+**Estado actual:** Stub receptor y servicio frontend implementados; captura autenticada pendiente del seudónimo de servidor e instrumentación pendiente.
 
 ### Fase 1 de implementación: stub receptor
 
@@ -223,4 +223,19 @@ Los avances de implementación se documentan aquí, después del plan original y
 - El backend lee `TELEMETRY_ENDPOINT` al iniciar, por defecto `http://localhost:8000/telemetry/events`, y lo expone internamente en `app.state.telemetry_endpoint`. Todavía no redirige tráfico.
 - Ejecución local: `cd services/api && TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events uv run uvicorn main:app --port 8000 --reload`.
 - Pruebas: `cd services/api && uv run pytest tests/test_telemetry.py -q`.
-- La configuración `NEXT_PUBLIC_TELEMETRY_ENDPOINT`, el servicio del backoffice y la instrumentación quedan para las siguientes fases. El stub no autentica emisores: es una herramienta local de verificación, no un colector listo para producción.
+- Al terminar esta fase quedaron pendientes la configuración `NEXT_PUBLIC_TELEMETRY_ENDPOINT`, el servicio del backoffice y la instrumentación. El stub no autentica emisores: es una herramienta local de verificación, no un colector listo para producción.
+
+### Fase 2 de implementación: servicio frontend
+
+- `uis/backoffice/lib/telemetry.ts` sigue la ubicación existente de las capas cliente del backoffice y exporta únicamente `track(eventType: string, properties: Record<string, unknown>): void`. No se añadieron llamadas de tracking a componentes ni eventos de negocio.
+- La cola vive en memoria, con máximo de 200 eventos entre pendientes y en vuelo. Se envían lotes `{ "events": [...] }` cada 10 segundos desde el primer evento o al alcanzar 20 eventos. La llegada de nuevos eventos no reinicia la ventana ni produce requests individuales. El tamaño de cada lote se limita a 48 KB.
+- El servicio genera `eventId` y `requestId` aleatorios, añade el `timestamp` ISO 8601 en captura y obtiene `sessionId`/`userId` de su sesión en memoria. No se envían credenciales, perfil, email, JWT ni ID interno al colector.
+- `telemetryContracts.ts` comparte el registro JSON con el stub: `TELEMETRY_SCHEMA_VERSION` procede de `formatVersion`. Se validan allowlist, campos obligatorios, tipos, rangos, enums y tamaño antes de encolar. Los datos inválidos se descartan sin registrar el payload.
+- `visibilitychange`, cuando la pestaña queda oculta, y `pagehide` vacían eventos pendientes mediante `navigator.sendBeacon`. Un beacon aceptado puede incluir el lote HTTP en vuelo; este se cancela y no se reintenta. Si el navegador rechaza o lanza al encolar el beacon, el lote se conserva. La aceptación del beacon no equivale a confirmación del servidor; el futuro colector deberá deduplicar por `eventId`.
+- Un fallo HTTP/red/timeout produce hasta tres reintentos adicionales, tras 1, 2 y 4 segundos. Se reutilizan el lote, IDs y timestamps originales. Después se descarta el lote y se continúa con la cola. Cada request tiene un timeout de 10 segundos. Los contadores de descarte/fallo son internos y no generan eventos recursivos.
+- `telemetrySession.ts`, `auth.ts` y `AuthContext.tsx` enlazan la sesión con login, recuperación y logout. El UUID de sesión se genera al login y no se persiste. Las recargas de la pestaña crean una sesión nueva; las renovaciones de perfil mantienen la misma sesión. Los eventos ya capturados conservan su identidad aunque cambie la cuenta.
+- **Dependencia pendiente aceptada:** el backend actual no devuelve el HMAC `telemetry_user_id` en `/auth/me` y se decidió no modificarlo en esta fase. El campo opcional queda preparado en el contrato frontend. Mientras falte un seudónimo válido, se descarta la captura autenticada, sin sustituirlo por email, ID interno ni un usuario anónimo. Sin autenticación se usa una identidad anónima efímera, conforme al plan.
+- **Configuración local pendiente:** el servicio lee `NEXT_PUBLIC_TELEMETRY_ENDPOINT` sin fallback; si falta, no captura ni envía. El archivo `uis/backoffice/.env.local` está bloqueado para la herramienta de edición de esta sesión. Añadir allí `NEXT_PUBLIC_TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events` y reiniciar Next.js. En Codespaces/producción usar una URL HTTPS accesible desde el navegador, no el nombre interno de Docker ni un localhost remoto.
+- El catálogo se incluye en `uis/Dockerfile` para resolver la misma fuente de contratos dentro de la imagen.
+- Verificación: diez pruebas focalizadas de telemetría y las 46 pruebas de la suite del backoffice pasan; chequeo TypeScript focalizado sin errores. El typecheck global sigue fallando por 11 errores ajenos a esta fase (pruebas de proveedores, imports compartidos de la página principal y resumen de incidencias). Lint confirma un aviso preexistente en el efecto de `AuthContext`; los archivos nuevos no presentan errores.
+- Pruebas: `cd uis/backoffice && npm test -- --runInBand`. La instalación local de dependencias reportó 28 vulnerabilidades; no se actualizaron dependencias ni lockfiles dentro de esta fase.

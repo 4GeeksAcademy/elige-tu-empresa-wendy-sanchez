@@ -7,6 +7,11 @@
 - `TELEMETRY_ENDPOINT` leído al iniciar; catálogo empaquetado para Docker. 16 pruebas focalizadas pasan, incluidos los cinco contratos obligatorios y el montaje en la app real.
 - No se implementaron servicio ni captura frontend. Validación ejecutada con un entorno Python temporal porque `uv` y `pytest` no estaban instalados en el contenedor.
 
+### Telemetría: fase 2 implementada con dependencias pendientes (2026-10-06)
+- Servicio frontend con API única `track()`, envelope automático, contratos compartidos, cola acotada, envío por lotes, beacon y tres reintentos. Integración de sesión sin instrumentación de eventos de negocio.
+- Pendientes: configurar URL pública en el archivo local bloqueado y recibir seudónimo HMAC de autenticación. No se amplió el backend por decisión expresa del usuario.
+- Diez pruebas focalizadas, las 46 pruebas del backoffice y tipos del servicio pasan. El typecheck global mantiene 11 errores ajenos al cambio y lint mantiene un aviso previo de AuthContext. Detalle al final del plan de telemetría.
+
 ### Completado
 1. Hito web de HealthCore implementado en EN/ES:
 - Landing con contenido corporativo, secciones requeridas y marcado Schema.org.

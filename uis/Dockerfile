@@ -35,6 +35,7 @@ COPY uis/backoffice ./uis/backoffice
 
 # Copiar paquetes compartidos si existen
 COPY packages/shared ./packages/shared
+COPY docs/telemetry ./docs/telemetry
 
 # Script de arranque
 COPY uis/start.sh /usr/local/bin/start.sh

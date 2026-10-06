@@ -15,6 +15,7 @@ import {
   setToken,
   type MeResponse,
 } from "@/lib/auth";
+import { beginTelemetrySession } from "@/lib/telemetrySession";
 
 interface AuthContextValue {
   /** El usuario autenticado, o null mientras no se haya cargado / no haya sesión. */
@@ -44,6 +45,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    beginTelemetrySession();
     try {
       const response = await fetch("/api/auth/me", {
         headers: { Authorization: `Bearer ${token}` },
@@ -51,6 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = (await response.json()) as MeResponse;
+        beginTelemetrySession(data.telemetry_user_id);
         setUser(data);
       } else {
         // Token inválido o expirado → limpiar
@@ -81,6 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         });
         if (response.ok) {
           const data = (await response.json()) as MeResponse;
+          beginTelemetrySession(data.telemetry_user_id);
           setUser(data);
         }
       } catch {
