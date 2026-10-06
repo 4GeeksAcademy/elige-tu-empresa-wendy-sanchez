@@ -265,3 +265,112 @@ Los avances de implementación se documentan aquí, después del plan original y
 - **Evidencia:** 152 pruebas de backend y 59 de frontend pasan; lint y tipos focalizados del servicio sin errores. La reproducción de la auditoría pasó de enviar el canario a `pii_canary_blocked: true`. Una integración ejecuta las cinco operaciones mediante el middleware real y envía automáticamente seis eventos (cinco obligatorios y alta de producto) al stub, que valida el lote con `200`; la marca de caducidad se verifica antes/después del acuse.
 - **Límites de verificación:** persisten cuatro errores TypeScript preexistentes en pruebas de proveedores y resumen de incidencias, fuera de estas correcciones. `scripts/verify_telemetry_browser.mjs` se adaptó a productores independientes: Network del navegador solo muestra sus lotes; los eventos de servidor se verifican con las pruebas backend. No se certificó todavía el recorrido completo en Chromium.
 - **Operación:** reiniciar FastAPI para activar el worker nuevo y recargar el backoffice. En Docker configurar `TELEMETRY_ENDPOINT=http://backend:8000/telemetry/events` en el backend; en ejecución local usar `http://127.0.0.1:8000/telemetry/events`. El stub sigue sin persistir eventos. La cola en memoria puede perderse al reiniciar; persistencia/outbox, retención y deduplicación final del colector siguen perteneciendo a la fase de almacenamiento.
+
+### Estado final de instrumentación (41 eventos)
+
+La auditoría final confirma que los **41 eventos del catálogo están instrumentados en código**. El campo `x-implemented` en `event-schemas.json` se actualizó a `true` para todos los eventos tras verificar la emisión en archivos fuente.
+
+#### Resumen de implementación
+
+| # | event_type | Origen | Archivo(s) de emisión |
+|---|---|---|---|
+| 1 | `inbound_order_created` | Backend | `routes/inventory.py` |
+| 2 | `outbound_order_created` | Backend | `routes/inventory.py` |
+| 3 | `stock_threshold_triggered` | Backend | `routes/inventory.py` |
+| 4 | `direct_stock_edit_rejected` | Backend | `routes/inventory.py` |
+| 5 | `supply_expiry_flagged` | Backend | `inventory_telemetry.py` |
+| 6 | `inventory_order_validation_failed` | Backend | `routes/inventory.py`, `main.py` |
+| 7 | `inventory_order_rejected` | Backend | `routes/inventory.py` |
+| 8 | `inventory_product_lookup_completed` | Frontend | `lib/inventoryApi.ts` |
+| 9 | `inventory_stock_snapshot_recorded` | Backend | `routes/inventory.py` |
+| 10 | `inventory_cache_served` | Backend | `routes/inventory.py` |
+| 11 | `auth_login_succeeded` | Frontend | `lib/AuthContext.tsx` |
+| 12 | `auth_login_failed` | Frontend | `lib/telemetryAuth.ts` |
+| 13 | `auth_session_expired` | Frontend | `lib/telemetryAuth.ts` |
+| 14 | `auth_logout_completed` | Frontend | `lib/AuthContext.tsx` |
+| 15 | `auth_authorization_denied` | Backend | `main.py` (timing_middleware) |
+| 16 | `api_latency_recorded` | Frontend | `lib/telemetryApi.ts` |
+| 17 | `api_request_failed` | Frontend | `lib/telemetryApi.ts` |
+| 18 | `api_dependency_failed` | Backend | `main.py`, `telemetry_delivery.py` |
+| 19 | `frontend_error_captured` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 20 | `client_performance_recorded` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 21 | `backoffice_page_viewed` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 22 | `inventory_filter_applied` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 23 | `inventory_workflow_abandoned` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 24 | `inventory_product_created` | Backend | `routes/inventory.py` |
+| 25 | `inventory_cache_invalidated` | Backend | `routes/inventory.py` |
+| 26 | `inventory_stock_reconciliation_flagged` | Backend | `routes/inventory.py` |
+| 27 | `inventory_order_duplicate_suspected` | Backend | `routes/inventory.py` |
+| 28 | `inventory_order_history_exported` | Backend | `routes/inventory.py` |
+| 29 | `auth_password_reset_requested` | Backend | `routes/auth.py` |
+| 30 | `auth_rate_limit_triggered` | Backend | `rate_limiter.py` |
+| 31 | `auth_token_validation_failed` | Backend | `security.py` |
+| 32 | `api_retry_exhausted` | Ambos | `telemetry_delivery.py`, `lib/telemetry.ts` |
+| 33 | `telemetry_delivery_failed` | Ambos | `telemetry_delivery.py`, `lib/telemetry.ts` |
+| 34 | `telemetry_event_dropped` | Ambos | `telemetry_delivery.py`, `lib/telemetry.ts` |
+| 35 | `service_health_check_failed` | Backend | `main.py` (health/ready) |
+| 36 | `frontend_route_load_recorded` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 37 | `inventory_workflow_started` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 38 | `inventory_form_validation_failed` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 39 | `inventory_order_confirmation_viewed` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 40 | `inventory_search_performed` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 41 | `backoffice_navigation_error` | Frontend | `lib/telemetryInstrumentation.ts`, `app/not-found.tsx` |
+
+#### Distribución
+
+- **Backend puro**: 17 eventos
+- **Frontend puro**: 22 eventos
+- **Ambos (frontend + backend)**: 2 eventos (`api_retry_exhausted`, `telemetry_delivery_failed`, `telemetry_event_dropped`)
+- **5 obligatorios**: todos instrumentados en backend
+- **36 oportunidades**: todas instrumentadas
+
+#### Canal de control independiente
+
+Los eventos de diagnóstico del pipeline (`telemetry_delivery_failed`, `api_retry_exhausted`, `telemetry_event_dropped`, `api_dependency_failed`, `service_health_check_failed`) usan un canal de control independiente:
+- **Backend**: `services/api/telemetry_delivery.py` → `control_queue` → `flush_control()` → `POST /telemetry/control`
+- **Frontend**: `lib/TelemetryService.control.ts` → cola independiente → `POST /api/telemetry/control` (proxy Next.js → backend)
+
+Este diseño evita recursión: si el canal principal falla, los eventos de diagnóstico no se publican por el mismo canal cuya falla describen.
+
+#### Pruebas
+
+- **Backend**: 156 pruebas pasan (28.6 s)
+  - `test_telemetry.py`: validación de contratos, envelope, privacidad
+  - `test_telemetry_delivery.py`: entrega, reintentos, control channel
+  - `test_telemetry_control.py`: canal independiente, salud
+  - `test_inventory_telemetry.py`: 5 obligatorios + alta de producto
+  - `test_inventory_opportunities.py`: oportunidades de inventario
+  - `test_auth_telemetry.py`: eventos de autenticación
+  - `test_telemetry_identity.py`: identidad HMAC
+- **Frontend**: 62 pruebas pasan (2.4 s)
+  - `telemetry.test.ts`: track, queue, flush, contracts
+  - `telemetryApi.test.ts`: captura de API
+  - `telemetryInstrumentation.test.ts`: observer, page view, rendimiento
+  - `telemetryProxy.test.ts`: proxy Next.js
+  - `inventoryWorkflow.test.tsx`: workflow start/abandon
+- **TypeScript**: lint y tipos focalizados sin errores. Persisten errores preexistentes en pruebas de proveedores y resumen de incidencias, fuera del ámbito de telemetría.
+
+#### Archivos nuevos
+
+Como parte de la instrumentación final se crearon 10 archivos nuevos:
+
+| Archivo | Propósito |
+|---|---|
+| `services/api/tests/test_auth_telemetry.py` | Pruebas de `auth_authorization_denied`, `auth_token_validation_failed`, `auth_password_reset_requested`, `auth_rate_limit_triggered` |
+| `services/api/tests/test_inventory_opportunities.py` | Pruebas de caché, snapshot, reconciliación, duplicados, exportación, validación |
+| `services/api/tests/test_telemetry_control.py` | Pruebas del canal de control y health check |
+| `uis/backoffice/__tests__/inventoryWorkflow.test.tsx` | Prueba de workflow start/abandon |
+| `uis/backoffice/app/api/telemetry/control/route.ts` | Proxy Next.js para control events |
+| `uis/backoffice/app/not-found.tsx` | Reporta `backoffice_navigation_error` en 404 |
+| `uis/backoffice/lib/TelemetryService.control.ts` | Canal de control frontend |
+| `uis/website/app/api/telemetry/events/route.ts` | Proxy de eventos para website |
+| `uis/website/app/api/telemetry/control/route.ts` | Proxy de control para website |
+| `uis/website/components/WebsiteTelemetry.tsx` | Componente de telemetría para el website público |
+
+#### Pendientes (para fase de almacenamiento)
+
+1. **Persistencia/outbox**: el stub no persiste eventos; la cola en memoria se pierde al reiniciar.
+2. **Colector dedicado**: el stub actual es una herramienta local de verificación, no un colector listo para producción.
+3. **Deduplicación final**: aunque el pipeline envía `eventId`, el stub no deduplica.
+4. **Recorrido Chromium**: `scripts/verify_telemetry_browser.mjs` está preparado pero no se ejecutó en navegador headless.
+5. **NEXT_PUBLIC_TELEMETRY_ENDPOINT**: requiere configuración en `.env.local`.

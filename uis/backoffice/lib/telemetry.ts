@@ -1,8 +1,9 @@
 import { getTelemetrySession } from "./telemetrySession";
 import { telemetryEnvelopeContext } from "./telemetryContext";
 import { browserTelemetryEndpoint } from "./telemetryEndpoint";
+import { recordTelemetryControl } from "./TelemetryService.control";
 import {
-  TELEMETRY_MAX_EVENT_BYTES, telemetrySchemaVersion, validTelemetryProperties,
+  TELEMETRY_MAX_EVENT_BYTES, telemetrySchemaVersion, validTelemetryProperties, registeredTelemetryEvent,
 } from "./telemetryContracts";
 
 interface TelemetryEvent {
@@ -66,6 +67,8 @@ async function flush(): Promise<void> {
   } catch {
     if (pending !== batch) return;
     if (batch.retries >= MAX_RETRIES) {
+      recordTelemetryControl("telemetry_delivery_failed", { producer: "backoffice", destination: "telemetry_collector", failure_code: "unavailable", retry_count: 3, batch_size: batch.events.length });
+      recordTelemetryControl("api_retry_exhausted", { service: "backoffice", dependency: "telemetry_collector", operation: "publish", attempt_count: 4, failure_code: "unavailable" });
       counters.deliveryFailed += batch.events.length;
       pending = undefined;
     } else {
@@ -128,6 +131,7 @@ export function track(eventType: string, properties: Record<string, unknown>): v
   try {
     if (!validTelemetryProperties(eventType, properties)) {
       counters.dropped += 1;
+      recordTelemetryControl("telemetry_event_dropped", { producer: "backoffice", event_type: registeredTelemetryEvent(eventType) ? eventType : "unknown_event", drop_reason: "schema_invalid", schema_version: telemetrySchemaVersion(eventType), count_bucket: "1" });
       return;
     }
     const session = getTelemetrySession();
@@ -144,6 +148,7 @@ export function track(eventType: string, properties: Record<string, unknown>): v
     if (new Blob([JSON.stringify(event)]).size > TELEMETRY_MAX_EVENT_BYTES
       || queue.length + (pending?.events.length ?? 0) >= MAX_QUEUE_SIZE) {
       counters.dropped += 1;
+      recordTelemetryControl("telemetry_event_dropped", { producer: "backoffice", event_type: eventType, drop_reason: "sampling_limit", schema_version: event.schemaVersion, count_bucket: "1" });
       return;
     }
     queue.push(event);

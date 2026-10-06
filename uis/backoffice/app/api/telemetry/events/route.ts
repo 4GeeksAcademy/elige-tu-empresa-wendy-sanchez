@@ -1,4 +1,4 @@
-import { forwardTelemetryBatch } from "@/lib/TelemetryService.server";
+import { forwardTelemetryBatch } from "../../../../lib/TelemetryService.server";
 
 export async function POST(request: Request): Promise<Response> {
   const configured = process.env.TELEMETRY_ENDPOINT ?? process.env.NEXT_PUBLIC_TELEMETRY_ENDPOINT;

@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError
 from passlib.hash import bcrypt
 from tinydb import Query as TinyQuery
 
@@ -59,26 +60,49 @@ def get_current_user(token: str | None = Depends(_oauth2_scheme)) -> User:
     )
 
     if token is None:
+        _token_failure("missing")
         raise unauthorized
 
     try:
         payload = jwt.decode(token, _get_secret_key(), algorithms=[JWT_ALGORITHM])
         user_id_raw = payload.get("sub")
         if user_id_raw is None:
-            logger.warning("Token JWT válido pero sin 'sub': %s...", token[:20])
+            _token_failure("malformed")
+            logger.warning("Token JWT sin identificador válido")
             raise unauthorized
         user_id = int(user_id_raw)
+    except ExpiredSignatureError:
+        _token_failure("expired")
+        raise unauthorized from None
     except JWTError:
-        logger.warning("Token JWT inválido rechazado (posible ataque): %s...", token[:20])
+        _token_failure("signature_invalid")
+        logger.warning("Token JWT inválido rechazado")
         raise unauthorized from None
     except ValueError:
-        logger.warning("'sub' no entero en token JWT: %s...", token[:20])
+        _token_failure("malformed")
+        logger.warning("Identificador de token JWT inválido")
         raise unauthorized from None
 
     user = user_service.get_user_by_id(user_id)
     if user is None or not user.is_active:
+        _token_failure("revoked")
         raise unauthorized
+    from telemetry_delivery import request_context
+    from telemetry_identity import user_pseudonym
+    request = request_context.get()
+    if request:
+        request.state.telemetry_user_id = user_pseudonym(user.id)
+        request.state.telemetry_role = "admin" if user.role == "admin" else "staff"
     return user
+
+
+def _token_failure(code: str) -> None:
+    from telemetry_delivery import request_context
+    from telemetry import normalized_route
+    from inventory_telemetry import signal
+    request = request_context.get()
+    if request:
+        signal("auth_token_validation_failed", {"application": "healthcore_api", "failure_code": code, "route_template": normalized_route(request.url.path)})
 
 
 # ──────────────────────────────────────────────

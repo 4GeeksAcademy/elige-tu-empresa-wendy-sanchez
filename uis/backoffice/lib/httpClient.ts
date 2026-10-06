@@ -156,6 +156,7 @@ export async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (response.status === 204) {
     return undefined as T;
   }
+  if (response.headers?.get("content-type")?.includes("text/csv")) return await response.text() as T;
 
   return (await response.json()) as T;
 }

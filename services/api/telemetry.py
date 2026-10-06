@@ -19,11 +19,17 @@ ISO_TIMESTAMP = r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9
 OpaqueId = Annotated[StrictStr, Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")]
 
 
+def normalized_route(path: str) -> str:
+    template = re.sub(r"/\d+(?=/|$)", "/{id}", path)
+    allowed = [*REGISTRY["privacyValidation"]["routes"], *REGISTRY["privacyValidation"]["publicRoutes"]]
+    return template if template in allowed else "/other"
+
+
 def validate_property_privacy(name: str, value: JsonValue) -> None:
     rules = REGISTRY["privacyValidation"]
-    if name in rules["registeredEventProperties"] and value not in CONTRACTS:
+    if name in rules["registeredEventProperties"] and value not in CONTRACTS and value != rules["unknownEventReference"]:
         raise ValueError("Unapproved telemetry event reference")
-    if name in rules["routeProperties"] and value not in rules["routes"]:
+    if name in rules["routeProperties"] and value not in [*rules["routes"], *rules["publicRoutes"]]:
         raise ValueError("Unapproved telemetry route")
     pattern = rules["propertyPatterns"].get(name)
     if pattern and (not isinstance(value, str) or re.fullmatch(pattern, value) is None):

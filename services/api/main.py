@@ -66,9 +66,16 @@ async def timing_middleware(request: Request, call_next):
         request_id = str(uuid4())
     request.state.telemetry_request_id = request_id
     start = time.perf_counter()
+    request.state.telemetry_started_at = start
     context_token = telemetry_delivery.request_context.set(request)
     try:
         response = await call_next(request)
+        if response.status_code in {401, 403} and request.url.path not in {"/auth/login", "/telemetry/events"}:
+            from inventory_telemetry import signal
+            from telemetry import normalized_route
+            signal("auth_authorization_denied", {"application": "backoffice", "route_template": normalized_route(request.url.path),
+                "method": request.method, "denial_code": "unauthenticated" if response.status_code == 401 else "forbidden",
+                "role_group": getattr(request.state, "telemetry_role", "unknown")})
     finally:
         telemetry_delivery.request_context.reset(context_token)
     telemetry_delivery.capture_inventory_signals(request, response)
@@ -102,9 +109,15 @@ async def validation_handler(
 ) -> JSONResponse:
     """Return user-friendly validation errors, never the full stack trace."""
     errors: list[dict] = []
+    operation = {"/inventory/orders/inbound": "inbound", "/inventory/orders/outbound": "outbound", "/inventory/products": "product_create"}.get(request.url.path)
     for e in exc.errors():
         field = ".".join(str(loc) for loc in e.get("loc", []) if loc != "body")
         msg = e.get("msg", "Invalid value")
+        if operation and field in {"supply_id", "quantity", "clinic_id", "consumption_type", "vendor_name", "department"}:
+            from inventory_telemetry import signal
+            kind = e.get("type", "")
+            code = "required" if kind == "missing" else "out_of_range" if "greater" in kind or "less" in kind else "invalid_enum" if field in {"department", "consumption_type"} else "invalid_format"
+            signal("inventory_order_validation_failed", {"operation": operation, "field_name": field, "validation_code": code})
         errors.append(
             {
                 "field": field or "body",
@@ -120,7 +133,13 @@ async def validation_handler(
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all: never expose stack traces to the client."""
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    from sqlalchemy.exc import SQLAlchemyError
+    from telemetry_delivery import record_control
+    if isinstance(exc, (SQLAlchemyError, OSError)) and not request.url.path.startswith("/telemetry"):
+        record_control("api_dependency_failed", {"service": "healthcore_api", "dependency": "supabase_postgres" if isinstance(exc, SQLAlchemyError) else "tinydb",
+            "operation": "read" if request.method == "GET" else "write", "failure_code": "unavailable",
+            "duration_ms": min(300000, round((time.perf_counter() - getattr(request.state, "telemetry_started_at", time.perf_counter())) * 1000))})
+    logger.error("Unhandled exception class=%s", type(exc).__name__)
     return JSONResponse(
         status_code=500,
         content={
@@ -132,6 +151,25 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 _last_report: dict | None = None
 _last_csv_export: str | None = None
 _repo_root = Path(__file__).resolve().parents[2]
+_health_failures = 0
+
+
+@app.get("/health/ready", response_model=dict)
+def health_ready():
+    global _health_failures
+    from database import get_sql_engine
+    from sqlalchemy import text
+    started = time.perf_counter()
+    try:
+        with get_sql_engine().connect() as connection:
+            connection.execute(text("SELECT 1"))
+        _health_failures = 0
+        return {"ready": True}
+    except Exception:
+        _health_failures += 1
+        telemetry_delivery.record_control("service_health_check_failed", {"service": "healthcore_api", "check_name": "readiness", "failure_code": "dependency_failed",
+            "duration_ms": min(300000, round((time.perf_counter() - started) * 1000)), "consecutive_failures": min(1000, _health_failures)})
+        raise HTTPException(status_code=503, detail="Service not ready")
 
 
 @app.get("/", response_model=RootResponse)

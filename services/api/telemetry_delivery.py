@@ -9,6 +9,10 @@ from dataclasses import dataclass
 from uuid import UUID, uuid4
 
 import requests
+import os
+import time
+from datetime import datetime, timezone
+from urllib.parse import urljoin
 from fastapi import Request, Response
 from sqlmodel import Session
 
@@ -17,7 +21,42 @@ from models import InventoryAlertState
 from telemetry import CONTRACTS, TELEMETRY_ENDPOINT, TelemetryEvent
 
 logger = logging.getLogger("api.telemetry")
+CONTROL_ENDPOINT = os.getenv("TELEMETRY_CONTROL_ENDPOINT", urljoin(TELEMETRY_ENDPOINT, "/telemetry/control"))
+control_queue: deque[TelemetryEvent] = deque(maxlen=200)
+control_lock = threading.Lock()
 request_context: ContextVar[Request | None] = ContextVar("telemetry_request", default=None)
+
+
+def record_control(event_type: str, properties: dict) -> None:
+    request = request_context.get()
+    event = TelemetryEvent(eventId=str(uuid4()), timestamp=datetime.now(timezone.utc),
+        sessionId=str(uuid4()), userId=getattr(request.state, "telemetry_user_id", f"anonymous_{uuid4()}") if request else f"anonymous_{uuid4()}",
+        event_type=event_type, schemaVersion=CONTRACTS[event_type]["schemaVersion"], requestId=str(uuid4()), properties=properties)
+    with control_lock:
+        control_queue.append(event)
+
+
+def record_drop(event_type: str, reason: str) -> None:
+    record_control("telemetry_event_dropped", {"producer": "healthcore_api", "event_type": event_type if event_type in CONTRACTS else "unknown_event",
+        "drop_reason": reason, "schema_version": "1.0.0", "count_bucket": "1"})
+
+
+def flush_control() -> bool:
+    with control_lock:
+        batch = list(control_queue)[:20]
+    if not batch:
+        return True
+    try:
+        response = requests.post(CONTROL_ENDPOINT, json={"events": [event.model_dump(mode="json") for event in batch]}, timeout=5, allow_redirects=False)
+        if response.status_code != 200 or response.json().get("received") != len(batch):
+            return False
+        with control_lock:
+            for event in batch:
+                if event in control_queue:
+                    control_queue.remove(event)
+        return True
+    except (requests.RequestException, ValueError):
+        return False
 
 
 @dataclass
@@ -61,6 +100,7 @@ class TelemetryDelivery:
                 return False
             if self._outstanding >= 200:
                 self.dropped += 1
+                record_drop(event.event_type, "sampling_limit")
                 return False
             self._queue.append(QueuedEvent(event, dedup_key))
             self._outstanding += 1
@@ -83,6 +123,8 @@ class TelemetryDelivery:
                 return True
             payload = {"events": [item.event.model_dump(mode="json") for item in batch]}
             delivered = False
+            started = time.perf_counter()
+            failure_code = "unavailable"
             for attempt in range(4):
                 try:
                     response = requests.post(self.endpoint, json=payload, timeout=5, allow_redirects=False)
@@ -90,6 +132,7 @@ class TelemetryDelivery:
                     if isinstance(receipt, dict) and receipt.get("received") == len(batch):
                         delivered = True
                         break
+                    failure_code = "rejected" if response.status_code < 500 else "unavailable"
                 except (requests.RequestException, ValueError):
                     pass
                 if attempt < 3 and self._stop.wait(2 ** attempt):
@@ -104,6 +147,9 @@ class TelemetryDelivery:
                     logger.warning("Telemetry expiry acknowledgment failed")
             else:
                 logger.warning("Telemetry batch discarded count=%d", len(batch))
+                record_control("telemetry_delivery_failed", {"producer": "healthcore_api", "destination": "telemetry_collector", "failure_code": failure_code, "retry_count": 3, "batch_size": len(batch)})
+                record_control("api_dependency_failed", {"service": "healthcore_api", "dependency": "telemetry_collector", "operation": "publish", "failure_code": failure_code, "duration_ms": min(300000, round((time.perf_counter() - started) * 1000))})
+                record_control("api_retry_exhausted", {"service": "healthcore_api", "dependency": "telemetry_collector", "operation": "publish", "attempt_count": 4, "failure_code": failure_code})
             with self._lock:
                 self._outstanding -= len(batch)
                 if not delivered:
@@ -124,6 +170,7 @@ class TelemetryDelivery:
             if self._stop.is_set():
                 break
             self.flush()
+            flush_control()
             if self.queued_count >= 20:
                 self._wake.set()
 

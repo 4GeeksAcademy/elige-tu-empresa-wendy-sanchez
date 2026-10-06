@@ -133,6 +133,11 @@ class DirectStockAttempt(BaseModel):
     quantity: int = Field(gt=0)
 
 
+class StockReconciliation(BaseModel):
+    clinic_id: int = Field(ge=1, le=12)
+    counted_quantity: int = Field(ge=0)
+
+
 # ── Order listing ─────────────────────────────────────────────────────
 
 

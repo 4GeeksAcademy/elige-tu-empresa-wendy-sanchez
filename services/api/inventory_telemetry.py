@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from models import InventoryAlertState, MedicalSupply
 from telemetry import CONTRACTS, validate_property, validate_property_privacy
-from telemetry_delivery import enqueue_signal
+from telemetry_delivery import enqueue_signal, record_drop
 
 CATEGORIES = {"ppe": "ppe", "medications": "medication", "consumables": "consumable", "wound_care": "consumable", "diagnostics": "consumable"}
 logger = logging.getLogger("api.telemetry")
@@ -22,6 +22,7 @@ def dimensions(supply: MedicalSupply, clinic_id: int, quantity: int) -> dict:
 def signal(event_type: str, properties: dict, dedup_key: str | None = None) -> dict | None:
     contract = CONTRACTS[event_type]
     if set(properties) - set(contract["propertiesAllowlist"]) or set(contract["requiredProperties"]) - set(properties):
+        record_drop(event_type, "schema_invalid")
         logger.warning("Telemetry signal dropped: contract")
         return None
     try:
@@ -29,6 +30,7 @@ def signal(event_type: str, properties: dict, dedup_key: str | None = None) -> d
             validate_property(value, contract["properties"][name])
             validate_property_privacy(name, value)
     except (ValueError, TypeError):
+        record_drop(event_type, "privacy_rejected")
         logger.warning("Telemetry signal dropped: properties")
         return None
     event = {"event_type": event_type, "properties": properties, "eventId": str(uuid4()),

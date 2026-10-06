@@ -172,6 +172,22 @@ export function updateStockPolicy(id: number, payload: { clinic_id: number; mini
   return requestInventory(`/inventory/products/${id}/policy`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
 }
 
+export function captureStockSnapshot(): Promise<{ captured: number }> {
+  return requestInventory("/inventory/snapshots", { method: "POST" });
+}
+
+export function reconcileStock(id: number, clinicId: number, counted: number): Promise<{ variance_quantity: number }> {
+  return requestInventory(`/inventory/products/${id}/reconcile`, { method: "POST", body: JSON.stringify({ clinic_id: clinicId, counted_quantity: counted }) });
+}
+
+export async function downloadOrderHistory(): Promise<void> {
+  const csv = await requestInventory<string>("/inventory/orders/export");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+  const link = document.createElement("a");
+  link.href = url; link.download = "inventory-orders.csv"; link.click();
+  URL.revokeObjectURL(url);
+}
+
 export function requestDirectStockEdit(id: number, clinicId: number, quantity: number): Promise<never> {
   return requestInventory(`/inventory/products/${id}/stock`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clinic_id: clinicId, quantity }) });
 }

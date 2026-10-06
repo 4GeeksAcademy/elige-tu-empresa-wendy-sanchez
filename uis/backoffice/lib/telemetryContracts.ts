@@ -27,10 +27,12 @@ export function telemetrySchemaVersion(eventType: string): string {
   return contracts.get(eventType)?.schemaVersion ?? TELEMETRY_SCHEMA_VERSION;
 }
 
+export function registeredTelemetryEvent(eventType: string): boolean { return contracts.has(eventType); }
+
 function validPropertyPrivacy(name: string, value: unknown): boolean {
   const rules = registry.privacyValidation;
-  if (rules.registeredEventProperties.includes(name) && (typeof value !== "string" || !contracts.has(value))) return false;
-  if (rules.routeProperties.includes(name) && (typeof value !== "string" || !rules.routes.includes(value))) return false;
+  if (rules.registeredEventProperties.includes(name) && (typeof value !== "string" || (!contracts.has(value) && value !== rules.unknownEventReference))) return false;
+  if (rules.routeProperties.includes(name) && (typeof value !== "string" || ![...rules.routes, ...rules.publicRoutes].includes(value))) return false;
   const patterns: Record<string, string | undefined> = rules.propertyPatterns;
   if (patterns[name] && (typeof value !== "string" || !new RegExp(patterns[name]).test(value))) return false;
   const enums: Record<string, readonly string[] | undefined> = rules.propertyEnums;

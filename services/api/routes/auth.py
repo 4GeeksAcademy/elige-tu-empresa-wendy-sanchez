@@ -7,6 +7,7 @@ import database
 import email_service
 import rate_limiter
 import user_service
+from inventory_telemetry import signal
 from telemetry_identity import user_pseudonym
 from models import (
     ChangePasswordRequest,
@@ -69,6 +70,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request) -> Message
 
     # Rate limiting: prevenir abusos por dirección de email.
     if not rate_limiter.check_rate_limit(email):
+        signal("auth_password_reset_requested", {"application": "backoffice", "request_outcome": "rate_limited", "rate_limited": True})
         audit_logger.record_reset_event(
             event="rate_limit_exceeded",
             email=email,
@@ -79,6 +81,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request) -> Message
         # Devolvemos 200 aunque haya rate limit, para no filtrar información.
         return MessageResponse(message="Si esa dirección está registrada, recibirás un enlace en breve.")
 
+    signal("auth_password_reset_requested", {"application": "backoffice", "request_outcome": "accepted", "rate_limited": False})
     user = user_service.get_user_by_email(email)
 
     if user is not None and user.is_active:

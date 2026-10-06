@@ -9,6 +9,7 @@ logger = logging.getLogger("api.telemetry")
 
 
 @router.post("/events", response_model=TelemetryReceipt)
+@router.post("/control", response_model=TelemetryReceipt)
 def receive_events(batch: TelemetryBatch) -> TelemetryReceipt:
     logger.info("Telemetry received=%d event_types=%s", len(batch.events), [event.event_type for event in batch.events])
     return TelemetryReceipt(received=len(batch.events))

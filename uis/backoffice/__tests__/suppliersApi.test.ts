@@ -125,8 +125,9 @@ describe("fetchSuppliers()", () => {
 describe("createSupplier()", () => {
   const PAYLOAD = {
     name: "New Supplier",
+    status: "active" as const,
     country: "USA" as const,
-    categories: ["medical_supplies"] as const,
+    categories: ["medical_supplies" as const],
     monthly_rate: 2000,
     currency: "USD" as const,
     compliance_agreement: "DPA" as const,

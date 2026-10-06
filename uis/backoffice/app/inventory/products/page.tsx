@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/AuthContext";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/lib/inventoryApi";
 import { LoadingSpinner, ErrorMessage, EmptyState } from "@/components/ui";
 import InventoryPolicyForm from "@/components/InventoryPolicyForm";
+import { reportInventoryFilter, reportInventorySearch } from "@/lib/telemetryInstrumentation";
 
 // ── Mapa de categorías para etiquetas legibles ────────────────────────
 
@@ -34,6 +35,23 @@ export default function InventoryProductsPage() {
   const [supplies, setSupplies] = useState<MedicalSupply[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [category, setCategory] = useState("all");
+  const lastSent = useRef(0);
+  const previousCategory = useRef("all");
+  const filtered = supplies.filter((supply) => (category === "all" || supply.category === category) && supply.sku.toLowerCase().includes(search.toLowerCase()));
+  useEffect(() => {
+    if (category === "all" && !search && previousCategory.current === "all") return;
+    const timer = setTimeout(() => {
+      const started = performance.now();
+      const results = supplies.filter((supply) => (category === "all" || supply.category === category) && supply.sku.toLowerCase().includes(search.toLowerCase()));
+      if (category !== previousCategory.current) reportInventoryFilter(category, results.length);
+      previousCategory.current = category;
+      if (search) reportInventorySearch(performance.now() - started, results.length);
+      lastSent.current = Date.now();
+    }, Math.max(1000, 5000 - (Date.now() - lastSent.current)));
+    return () => clearTimeout(timer);
+  }, [category, search, supplies]);
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -87,6 +105,10 @@ export default function InventoryProductsPage() {
       </section>
 
       <InventoryPolicyForm supplies={supplies} />
+      <section className="mt-6 grid gap-4 sm:grid-cols-2">
+        <label className="grid gap-1 text-sm">Buscar por SKU<input value={search} onChange={(event) => setSearch(event.target.value)} className="rounded-md border border-slate-300 p-2" /></label>
+        <label className="grid gap-1 text-sm">Categoría<select value={category} onChange={(event) => setCategory(event.target.value)} className="rounded-md border border-slate-300 p-2"><option value="all">Todas</option>{Array.from(new Set(supplies.map((supply) => supply.category))).map((value) => <option key={value} value={value}>{CATEGORY_LABELS[value] ?? value}</option>)}</select></label>
+      </section>
       {/* Tabla de productos */}
       <section className="mt-6 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
         <div className="overflow-x-auto">
@@ -117,7 +139,7 @@ export default function InventoryProductsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {supplies.map((supply) => {
+              {filtered.map((supply) => {
                 const stockColor = getStockLevelColor(supply.current_stock);
                 const stockLabel = getStockLevelLabel(supply.current_stock);
                 const catLabel = CATEGORY_LABELS[supply.category] ?? supply.category;

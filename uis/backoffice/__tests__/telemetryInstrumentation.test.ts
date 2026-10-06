@@ -1,6 +1,6 @@
 import { track } from "../lib/telemetry";
 import { validTelemetryProperties } from "../lib/telemetryContracts";
-import { installFrontendErrorCapture, reportPageView, reportWebVital, telemetryRoute } from "../lib/telemetryInstrumentation";
+import { installFrontendErrorCapture, reportInventoryFilter, reportInventorySearch, reportNavigationError, reportPageView, reportRouteLoad, reportWebVital, telemetryRoute } from "../lib/telemetryInstrumentation";
 
 jest.mock("../lib/telemetry", () => ({ track: jest.fn() }));
 const tracked = jest.mocked(track);
@@ -27,6 +27,22 @@ test("reports approved vitals with route and normalized rating", () => {
   const [name, properties] = tracked.mock.calls[0];
   expect(properties).toMatchObject({ route_template: "/suppliers", metric_rating: "needs_improvement" });
   expect(validTelemetryProperties(name, properties)).toBe(true);
+});
+
+test("website vitals keep the real application and public routes", () => {
+  reportWebVital({ name: "LCP", value: 2500, rating: "good" }, "/es", "website");
+  const [name, properties] = tracked.mock.calls[0];
+  expect(properties).toMatchObject({ application: "website", route_template: "/es" });
+  expect(validTelemetryProperties(name, properties)).toBe(true);
+});
+
+test("filters, search, route loading and navigation failures keep their allowlists", () => {
+  reportInventoryFilter("medications", 8);
+  reportInventorySearch(3, 8);
+  reportNavigationError("/private/email-canary@example.com", "not_found");
+  reportRouteLoad("/es", 100, "website");
+  for (const [name, properties] of tracked.mock.calls) expect(validTelemetryProperties(name, properties)).toBe(true);
+  expect(JSON.stringify(tracked.mock.calls)).not.toContain("email-canary");
 });
 
 test("captures global errors without messages or stacks, deduplicates and cleans up", () => {

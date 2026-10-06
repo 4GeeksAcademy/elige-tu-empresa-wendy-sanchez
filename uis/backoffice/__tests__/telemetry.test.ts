@@ -77,7 +77,7 @@ describe("telemetry capture and delivery", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(fetchMock.mock.calls[0][1].body).toBe(fetchMock.mock.calls[3][1].body);
     await jest.advanceTimersByTimeAsync(20000);
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock.mock.calls.filter((call) => call[0] === "/api/telemetry/events")).toHaveLength(4);
   });
 
   test("visibility hidden flushes with beacon and retains refused batches", () => {
@@ -100,7 +100,8 @@ describe("telemetry capture and delivery", () => {
     track("auth_logout_completed", { ...properties, email: "private@example.test" });
     track("auth_logout_completed", { ...properties, application: 7 });
     await jest.advanceTimersByTimeAsync(10000);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every((call) => call[0] === "/api/telemetry/events")).toBe(true);
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("private@example.test");
   });
 
   test("authenticated capture waits for pseudonym and rotates sessions on login", async () => {
@@ -126,7 +127,8 @@ describe("telemetry capture and delivery", () => {
     });
     track("frontend_error_captured", { application: "backoffice", app_version: "0.1.0", route_template: "/", component: "JaneSmith", error_code: "uncaught_error", error_class: "unknown" });
     await jest.advanceTimersByTimeAsync(10000);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every((call) => call[0] === "/api/telemetry/events")).toBe(true);
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toMatch(/email-canary|JaneSmith/);
     window.dispatchEvent(new Event("pagehide"));
     expect(beaconMock).not.toHaveBeenCalled();
   });
