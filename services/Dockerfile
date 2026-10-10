@@ -27,6 +27,7 @@ RUN uv pip install --system --no-cache-dir \
 # (En desarrollo los bind mounts de docker-compose sobreescriben estos archivos)
 COPY services/api ./services/api
 COPY services/incidents-api ./services/incidents-api
+COPY docs/telemetry ./docs/telemetry
 
 # ── Puerto por defecto (lo sobreescribe la variable de entorno PORT) ──
 EXPOSE 8000 8010

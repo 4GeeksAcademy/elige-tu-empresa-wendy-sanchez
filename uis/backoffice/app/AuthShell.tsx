@@ -3,6 +3,7 @@
 import { AuthProvider } from "@/lib/AuthContext";
 import AuthGuard from "@/components/AuthGuard";
 import BackofficeHeader from "@/components/BackofficeHeader";
+import TelemetryObserver from "@/components/TelemetryObserver";
 
 interface AuthShellProps {
   children: React.ReactNode;
@@ -17,6 +18,7 @@ interface AuthShellProps {
 export default function AuthShell({ children }: AuthShellProps) {
   return (
     <AuthProvider>
+      <TelemetryObserver />
       <BackofficeHeader />
       <AuthGuard>{children}</AuthGuard>
     </AuthProvider>

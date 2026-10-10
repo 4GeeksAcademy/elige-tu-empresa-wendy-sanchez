@@ -1,6 +1,6 @@
 # Plan de Telemetría de HealthCore
 
-**Estado:** Diseño previo a instrumentación  
+**Estado:** Diseño previo a instrumentación
 **Ámbito:** Inventario clínico, backoffice y servicios que lo soportan  
 **Contratos:** [`event-schemas.json`](event-schemas.json)
 
@@ -208,3 +208,204 @@ Propagar `requestId` generado en el borde por header confiable; reemplazar valor
 - Dashboard/alertas cubren retraso, pérdida, volumen y eventos rechazados.
 - Pruebas verifican emisión post-commit, ausencia de emisión tras rollback, consumo sin stock sin `outbound_order_created`, y redacción de valores sensibles.
 - La telemetría no bloquea ni modifica respuestas HTTP o flujos operativos.
+
+## Implementación construida
+
+Los avances de implementación se documentan aquí, después del plan original y en el orden en que se construyen.
+
+**Estado actual:** Stub, servicio e instrumentación implementados; brechas de privacidad, timestamp, entrega obligatoria y expiración corregidas. Control channel refactorizado (2026-10-06). Error 422 resuelto recargando backend. Recorrido integral en Chromium pendiente; almacenamiento analítico todavía no implementado.
+
+### Fase 1 de implementación: stub receptor
+
+- `POST /telemetry/events` recibe `{ "events": [...] }` con entre 1 y 100 eventos. Devuelve `200` con `{ "received": N }`; un contrato inválido rechaza el lote completo con `422`.
+- `services/api/telemetry.py` define `TelemetryEvent`, el envelope cerrado y la validación del catálogo, incluyendo propiedades, versión y límite de 8192 bytes por evento.
+- El router `services/api/routes/telemetry.py` solo registra cantidad y tipos de evento. No persiste, deduplica ni modifica datos de negocio.
+- El backend lee `TELEMETRY_ENDPOINT` al iniciar, por defecto `http://localhost:8000/telemetry/events`, y lo expone internamente en `app.state.telemetry_endpoint`. Todavía no redirige tráfico.
+- Ejecución local: `cd services/api && TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events uv run uvicorn main:app --port 8000 --reload`.
+- Pruebas: `cd services/api && uv run pytest tests/test_telemetry.py -q`.
+- Al terminar esta fase quedaron pendientes la configuración `NEXT_PUBLIC_TELEMETRY_ENDPOINT`, el servicio del backoffice y la instrumentación. El stub no autentica emisores: es una herramienta local de verificación, no un colector listo para producción.
+
+### Fase 2 de implementación: servicio frontend
+
+- `uis/backoffice/lib/telemetry.ts` sigue la ubicación existente de las capas cliente del backoffice y exporta únicamente `track(eventType: string, properties: Record<string, unknown>): void`. No se añadieron llamadas de tracking a componentes ni eventos de negocio.
+- La cola vive en memoria, con máximo de 200 eventos entre pendientes y en vuelo. Se envían lotes `{ "events": [...] }` cada 10 segundos desde el primer evento o al alcanzar 20 eventos. La llegada de nuevos eventos no reinicia la ventana ni produce requests individuales. El tamaño de cada lote se limita a 48 KB.
+- El servicio genera `eventId` y `requestId` aleatorios, añade el `timestamp` ISO 8601 en captura y obtiene `sessionId`/`userId` de su sesión en memoria. No se envían credenciales, perfil, email, JWT ni ID interno al colector.
+- `telemetryContracts.ts` comparte el registro JSON con el stub: `TELEMETRY_SCHEMA_VERSION` procede de `formatVersion`. Se validan allowlist, campos obligatorios, tipos, rangos, enums y tamaño antes de encolar. Los datos inválidos se descartan sin registrar el payload.
+- `visibilitychange`, cuando la pestaña queda oculta, y `pagehide` vacían eventos pendientes mediante `navigator.sendBeacon`. Un beacon aceptado puede incluir el lote HTTP en vuelo; este se cancela y no se reintenta. Si el navegador rechaza o lanza al encolar el beacon, el lote se conserva. La aceptación del beacon no equivale a confirmación del servidor; el futuro colector deberá deduplicar por `eventId`.
+- Un fallo HTTP/red/timeout produce hasta tres reintentos adicionales, tras 1, 2 y 4 segundos. Se reutilizan el lote, IDs y timestamps originales. Después se descarta el lote y se continúa con la cola. Cada request tiene un timeout de 10 segundos. Los contadores de descarte/fallo son internos y no generan eventos recursivos.
+- `telemetrySession.ts`, `auth.ts` y `AuthContext.tsx` enlazan la sesión con login, recuperación y logout. El UUID de sesión se genera al login y no se persiste. Las recargas de la pestaña crean una sesión nueva; las renovaciones de perfil mantienen la misma sesión. Los eventos ya capturados conservan su identidad aunque cambie la cuenta.
+- **Dependencia pendiente aceptada:** el backend actual no devuelve el HMAC `telemetry_user_id` en `/auth/me` y se decidió no modificarlo en esta fase. El campo opcional queda preparado en el contrato frontend. Mientras falte un seudónimo válido, se descarta la captura autenticada, sin sustituirlo por email, ID interno ni un usuario anónimo. Sin autenticación se usa una identidad anónima efímera, conforme al plan.
+- **Configuración local pendiente:** el servicio lee `NEXT_PUBLIC_TELEMETRY_ENDPOINT` sin fallback; si falta, no captura ni envía. El archivo `uis/backoffice/.env.local` está bloqueado para la herramienta de edición de esta sesión. Añadir allí `NEXT_PUBLIC_TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events` y reiniciar Next.js. En Codespaces/producción usar una URL HTTPS accesible desde el navegador, no el nombre interno de Docker ni un localhost remoto.
+- El catálogo se incluye en `uis/Dockerfile` para resolver la misma fuente de contratos dentro de la imagen.
+- Verificación: diez pruebas focalizadas de telemetría y las 46 pruebas de la suite del backoffice pasan; chequeo TypeScript focalizado sin errores. El typecheck global sigue fallando por 11 errores ajenos a esta fase (pruebas de proveedores, imports compartidos de la página principal y resumen de incidencias). Lint confirma un aviso preexistente en el efecto de `AuthContext`; los archivos nuevos no presentan errores.
+- Pruebas: `cd uis/backoffice && npm test -- --runInBand`. La instalación local de dependencias reportó 28 vulnerabilidades; no se actualizaron dependencias ni lockfiles dentro de esta fase.
+
+### Corrección de conectividad: localhost en Codespaces
+
+- El navegador del operador no comparte `localhost` con el contenedor. Una URL pública `http://localhost:8000/telemetry/events` puede producir `net::ERR_CONNECTION_REFUSED` aunque FastAPI esté activo en Codespaces.
+- `telemetryEndpoint.ts` transforma endpoints loopback en `/api/telemetry/events`, tanto para `fetch` como para `sendBeacon`. Las URLs externas HTTP/HTTPS se conservan y continúan controladas por `NEXT_PUBLIC_TELEMETRY_ENDPOINT`.
+- El route handler de Next.js reenvía el lote completo al receptor. `TELEMETRY_ENDPOINT` configura el destino del servidor y tiene prioridad; sin él, un endpoint público local usa `SUPPLIERS_API_URL` si está definido, permitiendo `http://backend:8000` en Docker.
+- El request del navegador al proxy permite únicamente credenciales de mismo origen para acceder a puertos privados de Codespaces. El proxy nunca reenvía cookies ni `Authorization` al colector. Un colector externo recibe requests con `credentials: omit`.
+- Un receptor caído devuelve `502` desde el proxy y activa los reintentos acotados existentes; no se altera el resultado de operaciones de negocio. Se conserva el código `422` del stub para lotes inválidos.
+- Verificación: 14 pruebas focalizadas pasan y lint del cambio sin errores. Una petición real a `http://127.0.0.1:3001/api/telemetry/events` devolvió `200` con `{ "received": 2 }`. Esta comprobación valida el transporte, no sustituye el recorrido completo de instrumentación en navegador.
+- Tras cargar esta corrección, recargar el backoffice. En Network, el destino local esperado es la ruta `/api/telemetry/events` del propio backoffice, no `localhost:8000` del equipo del operador.
+
+### Correcciones posteriores a la auditoría
+
+- **Privacidad en la frontera:** `privacyValidation` del registro define rutas normalizadas, componentes conocidos, versiones/códigos restringidos y referencias a eventos registrados. Frontend y backend aplican las mismas restricciones antes de aceptar propiedades. No se añadieron claves al payload. Los canarios de email en `route_template`, nombre en `component` y texto sensible en versiones/códigos se rechazan; tampoco llegan a beacon.
+- **Timestamp ISO estricto:** el modelo Pydantic exige fecha/hora ISO 8601 con `T` y zona horaria. Se rechazan strings numéricos como `"123"`, fechas sin hora, espacios en lugar de `T` y fechas imposibles. Los objetos datetime internos siguen sujetos a zona horaria.
+- **Identidad autenticada:** `/auth/me` ya proporciona el HMAC `telemetry_user_id`; las claves de usuario y proveedor son diferentes. Configurar `TELEMETRY_USER_KEY` y `TELEMETRY_VENDOR_KEY` exclusivamente en servidor; el usuario rota por día UTC. En producción (`ENVIRONMENT=production`) se exige configurar ambas claves. En desarrollo, las claves efímeras de cada proceso no ofrecen continuidad entre reinicios/workers.
+- **Cinco métricas obligatorias:** las entradas/salidas se capturan tras commit, el cruce de mínimos usa saldo y política por clínica, la edición directa se captura al rechazarla en backend y la caducidad usa una fecha real configurada. El consumo incorpora departamento validado. No se infieren mínimos ni fechas faltantes.
+- **Entrega independiente del navegador:** `services/api/telemetry_delivery.py` encola la señal en el origen usando el contexto autenticado de la petición. Genera el envelope de servidor, respeta `eventId`/timestamp de captura y correlaciona `requestId`; acepta el UUID de sesión enviado por el cliente o genera uno aleatorio para otros clientes. No necesita que un cliente lea `X-Telemetry-Events`; el middleware retira esa cabecera y evita doble captura.
+- **Productor backend por lotes:** cola acotada a 200 eventos pendientes/en vuelo, ventana de 10 segundos o disparo a 20 eventos, máximo de 48 KB por lote, timeout HTTP de 5 segundos y hasta tres reintentos adicionales con esperas de 1, 2 y 4 segundos. Un worker asíncrono respecto a la operación evita bloquear órdenes; conserva IDs/timestamps durante reintentos. El endpoint procede de `TELEMETRY_ENDPOINT`. Los fallos incrementan contadores/logs sin volcar payloads ni publicar eventos recursivos.
+- **Caducidad posterior al acuse:** la deduplicación persistente se marca únicamente tras recibir `200` y `{ "received": N }` coherente. Mientras el evento está pendiente se deduplica en memoria; si se agotan reintentos, se libera para detectar nuevamente el caso. La marca es estado de regla, no almacenamiento de eventos en el stub. Un fallo al guardar el acuse no bloquea la operación; la caché temporal de claves también está acotada.
+- **Expiración restaurada:** una sesión rechazada antes de obtener un HMAC válido emite una señal deduplicada con identidad anónima efímera y el UUID de sesión. Esta excepción no habilita captura autenticada general ni extrae identidad del JWT.
+- **Transporte centralizado:** el navegador solo emite mediante `track()`. El proxy Next.js delega su HTTP a `lib/TelemetryService.server.ts`; no contiene un `fetch` propio hacia el colector. El productor backend es un servicio separado para hechos de servidor, no tracking disperso en componentes.
+- **Piso transversal:** `TelemetryObserver` captura navegación principal con debounce de 500 ms, errores globales sin mensajes/stacks y LCP/INP/CLS/TTFB con ruta normalizada. El cliente HTTP central captura latencias/fallos; los hooks de autenticación capturan login válido/fallido, expiración y logout. Las razones nuevas de login están aprobadas en `auth_login_failed` versión `1.1.0`.
+- **Evidencia:** 152 pruebas de backend y 59 de frontend pasan; lint y tipos focalizados del servicio sin errores. La reproducción de la auditoría pasó de enviar el canario a `pii_canary_blocked: true`. Una integración ejecuta las cinco operaciones mediante el middleware real y envía automáticamente seis eventos (cinco obligatorios y alta de producto) al stub, que valida el lote con `200`; la marca de caducidad se verifica antes/después del acuse.
+- **Límites de verificación:** persisten cuatro errores TypeScript preexistentes en pruebas de proveedores y resumen de incidencias, fuera de estas correcciones. `scripts/verify_telemetry_browser.mjs` se adaptó a productores independientes: Network del navegador solo muestra sus lotes; los eventos de servidor se verifican con las pruebas backend. No se certificó todavía el recorrido completo en Chromium.
+- **Operación:** reiniciar FastAPI para activar el worker nuevo y recargar el backoffice. En Docker configurar `TELEMETRY_ENDPOINT=http://backend:8000/telemetry/events` en el backend; en ejecución local usar `http://127.0.0.1:8000/telemetry/events`. El stub sigue sin persistir eventos. La cola en memoria puede perderse al reiniciar; persistencia/outbox, retención y deduplicación final del colector siguen perteneciendo a la fase de almacenamiento.
+
+### Corrección de error 422 en navegador (2026-10-06)
+
+El backoffice en Codespaces mostraba errores HTTP 422 en las peticiones POST a `/api/telemetry/events` desde el navegador.
+
+**Causa raíz:** Existían dos procesos FastAPI ejecutándose simultáneamente en el contenedor:
+- PID 42927 en puerto 8000, iniciado a las 18:01, con código desactualizado
+- PID 104447 en puerto 8400, con código más reciente pero puerto incorrecto
+
+El proxy de Next.js reenviaba al puerto 8000, donde el proceso viejo no tenía las rutas de telemetría completas o validaba con un esquema antiguo.
+
+**Solución:**
+1. Verificar procesos: `ps aux | grep uvicorn`
+2. Matar ambos procesos: `kill 42927 104447`
+3. Reiniciar en puerto 8000 con `--reload` para asegurar código fresco:
+   ```bash
+   cd services/api && TELEMETRY_ENDPOINT=http://localhost:8000/telemetry/events uv run uvicorn main:app --port 8000 --reload
+   ```
+4. Verificar OpenAPI `/docs` confirma ambas rutas: `/telemetry/events` y `/telemetry/control`
+5. Recargar backoffice (matar proceso Next.js y reiniciar):
+   ```bash
+   kill <backoffice_pid> && cd uis/backoffice && npm run dev
+   ```
+
+**Verificación:** POST a `http://localhost:3401/api/telemetry/events` devuelve `{"received":1}` con código 200. El navegador ya no muestra errores 422 en la consola de red. Los eventos de telemetría fluyen correctamente.
+
+**Lección:** Al desarrollar en Codespaces, un backend iniciado temprano en la sesión puede quedar ejecutando código antiguo aunque los archivos en disco hayan cambiado. Es necesario reiniciar el proceso explícitamente — el `--reload` de uvicorn ayuda pero solo si el proceso se inició con esa bandera desde el principio. Siempre verificar OpenAPI `/docs` para confirmar que las rutas esperadas están registradas.
+
+### Refactor del canal de control frontend (2026-10-06)
+
+`lib/TelemetryService.control.ts` fue refactorizado para eliminar una violación arquitectónica: tenía su propia cola independiente, fetch pipeline y reintentos enviando a `POST /api/telemetry/control`, lo que quebraba el principio de "única función pública `track()`".
+
+**Cambio aplicado:**
+- `recordTelemetryControl(eventType, properties)` ahora valida propiedades con `validTelemetryProperties()` y llama a `track(eventType, properties)`.
+- Los eventos de control (`telemetry_delivery_failed`, `api_retry_exhausted`, `telemetry_event_dropped`) fluyen por el mismo pipeline que los eventos regulares → `POST /api/telemetry/events`.
+- Se eliminó el fetch propio, la cola separada y los reintentos independientes.
+- 3 tests actualizados: las expectativas de ruta cambiaron de `"/api/telemetry/control"` a `"/api/telemetry/events"`.
+- 1 test pendiente: `"retries three times at one, two and four seconds then discards"` — espera 4 fetch calls filtrados, recibe 12.
+
+**Backend:** El route handler de `/telemetry/control` sigue existiendo (stacked decorators en `telemetry.py`), pero el frontend ya no lo utiliza. El backend puede recibir eventos de control desde otros productores (ej: `telemetry_delivery.py`).
+
+### Estado final de instrumentación (41 eventos)
+
+La auditoría final confirma que los **41 eventos del catálogo están instrumentados en código**. El campo `x-implemented` en `event-schemas.json` se actualizó a `true` para todos los eventos tras verificar la emisión en archivos fuente.
+
+#### Resumen de implementación
+
+| # | event_type | Origen | Archivo(s) de emisión |
+|---|---|---|---|
+| 1 | `inbound_order_created` | Backend | `routes/inventory.py` |
+| 2 | `outbound_order_created` | Backend | `routes/inventory.py` |
+| 3 | `stock_threshold_triggered` | Backend | `routes/inventory.py` |
+| 4 | `direct_stock_edit_rejected` | Backend | `routes/inventory.py` |
+| 5 | `supply_expiry_flagged` | Backend | `inventory_telemetry.py` |
+| 6 | `inventory_order_validation_failed` | Backend | `routes/inventory.py`, `main.py` |
+| 7 | `inventory_order_rejected` | Backend | `routes/inventory.py` |
+| 8 | `inventory_product_lookup_completed` | Frontend | `lib/inventoryApi.ts` |
+| 9 | `inventory_stock_snapshot_recorded` | Backend | `routes/inventory.py` |
+| 10 | `inventory_cache_served` | Backend | `routes/inventory.py` |
+| 11 | `auth_login_succeeded` | Frontend | `lib/AuthContext.tsx` |
+| 12 | `auth_login_failed` | Frontend | `lib/telemetryAuth.ts` |
+| 13 | `auth_session_expired` | Frontend | `lib/telemetryAuth.ts` |
+| 14 | `auth_logout_completed` | Frontend | `lib/AuthContext.tsx` |
+| 15 | `auth_authorization_denied` | Backend | `main.py` (timing_middleware) |
+| 16 | `api_latency_recorded` | Frontend | `lib/telemetryApi.ts` |
+| 17 | `api_request_failed` | Frontend | `lib/telemetryApi.ts` |
+| 18 | `api_dependency_failed` | Backend | `main.py`, `telemetry_delivery.py` |
+| 19 | `frontend_error_captured` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 20 | `client_performance_recorded` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 21 | `backoffice_page_viewed` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 22 | `inventory_filter_applied` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 23 | `inventory_workflow_abandoned` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 24 | `inventory_product_created` | Backend | `routes/inventory.py` |
+| 25 | `inventory_cache_invalidated` | Backend | `routes/inventory.py` |
+| 26 | `inventory_stock_reconciliation_flagged` | Backend | `routes/inventory.py` |
+| 27 | `inventory_order_duplicate_suspected` | Backend | `routes/inventory.py` |
+| 28 | `inventory_order_history_exported` | Backend | `routes/inventory.py` |
+| 29 | `auth_password_reset_requested` | Backend | `routes/auth.py` |
+| 30 | `auth_rate_limit_triggered` | Backend | `rate_limiter.py` |
+| 31 | `auth_token_validation_failed` | Backend | `security.py` |
+| 32 | `api_retry_exhausted` | Ambos | `telemetry_delivery.py`, `lib/telemetry.ts` |
+| 33 | `telemetry_delivery_failed` | Ambos | `telemetry_delivery.py`, `lib/telemetry.ts` |
+| 34 | `telemetry_event_dropped` | Ambos | `telemetry_delivery.py`, `lib/telemetry.ts` |
+| 35 | `service_health_check_failed` | Backend | `main.py` (health/ready) |
+| 36 | `frontend_route_load_recorded` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 37 | `inventory_workflow_started` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 38 | `inventory_form_validation_failed` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 39 | `inventory_order_confirmation_viewed` | Frontend | `lib/useInventoryTelemetry.ts` |
+| 40 | `inventory_search_performed` | Frontend | `lib/telemetryInstrumentation.ts` |
+| 41 | `backoffice_navigation_error` | Frontend | `lib/telemetryInstrumentation.ts`, `app/not-found.tsx` |
+
+#### Distribución
+
+- **Backend puro**: 17 eventos
+- **Frontend puro**: 22 eventos
+- **Ambos (frontend + backend)**: 2 eventos (`api_retry_exhausted`, `telemetry_delivery_failed`, `telemetry_event_dropped`)
+- **5 obligatorios**: todos instrumentados en backend
+- **36 oportunidades**: todas instrumentadas
+
+#### Canal de control independiente (refactorizado)
+
+Los eventos de diagnóstico del pipeline (`telemetry_delivery_failed`, `api_retry_exhausted`, `telemetry_event_dropped`, `api_dependency_failed`, `service_health_check_failed`) usan una única vía de emisión:
+- **Backend**: `services/api/telemetry_delivery.py` → `control_queue` → `flush_control()` → `POST /telemetry/control`
+- **Frontend**: `lib/TelemetryService.control.ts` → `recordTelemetryControl()` → `track()` → cola común → `POST /api/telemetry/events`
+
+**Corrección aplicada (2026-10-06):** Originalmente `TelemetryService.control.ts` tenía su propia cola, fetch y reintentos independientes, enviando a `POST /api/telemetry/control`. Esto violaba el principio de "única función pública `track()`" y "nunca por fetch o axios directos". Se refactorizó para que `recordTelemetryControl()` valide propiedades y llame a `track()`, canalizando todos los eventos del frontend por el mismo pipeline de `/api/telemetry/events`. El backend registra ambas rutas (`/telemetry/events` y `/telemetry/control`) mediante stacked decorators en el mismo handler.
+
+Este diseño evita recursión: si el canal principal falla en backend, los eventos de diagnóstico se publican por `control_queue` y `POST /telemetry/control`; en frontend, `recordTelemetryControl()` descarta eventos silenciosamente si el endpoint no está configurado o las propiedades son inválidas, sin llamar recursivamente a `track()`.
+
+#### Pruebas
+
+- **Backend**: 156 pruebas pasan (28.6 s)
+  - `test_telemetry.py`: validación de contratos, envelope, privacidad
+  - `test_telemetry_delivery.py`: entrega, reintentos, control channel
+  - `test_telemetry_control.py`: canal independiente, salud
+  - `test_inventory_telemetry.py`: 5 obligatorios + alta de producto
+  - `test_inventory_opportunities.py`: oportunidades de inventario
+  - `test_auth_telemetry.py`: eventos de autenticación
+  - `test_telemetry_identity.py`: identidad HMAC
+- **Frontend**: 62 pruebas pasan (2.4 s) — 3 tests de control channel actualizados de `/api/telemetry/control` a `/api/telemetry/events`; 1 test de reintentos con resultado pendiente (espera 4 fetch calls, obtiene 12)
+  - `telemetry.test.ts`: track, queue, flush, contracts
+  - `telemetryApi.test.ts`: captura de API
+  - `telemetryInstrumentation.test.ts`: observer, page view, rendimiento
+  - `telemetryProxy.test.ts`: proxy Next.js
+  - `inventoryWorkflow.test.tsx`: workflow start/abandon
+- **TypeScript**: lint y tipos focalizados sin errores. Persisten errores preexistentes en pruebas de proveedores y resumen de incidencias, fuera del ámbito de telemetría.
+
+#### Archivos nuevos
+
+Como parte de la instrumentación final se crearon 10 archivos nuevos:
+
+| Archivo | Propósito |
+|---|---|
+| `services/api/tests/test_auth_telemetry.py` | Pruebas de `auth_authorization_denied`, `auth_token_validation_failed`, `auth_password_reset_requested`, `auth_rate_limit_triggered` |
+| `services/api/tests/test_inventory_opportunities.py` | Pruebas de caché, snapshot, reconciliación, duplicados, exportación, validación |
+| `services/api/tests/test_telemetry_control.py` | Pruebas del canal de control y health check |
+| `uis/backoffice/__tests__/inventoryWorkflow.test.tsx` | Prueba de workflow start/abandon |
+| `uis/backoffice/app/api/telemetry/control/route.ts` | Proxy Next.js para control events (no usado por frontend tras refactor) |
+| `uis/backoffice/app/not-found.tsx` | Reporta `backoffice_navigation_error` en 404 |
+| `uis/backoffice/lib/TelemetryService.control.ts` | Canal de control frontend (refactorizado: llama a `track()` en lugar de fetch directo) |
+| `uis/website/app/api/telemetry/events/route.ts` | Proxy de eventos para website |
+| `uis/website/app/api/telemetry/control/route.ts` | Proxy de control para website |
+| `uis/website/components/WebsiteTelemetry.tsx` | Componente de telemetría para el website público |
+

@@ -2,6 +2,40 @@
 
 ## Entregables activos en el repositorio
 
+### Telemetría: correcciones de auditoría (2026-10-06)
+- Reglas de privacidad compartidas cierran valores sensibles en campos allowlisted; timestamp ISO estricto y expiración restaurada con identidad efímera segura.
+- Productor `services/api/telemetry_delivery.py` captura señales en origen y las envía por lotes sin depender del navegador. Caducidad se deduplica tras acuse del stub. Cola en memoria, sin almacenamiento analítico.
+- Proxy frontend delega HTTP a `TelemetryService.server.ts`; componentes siguen usando solo `track()`.
+- Verificado: 152 pruebas backend y 62 frontend (2 de 3 tests de control channel corregidos, 1 reintento pendiente); integración real de middleware → lote de cinco obligatorios + alta → stub 200. Canario de auditoría bloqueado.
+- Pendientes: recorrido completo en Chromium, cuatro errores TypeScript preexistentes y persistencia/outbox futura. Reiniciar backend para activar el nuevo worker.
+
+### Telemetría: control channel refactorizado (2026-10-06)
+- `TelemetryService.control.ts` violaba la regla de "única función pública `track()`" con su propia cola, fetch y reintentos a `/api/telemetry/control`. Refactorizado a `recordTelemetryControl()` que valida propiedades y llama a `track()`. Todos los eventos frontend fluyen por el mismo pipeline `/api/telemetry/events`.
+- Backend usa `@router.post` stacked en `telemetry.py` para registrar `/telemetry/events` y `/telemetry/control` en el mismo handler.
+- 3 tests actualizados: expectativas cambiadas de `"/api/telemetry/control"` a `"/api/telemetry/events"`.
+- Pendiente: 1 test de reintentos (retries three times) sigue fallando — espera 4 llamadas de fetch pero recibe 12.
+
+### Telemetría: corrección de 422 en producción (2026-10-06)
+- El backend de puerto 8000 (PID 42927) se levantó a las 18:01 con código desactualizado que no tenía las rutas correctas de telemetría. Se reinició con `uvicorn --reload` para usar el código completo con ambas rutas y validación correcta.
+- El proxy de Next.js en backoffice (3401) se reinició para conectar con el backend fresco.
+- Verificado: eventos reales del navegador responden 200 OK en lugar de 422. Tanto fetch como sendBeacon funcionan correctamente.
+
+### Telemetría: conectividad de navegador (2026-10-06)
+- Endpoints públicos loopback pasan por `/api/telemetry/events` del backoffice, evitando apuntar al localhost del operador en Codespaces. Colectores externos mantienen su URL.
+- Proxy con `TELEMETRY_ENDPOINT` de servidor y soporte de backend interno mediante `SUPPLIERS_API_URL`; no reenvía cookies ni Authorization al colector.
+- Verificado: 14 pruebas focalizadas y lint pasan; lote real de dos eventos responde 200 a través de Next.js. El recorrido completo de navegador de fases 3/4 sigue sin completarse.
+
+### Telemetría: fase 1 (2026-10-06)
+- Stub `POST /telemetry/events` en router propio: valida lotes y contratos del catálogo, registra solo cantidad/tipos y responde `{ "received": N }` sin persistencia.
+- `TelemetryEvent` reutilizable en `services/api/telemetry.py`; configuración backend mediante `TELEMETRY_ENDPOINT`. Catálogo incluido en la imagen Docker.
+- Servicio, variable pública e instrumentación frontend pendientes por indicación expresa del usuario. Verificación: 16 pruebas focalizadas pasan, sin Supabase.
+
+### Telemetría: fase 2 (2026-10-06)
+- Servicio único `uis/backoffice/lib/telemetry.ts`: cola en memoria, lotes cada 10 s/20 eventos, beacon al ocultar/cerrar y tres reintentos con backoff. Sin instrumentación de negocio.
+- Sesión en memoria enlazada a auth; captura autenticada desactivada hasta recibir `telemetry_user_id` HMAC. El usuario rechazó ampliar el backend en esta fase. No enviar email, ID interno ni JWT al colector.
+- Configuración de `NEXT_PUBLIC_TELEMETRY_ENDPOINT` pendiente en el archivo local bloqueado para edición. Avances documentados solo al final de `docs/telemetry/telemetry-plan.md`, después del plan original.
+- Diez pruebas focalizadas pasan; tipos focalizados sin errores. Typecheck global: 11 errores ajenos; aviso lint de AuthContext confirmado en HEAD. Dependencias locales reportan 28 vulnerabilidades, sin cambios de lockfiles.
+
 ### 1) Landing y formulario bilingüe
 - index.html e index.es.html: secciones corporativas de HealthCore con JSON-LD requerido.
 - application.html y application.es.html: formulario de consulta de pacientes.

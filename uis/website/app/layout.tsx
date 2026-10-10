@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import WebsiteTelemetry from "@/components/WebsiteTelemetry";
 
 export const metadata: Metadata = {
   title: "HealthCore | Outpatient Healthcare Services",
@@ -14,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="bg-slate-50 text-slate-900 antialiased">{children}</body>
+      <body className="bg-slate-50 text-slate-900 antialiased"><WebsiteTelemetry />{children}</body>
     </html>
   );
 }

@@ -30,7 +30,7 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-  const { login } = useAuth();
+  const { authenticate } = useAuth();
   const searchParams = useSearchParams();
   const resetOk = searchParams.get("reset") === "ok";
 
@@ -60,29 +60,9 @@ function LoginForm() {
 
     try {
       setSubmitting(true);
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), password }),
-      });
-
-      const data = (await response.json()) as { access_token?: string; detail?: string | unknown };
-
-      if (!response.ok) {
-        // Mostrar el mensaje de error real que devuelve la API
-        const msg =
-          typeof data.detail === "string"
-            ? data.detail
-            : "Email o contraseña incorrectos.";
-        setErrors({ general: msg });
-        return;
-      }
-
-      if (data.access_token) {
-        login(data.access_token);
-      }
-    } catch {
-      setErrors({ general: "No se pudo conectar con el servidor. Inténtalo de nuevo." });
+      await authenticate(email.trim(), password);
+    } catch (error) {
+      setErrors({ general: error instanceof Error ? error.message : "No se pudo iniciar sesión." });
     } finally {
       setSubmitting(false);
     }

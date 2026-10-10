@@ -1,0 +1,1 @@
+export { POST } from "../../../../../backoffice/app/api/telemetry/control/route";

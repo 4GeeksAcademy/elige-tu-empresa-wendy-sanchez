@@ -1,5 +1,7 @@
 /** Tipos compartidos para el flujo de autenticación. */
 
+import { beginTelemetrySession, clearTelemetrySession } from "./telemetrySession";
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -30,6 +32,7 @@ export interface MeResponse {
   email: string;
   role: string;
   profile: Profile | null;
+  telemetry_user_id?: string;
 }
 
 export interface ProfileUpdate {
@@ -49,11 +52,13 @@ export function getToken(): string | null {
 /** Almacena el token JWT en localStorage. */
 export function setToken(token: string): void {
   localStorage.setItem(TOKEN_KEY, token);
+  beginTelemetrySession(undefined, true);
 }
 
 /** Elimina el token JWT de localStorage (cierre de sesión). */
 export function removeToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+  clearTelemetrySession();
 }
 
 /** Construye la cabecera Authorization: Bearer a partir del token almacenado. */

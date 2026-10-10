@@ -50,6 +50,10 @@ class MemoryCache:
         expires_at = time.monotonic() + ttl_seconds
         self._store[key] = (expires_at, value)
 
+    def age_ms(self, key: str, ttl_seconds: int) -> int:
+        entry = self._store.get(key)
+        return max(0, round((time.monotonic() - (entry[0] - ttl_seconds)) * 1000)) if entry else 0
+
     def invalidate(self, prefix: str) -> int:
         """Invalida todas las claves que comiencen con `prefix`.
 

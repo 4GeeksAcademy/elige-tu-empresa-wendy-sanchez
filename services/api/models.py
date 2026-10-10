@@ -206,6 +206,7 @@ class MeResponse(BaseModel):
     email: EmailStr
     role: Role
     profile: ProfilePublic | None = None
+    telemetry_user_id: str | None = None
 
 
 class MessageResponse(BaseModel):
@@ -303,7 +304,7 @@ class RootResponse(BaseModel):
 # SQLModel ORM — Inventory tables (Supabase)
 # ─────────────────────────────────────────────────────────────────────
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
@@ -323,6 +324,7 @@ class MedicalSupply(SQLModel, table=True):
     category: str = Field(max_length=50, nullable=False)  # ppe, wound_care, diagnostics, medications, consumables
     unit: str = Field(max_length=20, nullable=False)       # box, unit, pack, vial
     country: str = Field(max_length=2, nullable=False)      # US / UK
+    expiry_date: date | None = Field(default=None)
 
 
 class SupplyDelivery(SQLModel, table=True):
@@ -346,6 +348,18 @@ class SupplyConsumption(SQLModel, table=True):
     supply_id: int = Field(foreign_key="medical_supplies.id", nullable=False, index=True)
     quantity: int = Field(nullable=False)
     consumption_type: str = Field(max_length=20, nullable=False)  # clinical_use / expiry_waste
+    department: str | None = Field(default=None, max_length=32)
     clinic_id: int = Field(nullable=False)  # 1–12; no FK
     created_at: datetime = Field(default_factory=utc_now_sql, nullable=False)
     user_uuid: str = Field(max_length=36, nullable=False)  # UUID del usuario en TinyDB
+
+
+class StockPolicy(SQLModel, table=True):
+    supply_id: int = Field(foreign_key="medical_supplies.id", primary_key=True)
+    clinic_id: int = Field(primary_key=True)
+    minimum_quantity: int
+    version: str = Field(max_length=32)
+
+
+class InventoryAlertState(SQLModel, table=True):
+    key: str = Field(primary_key=True, max_length=160)

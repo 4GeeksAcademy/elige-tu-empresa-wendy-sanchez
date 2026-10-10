@@ -9,6 +9,7 @@ import {
   type MedicalSupply,
 } from "@/lib/inventoryApi";
 import { ApiError } from "@/lib/httpClient";
+import { useInventoryTelemetry } from "@/lib/useInventoryTelemetry";
 
 // ── Clínicas HealthCore ───────────────────────────────────────────────
 
@@ -41,6 +42,7 @@ export default function InboundOrderPage() {
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingSupplies, setLoadingSupplies] = useState(true);
+  const validationFailed = useInventoryTelemetry("inbound", clinicId, success);
 
   // Cargar lista de suministros
   const loadSupplies = useCallback(async () => {
@@ -83,14 +85,17 @@ export default function InboundOrderPage() {
     const clinicIdNum = Number(clinicId);
 
     if (!supplyIdNum) {
+      validationFailed("supply_id", "required");
       setError("Debes seleccionar un suministro.");
       return;
     }
-    if (!quantityNum || quantityNum <= 0) {
+    if (!Number.isInteger(quantityNum) || quantityNum <= 0) {
+      validationFailed("quantity", "out_of_range");
       setError("La cantidad debe ser un número positivo.");
       return;
     }
     if (!vendorName.trim()) {
+      validationFailed("vendor_name", "required");
       setError("Debes indicar el nombre del proveedor.");
       return;
     }
@@ -157,6 +162,7 @@ export default function InboundOrderPage() {
 
       {/* Formulario */}
       <form
+        noValidate
         onSubmit={handleSubmit}
         className="mt-6 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
       >

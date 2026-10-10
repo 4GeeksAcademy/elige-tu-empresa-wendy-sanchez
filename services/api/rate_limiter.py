@@ -52,6 +52,9 @@ def check_rate_limit(email: str) -> bool:
         )
 
         if active_count >= RATE_LIMIT_MAX_REQUESTS:
+            from inventory_telemetry import signal
+            signal("auth_rate_limit_triggered", {"application": "healthcore_api", "endpoint_group": "password_reset",
+                "limit_window_seconds": RATE_LIMIT_WINDOW_MINUTES * 60, "observed_count": active_count + 1, "limit_action": "blocked"})
             return False
 
         # Registrar la nueva solicitud.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from uuid import UUID, uuid4
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -18,7 +19,10 @@ from routes.auth import router as auth_router
 from routes.inventory import router as inventory_router
 from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
+from routes.telemetry import router as telemetry_router
 from routes.users import router as users_router
+from telemetry import TELEMETRY_ENDPOINT
+import telemetry_delivery
 
 timing_logger = logging.getLogger("api.timing")
 logger = logging.getLogger(__name__)
@@ -29,10 +33,15 @@ async def lifespan(application: FastAPI):
     """Inicializa el esquema de Supabase al arrancar la aplicación."""
     init_supabase_schema()
     logger.info("Supabase schema initialized (tables created if not exist).")
-    yield
+    telemetry_delivery.service.start()
+    try:
+        yield
+    finally:
+        telemetry_delivery.service.stop()
 
 
 app = FastAPI(title="HealthCore API", version="1.1.0", lifespan=lifespan)
+app.state.telemetry_endpoint = TELEMETRY_ENDPOINT
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,6 +49,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Telemetry-Events", "X-Request-ID"],
 )
 
 
@@ -50,15 +60,34 @@ app.add_middleware(
 
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
+    try:
+        request_id = str(UUID(request.headers.get("X-Request-ID", "")))
+    except ValueError:
+        request_id = str(uuid4())
+    request.state.telemetry_request_id = request_id
     start = time.perf_counter()
-    response = await call_next(request)
+    request.state.telemetry_started_at = start
+    context_token = telemetry_delivery.request_context.set(request)
+    try:
+        response = await call_next(request)
+        if response.status_code in {401, 403} and request.url.path not in {"/auth/login", "/telemetry/events"}:
+            from inventory_telemetry import signal
+            from telemetry import normalized_route
+            signal("auth_authorization_denied", {"application": "backoffice", "route_template": normalized_route(request.url.path),
+                "method": request.method, "denial_code": "unauthenticated" if response.status_code == 401 else "forbidden",
+                "role_group": getattr(request.state, "telemetry_role", "unknown")})
+    finally:
+        telemetry_delivery.request_context.reset(context_token)
+    telemetry_delivery.capture_inventory_signals(request, response)
+    response.headers["X-Request-ID"] = request_id
     duration = (time.perf_counter() - start) * 1000  # ms
     timing_logger.info(
-        "%s %s → %s | %.1fms",
+        "%s %s → %s | %.1fms requestId=%s",
         request.method,
         request.url.path,
         response.status_code,
         duration,
+        request_id,
     )
     return response
 
@@ -68,6 +97,7 @@ app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
 app.include_router(inventory_router)
+app.include_router(telemetry_router)
 
 
 # ── Global exception handlers ──────────────────────────────────────────
@@ -79,9 +109,15 @@ async def validation_handler(
 ) -> JSONResponse:
     """Return user-friendly validation errors, never the full stack trace."""
     errors: list[dict] = []
+    operation = {"/inventory/orders/inbound": "inbound", "/inventory/orders/outbound": "outbound", "/inventory/products": "product_create"}.get(request.url.path)
     for e in exc.errors():
         field = ".".join(str(loc) for loc in e.get("loc", []) if loc != "body")
         msg = e.get("msg", "Invalid value")
+        if operation and field in {"supply_id", "quantity", "clinic_id", "consumption_type", "vendor_name", "department"}:
+            from inventory_telemetry import signal
+            kind = e.get("type", "")
+            code = "required" if kind == "missing" else "out_of_range" if "greater" in kind or "less" in kind else "invalid_enum" if field in {"department", "consumption_type"} else "invalid_format"
+            signal("inventory_order_validation_failed", {"operation": operation, "field_name": field, "validation_code": code})
         errors.append(
             {
                 "field": field or "body",
@@ -97,7 +133,13 @@ async def validation_handler(
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all: never expose stack traces to the client."""
-    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    from sqlalchemy.exc import SQLAlchemyError
+    from telemetry_delivery import record_control
+    if isinstance(exc, (SQLAlchemyError, OSError)) and not request.url.path.startswith("/telemetry"):
+        record_control("api_dependency_failed", {"service": "healthcore_api", "dependency": "supabase_postgres" if isinstance(exc, SQLAlchemyError) else "tinydb",
+            "operation": "read" if request.method == "GET" else "write", "failure_code": "unavailable",
+            "duration_ms": min(300000, round((time.perf_counter() - getattr(request.state, "telemetry_started_at", time.perf_counter())) * 1000))})
+    logger.error("Unhandled exception class=%s", type(exc).__name__)
     return JSONResponse(
         status_code=500,
         content={
@@ -109,6 +151,25 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
 _last_report: dict | None = None
 _last_csv_export: str | None = None
 _repo_root = Path(__file__).resolve().parents[2]
+_health_failures = 0
+
+
+@app.get("/health/ready", response_model=dict)
+def health_ready():
+    global _health_failures
+    from database import get_sql_engine
+    from sqlalchemy import text
+    started = time.perf_counter()
+    try:
+        with get_sql_engine().connect() as connection:
+            connection.execute(text("SELECT 1"))
+        _health_failures = 0
+        return {"ready": True}
+    except Exception:
+        _health_failures += 1
+        telemetry_delivery.record_control("service_health_check_failed", {"service": "healthcore_api", "check_name": "readiness", "failure_code": "dependency_failed",
+            "duration_ms": min(300000, round((time.perf_counter() - started) * 1000)), "consecutive_failures": min(1000, _health_failures)})
+        raise HTTPException(status_code=503, detail="Service not ready")
 
 
 @app.get("/", response_model=RootResponse)

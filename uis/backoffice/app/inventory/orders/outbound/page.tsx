@@ -13,6 +13,7 @@ import {
   type MedicalSupply,
 } from "@/lib/inventoryApi";
 import { ApiError } from "@/lib/httpClient";
+import { useInventoryTelemetry } from "@/lib/useInventoryTelemetry";
 
 // ── Clínicas HealthCore ───────────────────────────────────────────────
 
@@ -46,12 +47,14 @@ export default function OutboundOrderPage() {
   const [supplyId, setSupplyId] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
   const [consumptionType, setConsumptionType] = useState<string>("");
+  const [department, setDepartment] = useState("");
   const [clinicId, setClinicId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingSupplies, setLoadingSupplies] = useState(true);
   const [loadingStock, setLoadingStock] = useState(false);
+  const validationFailed = useInventoryTelemetry("outbound", clinicId, success);
 
   // Cargar lista de suministros
   const loadSupplies = useCallback(async () => {
@@ -86,22 +89,19 @@ export default function OutboundOrderPage() {
   // Cuando cambia el suministro seleccionado, obtener su stock actualizado
   useEffect(() => {
     const id = Number(supplyId);
-    if (!id) {
+    if (!id || !Number(clinicId)) {
       setSelectedSupply(null);
       return;
     }
 
     // Buscar en la lista local primero (stock actualizado del listado)
-    const local = supplies.find((s) => s.id === id);
-    if (local) {
-      setSelectedSupply(local);
-    }
+    setSelectedSupply(null);
 
     // Luego obtener el stock fresco desde la API
     const loadStock = async () => {
       setLoadingStock(true);
       try {
-        const fresh = await fetchProduct(id);
+        const fresh = await fetchProduct(id, Number(clinicId));
         setSelectedSupply(fresh);
       } catch {
         // Si falla, conservamos el local
@@ -110,7 +110,7 @@ export default function OutboundOrderPage() {
       }
     };
     void loadStock();
-  }, [supplyId, supplies]);
+  }, [supplyId, clinicId]);
 
   if (!user) return null;
 
@@ -129,19 +129,27 @@ export default function OutboundOrderPage() {
     const clinicIdNum = Number(clinicId);
 
     if (!supplyIdNum) {
+      validationFailed("supply_id", "required");
       setError("Debes seleccionar un suministro.");
       return;
     }
-    if (!quantityNum || quantityNum <= 0) {
+    if (!Number.isInteger(quantityNum) || quantityNum <= 0) {
+      validationFailed("quantity", "out_of_range");
       setError("La cantidad debe ser un número positivo.");
       return;
     }
     if (!consumptionType) {
+      validationFailed("consumption_type", "required");
       setError("Debes seleccionar el tipo de consumo.");
       return;
     }
     if (!clinicIdNum) {
       setError("Debes seleccionar una clínica.");
+      return;
+    }
+    if (!department) {
+      validationFailed("department", "required");
+      setError("Debes seleccionar un departamento.");
       return;
     }
 
@@ -152,6 +160,7 @@ export default function OutboundOrderPage() {
         quantity: quantityNum,
         consumption_type: consumptionType,
         clinic_id: clinicIdNum,
+        department,
       });
 
       const supplyName =
@@ -166,6 +175,7 @@ export default function OutboundOrderPage() {
       // Limpiar formulario
       setQuantity("");
       setConsumptionType("");
+      setDepartment("");
       setClinicId("");
       setSupplyId("");
       setSelectedSupply(null);
@@ -209,6 +219,7 @@ export default function OutboundOrderPage() {
 
       {/* Formulario */}
       <form
+        noValidate
         onSubmit={handleSubmit}
         className="mt-6 space-y-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm"
       >
@@ -312,6 +323,20 @@ export default function OutboundOrderPage() {
           </select>
         </div>
 
+        <div>
+          <label htmlFor="department" className="block text-sm font-medium text-slate-700">Departamento *</label>
+          <select id="department" value={department} onChange={(event) => setDepartment(event.target.value)} required className="mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-sky-500">
+            <option value="">Selecciona un departamento</option>
+            <option value="primary_care">Atención primaria</option>
+            <option value="specialist">Especialidades</option>
+            <option value="chronic_care">Cuidados crónicos</option>
+            <option value="preventive">Prevención</option>
+            <option value="behavioral_health">Salud conductual</option>
+            <option value="operations">Operaciones</option>
+            <option value="other">Otro</option>
+          </select>
+        </div>
+
         {/* Clínica */}
         <div>
           <label htmlFor="clinic" className="block text-sm font-medium text-slate-700">
@@ -342,7 +367,7 @@ export default function OutboundOrderPage() {
           )}
           <button
             type="submit"
-            disabled={submitting || loadingSupplies || exceedsStock}
+            disabled={submitting || loadingSupplies || loadingStock || exceedsStock}
             className="rounded-lg bg-amber-700 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting ? "Registrando..." : "Registrar salida"}

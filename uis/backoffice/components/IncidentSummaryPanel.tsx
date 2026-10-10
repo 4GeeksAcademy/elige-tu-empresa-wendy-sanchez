@@ -136,13 +136,14 @@ export default function IncidentSummaryPanel() {
             .sort(([, a], [, b]) => b - a)
             .map(([cat, count]) => {
               const pct = total > 0 ? ((count / total) * 100).toFixed(0) : "0";
+              const categoryLabel = Object.entries(CATEGORY_LABELS).find(([category]) => category === cat)?.[1] ?? cat;
               return (
                 <div
                   key={cat}
                   className="rounded-lg border border-slate-100 bg-slate-50 p-3"
                 >
                   <p className="text-xs text-slate-500">
-                    {CATEGORY_LABELS[cat] || cat}
+                    {categoryLabel}
                   </p>
                   <div className="mt-1 flex items-center justify-between">
                     <span className="text-xl font-bold text-slate-900">{count}</span>
