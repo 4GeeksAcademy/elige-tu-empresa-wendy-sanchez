@@ -63,6 +63,28 @@ def init_supabase_schema() -> None:
     from inventory_migration import migrate_inventory
     migrate_inventory(engine)
 
+    # Create telemetry_events table (not managed by SQLModel to avoid
+    # Python 3.14 / SQLModel compat issue with model-level imports)
+    with engine.connect() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS telemetry_events (
+                id              BIGSERIAL    PRIMARY KEY,
+                event_id        VARCHAR(36)  NOT NULL UNIQUE,
+                timestamp       TIMESTAMPTZ  NOT NULL,
+                session_id      VARCHAR(128) NOT NULL,
+                user_id         VARCHAR(128) NOT NULL,
+                event_type      VARCHAR(64)  NOT NULL,
+                schema_version  VARCHAR(16)  NOT NULL,
+                request_id      VARCHAR(128) NOT NULL,
+                tags            JSONB,
+                created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+            )
+        """))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_telemetry_events_timestamp ON telemetry_events (timestamp)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_telemetry_events_event_type ON telemetry_events (event_type)"))
+        conn.execute(text("CREATE INDEX IF NOT EXISTS idx_telemetry_events_tags ON telemetry_events USING GIN (tags)"))
+        conn.commit()
+
 
 # ── TinyDB existing ──────────────────────────────────────────────────
 
