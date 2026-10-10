@@ -304,9 +304,7 @@ class RootResponse(BaseModel):
 # SQLModel ORM — Inventory tables (Supabase)
 # ─────────────────────────────────────────────────────────────────────
 
-from datetime import date, datetime, timezone
-from typing import Optional
-
+from sqlalchemy import Column, DateTime
 from sqlmodel import Field, SQLModel
 
 
@@ -363,3 +361,44 @@ class StockPolicy(SQLModel, table=True):
 
 class InventoryAlertState(SQLModel, table=True):
     key: str = Field(primary_key=True, max_length=160)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Telemetry storage (Supabase — immutable, write-only)
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TelemetryEventDB(SQLModel, table=True):
+    """Telemetry event — immutable fact stored in Supabase.
+
+    Maps 1:1 from the TelemetryEvent Pydantic model.
+    - Write-only: never updated or deleted after insertion.
+    - The `tags` column stores the `properties` dict from the envelope
+      (only allowlist keys) as JSONB for GIN-indexed queries.
+    - `event_id` is the UUID from the producer, used for idempotency.
+    """
+    __tablename__: str = "telemetry_events"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event_id: str = Field(max_length=36, nullable=False, unique=True, index=True)
+    """UUID v4 from the producer — idempotency key."""
+    timestamp: datetime = Field(sa_type=DateTime(timezone=True), nullable=False)
+    """ISO 8601 with timezone — post-commit for write events."""
+    session_id: str = Field(max_length=128, nullable=False)
+    """Opaque session pseudonym."""
+    user_id: str = Field(max_length=128, nullable=False)
+    """HMAC pseudonym of the internal user ID."""
+    event_type: str = Field(max_length=64, nullable=False, index=True)
+    """Registered event type in snake_case (entidad_accion)."""
+    schema_version: str = Field(max_length=16, nullable=False)
+    """Semantic version of the event contract."""
+    request_id: str = Field(max_length=128, nullable=False)
+    """Correlation ID propagated frontend→proxy→API→logs."""
+    tags: dict | None = Field(default=None)
+    """Properties payload — only allowlist keys, enables GIN-indexed queries on PostgreSQL."""
+    created_at: datetime = Field(
+        sa_type=DateTime(timezone=True),
+        default_factory=utc_now_sql,
+        nullable=False,
+    )
+    """Server-side insertion timestamp (not the event timestamp)."""
