@@ -2,15 +2,36 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+import time
+from datetime import datetime, timezone, timedelta
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 
-from database import get_db
+from database import get_db, get_sql_engine
 from telemetry import TelemetryEvent, TelemetryReceipt
+
+# Importar el pipeline de análisis (desde services/telemetry)
+import sys
+from pathlib import Path
+
+_TELEMETRY_DIR = Path(__file__).resolve().parents[2] / "telemetry"
+if str(_TELEMETRY_DIR) not in sys.path:
+    sys.path.insert(0, str(_TELEMETRY_DIR))
+
+from analysis import run_all  # type: ignore[import-untyped]
 
 router = APIRouter(prefix="/telemetry", tags=["telemetry"])
 logger = logging.getLogger("api.telemetry")
+
+# ── Caché en memoria para el reporte ─────────────────────────────────────
+_report_cache: dict[str, tuple[float, dict]] = {}
+_REPORT_CACHE_TTL = 60  # segundos
+
+
+def _cache_key(start: datetime, end: datetime) -> str:
+    return f"report:{start.isoformat()}:{end.isoformat()}"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -117,3 +138,65 @@ def receive_events(body: dict, db=Depends(get_db)) -> TelemetryReceipt:
         logger.info("Telemetry received=%d stored=0 rejected=%d", received, rejected)
 
     return TelemetryReceipt(received=received, stored=stored, rejected=rejected)
+
+
+# ── Reporte de telemetría ────────────────────────────────────────────────────
+
+
+@router.get("/report")
+def telemetry_report(
+    start_date: Optional[str] = Query(None, description="Inicio ISO 8601 (UTC). Por defecto: now - 7d."),
+    end_date: Optional[str] = Query(None, description="Fin ISO 8601 (UTC). Por defecto: now."),
+) -> JSONResponse:
+    """Reporte de métricas operacionales para la ventana especificada.
+
+    El pipeline de análisis se ejecuta en una función separada (run_all),
+    nunca dentro del endpoint. El resultado se cachea 60 segundos.
+    Si se solicita la misma combinación start_date/end_date dentro del TTL,
+    se devuelve el valor cacheado sin recalcular.
+    """
+    # 1. Resolver ventana de fechas
+    now = datetime.now(timezone.utc)
+    try:
+        start = datetime.fromisoformat(start_date) if start_date else (now - timedelta(days=7))
+        end = datetime.fromisoformat(end_date) if end_date else now
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=f"Formato de fecha inválido: {exc}")
+
+    # Asegurar timezone-aware (asumir UTC si no tiene zona)
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+
+    # 2. Comprobar caché
+    cache_key = _cache_key(start, end)
+    now_ts = time.monotonic()
+    cached = _report_cache.get(cache_key)
+    if cached is not None:
+        expires_at, value = cached
+        if now_ts < expires_at:
+            logger.debug("Report cache HIT: %s", cache_key)
+            return JSONResponse(content=value)
+
+    # 3. Ejecutar pipeline (solo si no hay caché válida)
+    logger.debug("Report cache MISS: %s", cache_key)
+    engine = get_sql_engine()
+    try:
+        metrics = run_all(engine, start, end)
+    except Exception as exc:
+        logger.exception("Error ejecutando el pipeline de análisis")
+        raise HTTPException(status_code=500, detail=f"Error en el pipeline de análisis: {exc}")
+
+    response = {
+        "period": {
+            "from": start.isoformat(),
+            "to": end.isoformat(),
+        },
+        "metrics": metrics,
+    }
+
+    # 4. Almacenar en caché con TTL
+    _report_cache[cache_key] = (now_ts + _REPORT_CACHE_TTL, response)
+
+    return JSONResponse(content=response)
