@@ -196,6 +196,67 @@ def event_type_distribution(
     return result.to_dict(orient="records")
 
 
+# ── Métrica 5: Tasa de fallo de login por día ─────────────────────────
+
+
+def auth_failure_rate_by_day(
+    engine, start_date: datetime, end_date: datetime
+) -> list[dict]:
+    """Tasa diaria de fallo de autenticación.
+
+    Carga exclusivamente eventos user_login_failed y user_login_succeeded
+    con un solo SELECT y event_type IN (...). Agrupa por día calendario y
+    calcula: failed / (failed + succeeded) * 100.
+
+    Responde: ¿qué días concentran más fallos de login?
+    """
+    query = sa_text("""
+        SELECT event_type, timestamp
+        FROM telemetry_events
+        WHERE event_type IN ('auth_login_failed', 'auth_login_succeeded')
+          AND timestamp >= :start AND timestamp < :end
+    """)
+    with engine.connect() as conn:
+        rows = conn.execute(query, {"start": start_date, "end": end_date}).fetchall()
+
+    df = pd.DataFrame(rows, columns=["event_type", "timestamp"])
+    if df.empty:
+        return []
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
+    df["date"] = df["timestamp"].dt.date
+
+    # Agrupar por día y tipo → pivotar para tener failed / succeeded como columnas
+    pivot = (
+        df.groupby(["date", "event_type"])
+        .size()
+        .reset_index(name="count")
+        .pivot_table(index="date", columns="event_type", values="count", aggfunc="sum", fill_value=0)
+    )
+
+    # Asegurar que ambas columnas existan (puede que un día solo tenga failed o solo succeeded)
+    for col in ["auth_login_failed", "auth_login_succeeded"]:
+        if col not in pivot.columns:
+            pivot[col] = 0
+
+    pivot["total_attempts"] = pivot["auth_login_failed"] + pivot["auth_login_succeeded"]
+    pivot["failed_count"] = pivot["auth_login_failed"]
+    pivot["succeeded_count"] = pivot["auth_login_succeeded"]
+    pivot["failure_rate_pct"] = (
+        (pivot["failed_count"] / pivot["total_attempts"] * 100)
+        .where(pivot["total_attempts"] > 0, 0)
+        .round(2)
+    )
+
+    result = (
+        pivot[["total_attempts", "failed_count", "succeeded_count", "failure_rate_pct"]]
+        .reset_index()
+        .sort_values("date")
+    )
+    result["date"] = result["date"].astype(str)
+    return result.to_dict(orient="records")
+
+
 # ── Pipeline completo ─────────────────────────────────────────────────
 
 
@@ -213,6 +274,9 @@ def run_all(engine, start_date: datetime, end_date: datetime) -> dict:
             engine, start_date, end_date
         ),
         "event_type_distribution": event_type_distribution(
+            engine, start_date, end_date
+        ),
+        "auth_failure_rate": auth_failure_rate_by_day(
             engine, start_date, end_date
         ),
     }
