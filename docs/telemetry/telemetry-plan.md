@@ -409,3 +409,120 @@ Como parte de la instrumentación final se crearon 10 archivos nuevos:
 | `uis/website/app/api/telemetry/control/route.ts` | Proxy de control para website |
 | `uis/website/components/WebsiteTelemetry.tsx` | Componente de telemetría para el website público |
 
+### Fase de almacenamiento: Supabase — write-only, validación por evento (2026-10-10)
+
+**Objetivo:** Reemplazar el stub de memoria por un endpoint real que persista eventos en Supabase (PostgreSQL), con semántica de escritura única (immutable facts), validación individual por evento y respuesta detallada de aceptación/rechazo.
+
+#### Cambios arquitectónicos
+
+| Aspecto | Stub anterior | Almacenamiento actual |
+|---|---|---|
+| Persistencia | En memoria (se perdía al reiniciar) | PostgreSQL vía Supabase (`telemetry_events`) |
+| Validación de lote | Cualquier evento inválido → 422, se rechazaba el lote completo | Cada evento se valida individualmente; inválidos se cuentan como `rejected`, válidos se insertan |
+| Respuesta | `{"received": N}` | `{"received": N, "stored": M, "rejected": R}` |
+| Inserción | No aplica (stub) | `INSERT … ON CONFLICT (event_id) DO NOTHING` vía raw SQL |
+| Tabla `telemetry_events` | No existía | Creada automáticamente por `init_supabase_schema()` si `DATABASE_URL` está configurada |
+
+#### Esquema de la tabla `telemetry_events`
+
+```sql
+CREATE TABLE IF NOT EXISTS telemetry_events (
+    id              BIGSERIAL    PRIMARY KEY,
+    event_id        VARCHAR(36)  NOT NULL UNIQUE,
+    timestamp       TIMESTAMPTZ  NOT NULL,
+    session_id      VARCHAR(128) NOT NULL,
+    user_id         VARCHAR(128) NOT NULL,
+    event_type      VARCHAR(64)  NOT NULL,
+    schema_version  VARCHAR(16)  NOT NULL,
+    request_id      VARCHAR(128) NOT NULL,
+    tags            JSONB,
+    created_at      TIMESTAMPTZ  NOT NULL DEFAULT now()
+);
+```
+
+**Invariantes:**
+- **Solo escritura, nunca se actualiza ni se elimina.** La columna `event_id` tiene clave UNIQUE para idempotencia; `ON CONFLICT (event_id) DO NOTHING` garantiza que reintentar el mismo evento no produzca duplicados.
+- **`tags` (JSONB)** guarda el objeto `properties` del envelope, permitiendo consultas analíticas con índices GIN.
+- **`created_at`** es el timestamp de inserción en el servidor, distinto de `timestamp` (que es el instante declarado por el productor).
+
+#### Índices
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_timestamp ON telemetry_events (timestamp);
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_event_type ON telemetry_events (event_type);
+CREATE INDEX IF NOT EXISTS idx_telemetry_events_tags ON telemetry_events USING GIN (tags);
+```
+
+#### Endpoint POST /telemetry/events (y /telemetry/control)
+
+El manejador `receive_events()` en `routes/telemetry.py` implementa validación por evento:
+
+1. **Recepción laxa del envelope:** acepta `body: dict`, extrae `body.get("events", [])`.
+2. **Validación estructural:** si `events` no es una lista → HTTP 422. Si excede 100 elementos → HTTP 422.
+3. **Iteración con validación individual:** cada elemento crudo se valida con `TelemetryEvent.model_validate(raw)` dentro de `try/except`. Los válidos se agregan a una lista; los inválidos incrementan `rejected`.
+4. **Inserción en lote:** si hay eventos válidos, se construye una lista de parámetros y se ejecuta `INSERT … ON CONFLICT (event_id) DO NOTHING` con `executemany` de SQLAlchemy raw.
+5. **Respuesta:** `TelemetryReceipt(received=received, stored=stored, rejected=rejected)`.
+
+#### Manejo de incompatibilidad Python 3.14 + SQLModel
+
+El intérprete Python 3.14.2 (disponible en este entorno) produce `TypeError: issubclass() arg 1 must be a class` al cargar modelos SQLModel que contienen campos Enum. Para evitarlo:
+
+- **La tabla `telemetry_events` se crea mediante raw SQL** en `init_supabase_schema()` (`database.py`), no vía `SQLModel.metadata.create_all()`.
+- **El helper `_insert_events()`** usa `sqlalchemy.text()` con binds nombrados, sin pasar por el ORM.
+- **`TelemetryEventDB`** (en `models.py`) se conserva únicamente como definición DDL de referencia y para herramientas de migración futuras, pero nunca se importa en la ruta.
+- **Los tests** crean la tabla con raw SQL en SQLite y evitan importar módulos que desencadenen la carga de SQLModel con Enums al nivel del módulo.
+
+#### Serialización de `tags` para compatibilidad SQLite/PostgreSQL
+
+El helper `_insert_events()` serializa el dict `tags` con `json.dumps()` antes de pasarlo como parámetro. Esto funciona en ambos motores:
+- **SQLite**: almacena el JSON como `TEXT` (los tests usan una tabla con `tags TEXT`).
+- **PostgreSQL**: la columna `JSONB` acepta tanto `json` como `text` y lo convierte automáticamente.
+
+#### Compatibilidad con `telemetry_delivery.py`
+
+El delivery service verifica el acuse con `receipt.get("received") == len(batch)`. El campo `received` sigue presente en la nueva respuesta, por lo que **no requiere cambios**. La adición de `stored` y `rejected` es transparente para el consumidor existente.
+
+#### Pruebas
+
+**28 pruebas** en `tests/test_telemetry.py`:
+
+- `test_batch_received`: lote válido → 200, stored=2, rejected=0. Verifica que los tipos de evento aparecen en logs y que datos sensibles (`userId`) no se registran.
+- `test_invalid_contract_rejected_individually` (parametrizada × 8): cada mutación inválida (schemaVersion erróneo, event_type desconocido, timestamp inválido, eventId mal formado, PII en properties, propiedad extra, enum inválido) → 200 con stored=0, rejected=1.
+- `test_invalid_batch_structure_rejected`: eventos no lista → 422, lote > 100 → 422.
+- `test_mixed_batch_partial_acceptance`: mezcla 1 válido + 1 inválido → 200, stored=1, rejected=1.
+- `test_mandatory_contracts` (parametrizada × 5): cada evento obligatorio con propiedades correctas → stored=1. Propiedad con tipo incorrecto → stored=0, rejected=1.
+- `test_router_has_events_endpoint`: verifica que el router expone `/telemetry/events` y `/telemetry/control`.
+- `test_timestamp_must_be_iso_datetime` (parametrizada × 5): timestamps inválidos → rejected=1.
+- `test_pii_in_allowlisted_values_rejected` (parametrizada × 5): PII en campos permitidos → rejected=1.
+- `test_diagnostic_event_reference_cannot_contain_arbitrary_names`: verifica `validate_property_privacy()`.
+
+#### Verificación end-to-end
+
+Se realizaron pruebas manuales con un servidor FastAPI minimal (sin `main.py`, para evitar el error Python 3.14 + SQLModel) usando SQLite como backend:
+
+| Escenario | Resultado esperado | Resultado |
+|---|---|---|
+| 1 evento `auth_logout_completed` válido | `stored=1, rejected=0` | ✅ |
+| Mezcla 1 válido + 1 con `event_type` desconocido | `stored=1, rejected=1` | ✅ |
+| `inbound_order_created` con `vendor_ref` hex de 64 caracteres | `stored=1, rejected=0` | ✅ |
+| `outbound_order_created` con propiedades obligatorias | `stored=1, rejected=0` | ✅ |
+| `telemetry_event_dropped` con `event_type` registrado en properties | `stored=1, rejected=0` | ✅ |
+| Lista vacía de eventos | `received=0, stored=0, rejected=0` | ✅ |
+| Lote de 101 eventos | HTTP 422 | ✅ |
+| `events` no es una lista | HTTP 422 | ✅ |
+| Endpoint `/telemetry/control` con evento válido | `stored=1, rejected=0` | ✅ |
+
+#### Archivos modificados
+
+| Archivo | Cambio |
+|---|---|
+| `services/api/routes/telemetry.py` | Reescrito: helper `_insert_events()` con raw SQL + `ON CONFLICT DO NOTHING`; handler `receive_events()` con per-event validation loop; stacked decorators para `/events` y `/control` |
+| `services/api/database.py` | `init_supabase_schema()` ahora crea la tabla `telemetry_events` vía raw SQL (CREATE TABLE IF NOT EXISTS + 3 índices) |
+| `services/api/telemetry.py` | `TelemetryReceipt` actualizado de `received: int` a `received: int, stored: int = 0, rejected: int = 0` |
+| `services/api/tests/test_telemetry.py` | 28 tests reescritos: fixtures crean tabla vía raw SQL; aserciones actualizadas a nuevo contrato de respuesta; test `test_router_registered_in_main` reemplazado por `test_router_has_events_endpoint` (evita importar `main.py`) |
+
+#### Pendiente
+
+- **Integración con `main.py`:** Bloqueada por `TypeError: issubclass() arg 1 must be a class` al importar `models.py` en Python 3.14.2. En producción (Python < 3.14 o SQLModel con parche), `init_supabase_schema()` se ejecuta automáticamente al arrancar la aplicación.
+- **Recorrido completo en navegador:** Probar que el flujo frontend → proxy → backend → Supabase persiste eventos correctamente cuando `DATABASE_URL` esté configurada.
+

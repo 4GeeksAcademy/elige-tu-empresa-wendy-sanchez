@@ -116,4 +116,12 @@ class TelemetryBatch(BaseModel):
 
 
 class TelemetryReceipt(BaseModel):
+    """Response after processing a telemetry batch.
+
+    - received: total events in the batch
+    - stored:   events that passed validation and were persisted
+    - rejected: events that failed contract validation
+    """
     received: int
+    stored: int = 0
+    rejected: int = 0
