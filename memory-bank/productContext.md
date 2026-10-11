@@ -40,6 +40,14 @@ El producto en este repositorio tiene las siguientes superficies:
 - 4 páginas en el backoffice: productos con código de color, registro de entradas, registro de salidas con stock reactivo, historial de órdenes.
 - Datos semilla: 8 suministros con stock calculado, 12 clínicas.
 
+7. **Telemetría — Pipeline de análisis y dashboard (servidor standalone + backoffice)**
+- **Servidor standalone**: `services/telemetry/server_standalone.py` — FastAPI en puerto 8000 que evita SQLModel (incompatible Python 3.14). Sirve `GET /telemetry/report` (5 métricas consolidadas) con caché de 60s, `POST /auth/login`, `GET /auth/me`, `GET /health`.
+- **Pipeline de análisis**: `services/telemetry/analysis.py` — 5 funciones pandas que leen Supabase PostgreSQL y producen métricas: `events_per_day()`, `error_rate_by_type()`, `latency_percentiles_by_route()`, `event_type_distribution()`, `auth_failure_rate_by_day()`. Orquestadas por `run_all()`.
+- **Autenticación standalone**: `services/telemetry/auth_standalone.py` — bcrypt + JWT (jose) + consultas TinyDB. Sin dependencia de `services/api/models.py`.
+- **Seed de usuarios**: `admin@healthcore.com` / `adminpass456` (admin) y `test@healthcore.com` / `securepassword123` (user) en TinyDB.
+- **Dashboard**: `uis/backoffice/app/telemetry/page.tsx` — 5 paneles visuales protegidos por AuthGuard. Selector de fechas. Proxy via rewrite en `next.config.ts`.
+- **Eventos de telemetría**: 41 eventos (5 obligatorios, 36 oportunidades) definidos en `docs/telemetry/event-schemas.json`.
+
 ## Usuarios clave
 - Pacientes potenciales de HealthCore (especialmente mercado bilingue en EE. UU.).
 - Equipo de recepción y experiencia del paciente.

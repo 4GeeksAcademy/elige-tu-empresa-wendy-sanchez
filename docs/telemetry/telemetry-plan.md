@@ -526,3 +526,175 @@ Se realizaron pruebas manuales con un servidor FastAPI minimal (sin `main.py`, p
 - **Integración con `main.py`:** Bloqueada por `TypeError: issubclass() arg 1 must be a class` al importar `models.py` en Python 3.14.2. En producción (Python < 3.14 o SQLModel con parche), `init_supabase_schema()` se ejecuta automáticamente al arrancar la aplicación.
 - **Recorrido completo en navegador:** Probar que el flujo frontend → proxy → backend → Supabase persiste eventos correctamente cuando `DATABASE_URL` esté configurada.
 
+---
+
+## Fase 3: auth_failure_rate_by_day — métrica operativa de login
+
+### Objetivo
+
+Añadir al pipeline de análisis (`analysis.py`) una función que calcule la **tasa diaria de fallos de autenticación**: `user_login_failed` dividido entre el total de intentos (`user_login_failed + user_login_succeeded`) por día.
+
+### Implementación
+
+- **Archivo:** `services/telemetry/analysis.py` — nueva función `auth_failure_rate_by_day()`.
+- **Lógica SQL:** filtra eventos con `event_type IN ('auth_login_failed', 'auth_login_succeeded')` dentro de la ventana de fechas.
+- **Procesamiento Pandas:** agrupa por día y hace pivot de la columna `event_type` para obtener columnas `failed` y `succeeded`. Calcula `failure_rate_pct = (failed / total * 100).where(total > 0, 0).round(2)`.
+- **Integración en `run_all()`:** la función se agrega al diccionario de retorno como `auth_failure_rate_by_day`.
+- **Integración en endpoint:** el servidor standalone (`server_standalone.py`) ya ejecuta `run_all()` completo, por lo que la nueva métrica se sirve automáticamente en `GET /telemetry/report`.
+
+### Datos de prueba en Supabase
+
+Se insertaron eventos de prueba de tipo `auth_login_failed` y `auth_login_succeeded` con fechas 9–11 de octubre de 2026. El pipeline devuelve:
+
+| Fecha | failed | succeeded | failure_rate_pct |
+|---|---|---|---|
+| 2026-10-09 | 10 | 0 | 100.00 |
+| 2026-10-10 | 0 | 5 | 0.00 |
+| 2026-10-11 | 0 | 3 | 0.00 |
+
+---
+
+## Fase 4: Dashboard de telemetría en backoffice
+
+### Objetivo
+
+Construir una página visual dentro del backoffice (`uis/backoffice/app/telemetry/`) que consuma `GET /api/telemetry/report` y muestre las cinco métricas del pipeline de forma gráfica.
+
+### Implementación
+
+- **Archivo:** `uis/backoffice/app/telemetry/page.tsx` — página protegida por `AuthGuard` (requiere sesión iniciada).
+- **Métricas mostradas:**
+  1. **Events per day** — gráfico de barras con el volumen diario de eventos.
+  2. **Error rate by type** — barras con tasa de error por tipo de evento, coloreadas (verde si < 5%, amarillo si 5–20%, rojo si > 20%).
+  3. **Latency percentiles by route** — tabla con p50, p90, p99 por ruta normalizada.
+  4. **Event type distribution** — barras con distribución porcentual de tipos de evento.
+  5. **Auth failure rate** — barras duales (failed vs succeeded) con línea de tasa de fallo.
+- **Selector de fechas:** dos campos `datetime-local` (inicio y fin) que al cambiar recargan el reporte.
+- **Proxy:** `next.config.ts` reescribe `/api/telemetry/report` → `http://localhost:8000/telemetry/report`. Se eliminó la route handler App Router anterior (`app/api/telemetry/report/route.ts`) porque contenía un bug (`base.protocol` en vez de `base.scheme`).
+- **Navegación:** se añadió el enlace "Telemetry" al `BackofficeHeader` entre "Summary" y el separador.
+
+### Captura de datos de prueba
+
+Para ver el dashboard con datos reales, se ejecutó:
+
+```sql
+INSERT INTO telemetry_events (event_id, event_type, timestamp, properties)
+SELECT
+  gen_random_uuid()::text,
+  CASE (random() * 4)::int
+    WHEN 0 THEN 'api_request_failed'
+    WHEN 1 THEN 'auth_login_succeeded'
+    WHEN 2 THEN 'auth_login_failed'
+    WHEN 3 THEN 'inventory_product_lookup_completed'
+    ELSE 'frontend_route_load_recorded'
+  END,
+  timestamp '2026-10-01 00:00:00 UTC' + random() * interval '14 days',
+  jsonb_build_object('route', CASE (random() * 3)::int
+    WHEN 0 THEN '/api/suppliers'
+    WHEN 1 THEN '/api/inventory'
+    WHEN 2 THEN '/api/incidents'
+    ELSE '/api/auth'
+  END)
+FROM generate_series(1, 100);
+```
+
+Esto pobló la tabla con 100 eventos distribuidos en 14 días, dando contenido al dashboard.
+
+---
+
+## Fase 5: Autenticación funcional para backoffice
+
+### Problema detectado
+
+El backoffice requiere autenticación JWT para acceder a cualquier ruta protegida (incluyendo `/telemetry`). Sin embargo:
+
+1. **No existían usuarios en base de datos** — El archivo TinyDB (`data/process/suppliers_db.json`) está en `.gitignore` y nunca se había ejecutado el seed. Los tests definían usuarios (`test@healthcore.com`, `admin@healthcore.com`) pero solo en fixtures efímeros.
+2. **API principal (`main.py`) no arranca** — `models.py` línea 315 (`class MedicalSupply(SQLModel, table=True)`) crashea con `TypeError: issubclass() arg 1 must be a class` por incompatibilidad entre SQLModel 0.0.42 y Python 3.14.2. Esto impide usar los endpoints de auth de la API principal.
+3. **Servidor standalone no tenía auth** — `server_standalone.py` servía `/telemetry/report` y `/health`, pero no los endpoints `/auth/login` ni `/auth/me` que necesita el frontend.
+
+### Solución aplicada
+
+#### 1. Seed de usuarios en TinyDB
+
+Se creó `services/telemetry/seed_auth_users.py` — script autónomo que no importa `models.py` (evita el crash de SQLModel). Escribe directamente en TinyDB usando `passlib.hash.bcrypt` para el hash de contraseñas.
+
+Usuarios creados:
+
+| Email | Contraseña | Rol |
+|---|---|---|
+| `admin@healthcore.com` | `adminpass456` | admin |
+| `test@healthcore.com` | `securepassword123` | user |
+
+#### 2. Módulo de autenticación standalone
+
+Se creó `services/telemetry/auth_standalone.py` — implementación autocontenida de:
+
+- `verify_password()` / `hash_password()` — bcrypt via passlib.
+- `get_user_by_email()` / `get_user_by_id()` — consultas a TinyDB.
+- `create_access_token()` — JWT con `jose.jwt.encode()` (HS256, 30 min de expiración).
+- `decode_access_token()` — validación y decodificación de tokens.
+
+No depende de `services/api/` para evitar el crash de SQLModel.
+
+#### 3. Endpoints de auth en servidor standalone
+
+Se añadieron al `server_standalone.py`:
+
+- **`POST /auth/login`** — recibe `{email, password}`, busca el usuario en TinyDB, verifica bcrypt, devuelve `{access_token, token_type}`.
+- **`GET /auth/me`** — requiere cabecera `Authorization: Bearer <token>`, decodifica el JWT, busca el usuario en TinyDB, devuelve perfil + rol + `telemetry_user_id`.
+
+#### 4. Configuración JWT
+
+Se añadió `JWT_SECRET_KEY=dev-secret-not-for-production` al archivo `services/api/.env` (necesario para firmar/verificar tokens).
+
+### Cadena de autenticación completa
+
+```
+Navegador
+  → POST /api/auth/login
+    → uis/backoffice/app/api/auth/login/route.ts (App Router)
+      → proxyToAuthApi("/auth/login")
+        → http://localhost:8000/auth/login (server_standalone)
+          → TinyDB lookup → bcrypt verify → JWT emit
+  ← {access_token}
+
+  → GET /api/telemetry (ruta protegida)
+    → AuthGuard chequea token en localStorage
+    → GET /api/auth/me (verifica token válido)
+      → proxyToAuthApi("/auth/me")
+        → http://localhost:8000/auth/me
+          → JWT decode → TinyDB lookup → datos de usuario
+  ← renderiza dashboard
+```
+
+### Archivos creados/modificados
+
+| Archivo | Cambio |
+|---|---|
+| `services/telemetry/seed_auth_users.py` | **Creado.** Script para sembrar usuarios admin/test en TinyDB sin depender de `models.py`. |
+| `services/telemetry/auth_standalone.py` | **Creado.** Módulo de auth autocontenido (bcrypt, JWT, TinyDB queries). |
+| `services/telemetry/server_standalone.py` | **Modificado.** Añadidos endpoints `POST /auth/login`, `GET /auth/me` con modelos Pydantic inline. |
+| `services/api/.env` | **Modificado.** Añadida variable `JWT_SECRET_KEY`. |
+
+### Prueba de integración
+
+```
+$ curl -s -X POST http://localhost:8000/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@healthcore.com","password":"adminpass456"}'
+→ 200 OK, access_token devuelto
+
+$ curl -s http://localhost:8000/auth/me \
+  -H "Authorization: Bearer <token>"
+→ 200 OK, { email, role: "admin", profile, telemetry_user_id }
+
+$ curl -s -X POST http://localhost:3000/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@healthcore.com","password":"adminpass456"}'
+→ 200 OK (proxy Next.js → standalone server)
+
+$ curl -s http://localhost:3000/api/auth/me \
+  -H "Authorization: Bearer <token>"
+→ 200 OK (proxy Next.js → standalone server)
+```
+

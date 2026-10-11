@@ -2,6 +2,29 @@
 
 ## Entregables activos en el repositorio
 
+### Telemetría: Fase 5 — Autenticación funcional para backoffice (2026-10-11)
+- **Problema**: No existían usuarios en TinyDB, API principal no arranca (SQLModel + Python 3.14 incompatible), servidor standalone no tenía auth.
+- **Seed de usuarios**: `services/telemetry/seed_auth_users.py` — script autónomo que crea `admin@healthcore.com` / `adminpass456` (admin) y `test@healthcore.com` / `securepassword123` (user) en TinyDB sin depender de `models.py`.
+- **Módulo auth standalone**: `services/telemetry/auth_standalone.py` — bcrypt, JWT (jose), consultas TinyDB. No depende de `services/api/`.
+- **Endpoints añadidos a `server_standalone.py`**: `POST /auth/login` y `GET /auth/me`. La cadena completa navegador → Next.js proxy → standalone server funciona correctamente.
+- **`JWT_SECRET_KEY`** añadida a `services/api/.env`.
+- **Credenciales**: `admin@healthcore.com` / `adminpass456` (admin), `test@healthcore.com` / `securepassword123` (user).
+
+### Telemetría: Fase 4 — Dashboard de telemetría en backoffice (2026-10-11)
+- **Nueva página**: `uis/backoffice/app/telemetry/page.tsx` — protegida por AuthGuard.
+- **5 paneles visuales**: events_per_day (barras), error_rate_by_type (barras coloreadas), latency_percentiles_by_route (tabla), event_type_distribution (barras), auth_failure_rate (barras duales + línea).
+- **Selector de fechas**: dos campos datetime-local que recargan el reporte.
+- **Proxy**: rewrite en `next.config.ts` (`/api/telemetry/report` → `http://localhost:8000/telemetry/report`). Se eliminó el route handler bugado anterior.
+- **Navegación**: enlace "Telemetry" añadido al `BackofficeHeader`.
+- **Datos de prueba**: 100 eventos insertados en Supabase (distribuidos en 14 días, 5 tipos).
+
+### Telemetría: Fase 3 — auth_failure_rate_by_day (2026-10-11)
+- **Nueva función**: `auth_failure_rate_by_day()` en `services/telemetry/analysis.py`.
+- **SQL**: filtra `event_type IN ('auth_login_failed', 'auth_login_succeeded')`.
+- **Pandas**: groupby día → pivot → `failure_rate_pct = (failed / total * 100).where(total > 0, 0).round(2)`.
+- **Integrada en `run_all()`**: se sirve automáticamente en `GET /telemetry/report`.
+- **Auditoría 10/10**: todos los acceptance criteria cumplidos.
+
 ### Telemetría: correcciones de auditoría (2026-10-06)
 - Reglas de privacidad compartidas cierran valores sensibles en campos allowlisted; timestamp ISO estricto y expiración restaurada con identidad efímera segura.
 - Productor `services/api/telemetry_delivery.py` captura señales en origen y las envía por lotes sin depender del navegador. Caducidad se deduplica tras acuse del stub. Cola en memoria, sin almacenamiento analítico.

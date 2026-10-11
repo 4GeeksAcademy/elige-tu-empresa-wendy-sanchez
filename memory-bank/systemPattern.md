@@ -149,6 +149,32 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - **`EmptyState`**: estado de lista vacía con props `message`, `description`, `icon`, `action`.
 - Todos en `components/ui/` con barrel export desde `index.ts`.
 
+### 30) Patrón de telemetría: análisis pipeline con pandas (backend standalone)
+- **`services/telemetry/analysis.py`** define 5 funciones independientes que siguen el mismo patrón: SQL (`pandas.read_sql`) → DataFrame → conversión de tipos → groupby/agregación → retorno como `list[dict]`.
+- **`run_all()`** orquesta las 5 funciones y devuelve un diccionario con todas las métricas, servido por `GET /telemetry/report`.
+- Cada función gestiona su propia consulta SQL y transformación pandas — no hay estado compartido entre funciones.
+- **`auth_failure_rate_by_day()`**: filtra `event_type IN ('auth_login_failed', 'auth_login_succeeded')`, groupby fecha, pivot para failed/succeeded, `failure_rate_pct = (failed / total * 100).where(total > 0, 0).round(2)`.
+
+### 31) Patrón de telemetría: servidor standalone (evita SQLModel)
+- **`services/telemetry/server_standalone.py`**: FastAPI que NO importa `services/api/models.py` (evita `TypeError: issubclass()` de SQLModel 0.0.42 en Python 3.14).
+- Importa directamente `analysis.py` y `auth_standalone.py` desde el mismo directorio.
+- Endpoints: `GET /telemetry/report` (caché 60s en memoria), `POST /auth/login`, `GET /auth/me`, `GET /health`.
+- **Caché**: diccionario en memoria con `time.monotonic()` + TTL 60s para el reporte. Sin dependencias externas.
+
+### 32) Patrón de telemetría: módulo auth standalone (bcrypt + JWT + TinyDB)
+- **`services/telemetry/auth_standalone.py`**: autenticación autónoma que no depende de `services/api/` ni de `models.py`.
+- Funciones: `verify_password()`, `hash_password()`, `get_user_by_email()`, `get_user_by_id()`, `get_profile_by_user_id()`, `create_access_token()`, `decode_access_token()`.
+- Lee `JWT_SECRET_KEY` de entorno (cargado desde `services/api/.env`).
+- Usa passlib con bcrypt para hash de contraseñas y python-jose para JWT (HS256, 30 min).
+- Consulta TinyDB directamente (`data/process/suppliers_db.json`) en tablas `users` y `profiles`.
+
+### 33) Patrón de telemetría: dashboard con proxy rewrite
+- **`uis/backoffice/app/telemetry/page.tsx`**: página protegida por AuthGuard con 5 paneles visuales.
+- Cada panel llama a `fetch('/api/telemetry/report')` con `date_from`/`date_to` como query params opcionales.
+- El proxy en `next.config.ts` (`/api/telemetry/report` → `http://localhost:8000/telemetry/report`) resuelve la llamada en servidor.
+- No hay route handler intermedio — al usar rewrite directo, se eliminó el route handler bugado anterior que usaba `base.protocol` (propiedad JS URL inválida).
+- **Auth**: login via `POST /api/auth/login` → rewrite → `localhost:8000/auth/login` → JWT. `GET /api/auth/me` → rewrite → `localhost:8000/auth/me`.
+
 ### 26) Patrón de caché — Cache-Aside (backend)
 - **Estrategia cache-aside**: el código pregunta primero a la caché (`cache.get(key)`); si existe el valor, lo devuelve sin tocar la base de datos. Si no existe, ejecuta la operación (consulta DB, cálculo), almacena el resultado en caché con `cache.set(key, value, ttl)`, y lo devuelve.
 - **Clave única por combinación de parámetros**: en endpoints con filtros (GET /incidents), la clave incluye todos los parámetros de consulta serializados para que cada combinación de filtros tenga su propia entrada en caché.
