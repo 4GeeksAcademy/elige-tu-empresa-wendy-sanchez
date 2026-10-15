@@ -72,6 +72,25 @@
 - Sin autenticación — sitio público corporativo de HealthCore.
 - Carga inicial en Server Component; refetch client-side solo desde event handlers.
 
+### Telemetría — Servidor Standalone (services/telemetry)
+- **`server_standalone.py`**: FastAPI independiente (puerto 8000) que evita SQLModel 0.0.42 (incompatible con Python 3.14 — `TypeError: issubclass()` en `models.py` L315).
+- **`analysis.py`**: Pipeline de análisis con **pandas** + `read_sql()` sobre **Supabase PostgreSQL**. 5 funciones métricas: `events_per_day()`, `error_rate_by_type()`, `latency_percentiles_by_route()`, `event_type_distribution()`, `auth_failure_rate_by_day()`. Orquestadas por `run_all()` → `GET /telemetry/report`.
+- **`auth_standalone.py`**: Módulo de autenticación autónomo (passlib bcrypt + python-jose JWT + TinyDB). No depende de `services/api/models.py`.
+- **`seed_auth_users.py`**: Script autónomo para crear usuarios en TinyDB (admin@healthcore.com / adminpass456, test@healthcore.com / securepassword123).
+- **Dependencias**: FastAPI, uvicorn, pandas, python-jose, passlib, bcrypt, TinyDB, supabase (opcional).
+- **Caché**: diccionario en memoria con `time.monotonic()` + TTL 60s para el reporte.
+- **Auth endpoints**: `POST /auth/login` (JWT), `GET /auth/me` (perfil+rol).
+- **Variables de entorno**: `JWT_SECRET_KEY` (desde `services/api/.env`).
+
+### Telemetría — Dashboard (uis/backoffice)
+- **Página**: `app/telemetry/page.tsx` — 5 paneles visuales protegidos por AuthGuard.
+- **Proxy**: rewrite en `next.config.ts`: `/api/telemetry/report` → `http://localhost:8000/telemetry/report`.
+- **Navegación**: enlace "Telemetry" en BackofficeHeader.
+
+### Telemetría — Documentación y esquemas
+- **`docs/telemetry/event-schemas.json`**: Catálogo de 41 eventos (5 obligatorios, 36 oportunidades).
+- **`docs/telemetry/telemetry-plan.md`**: Plan de telemetría completo con fases 1-5, arquitectura, decisiones técnicas.
+
 ## Decisiones de arquitectura tomadas
 1. Mantener hito web y hito Next.js coexistiendo en el mismo repo para evaluación incremental.
 2. Centralizar tipos de dominio del tracker en types/candidate.ts.
@@ -100,6 +119,9 @@
 25. **Telemetría — proxy de conectividad**: `telemetryEndpoint.ts` transforma URLs loopback (`localhost`, `127.0.0.1`) en `/api/telemetry/events` para el navegador. El route handler de Next.js reenvía al backend via `TelemetryService.server.ts`. `TELEMETRY_ENDPOINT` tiene prioridad; fallback a `SUPPLIERS_API_URL` en Docker.
 26. **Telemetría — stacked decorators en backend**: El router `telemetry.py` registra `/telemetry/events` y `/telemetry/control` mediante `@router.post` apilados en el mismo handler. Ambos retornan `TelemetryReceipt(received=N)`.
 27. **Telemetría — backend dual detectado**: En Codespaces pueden existir múltiples procesos FastAPI. Es crítico matar procesos anteriores y reiniciar con `uvicorn main:app --port 8000 --reload` para activar código fresco. Verificar OpenAPI `/docs` confirma que ambas rutas de telemetría están registradas.
+28. **Telemetría — servidor standalone para evitar SQLModel crash**: La API principal (`services/api/main.py`) no arranca en Python 3.14 porque SQLModel 0.0.42 causa `TypeError: issubclass() arg 1 must be a class`. La solución no es degradar Python sino crear `services/telemetry/server_standalone.py` que no importa `models.py`. Este servidor coexiste en el mismo puerto 8000 y sirve telemetría + auth.
+29. **Telemetría — seed de usuarios autónomo**: `seed_auth_users.py` es un script independiente que escribe en TinyDB sin depender de `models.py` ni de `database.py`. Usa passlib directamente para hashear contraseñas. Esto evita el crash de SQLModel al importar modelos. Los usuarios se escriben en la tabla `users` de `data/process/suppliers_db.json`.
+30. **Telemetría — dashboard sin route handler intermedio**: A diferencia de auth/suppliers que usan route handlers Next.js con lógica server-side, el dashboard de telemetría usa un rewrite directo en `next.config.ts`. Esto es más simple y evita bugs como el anterior `base.protocol` (propiedad URL inválida en JavaScript). El rewrite `/api/telemetry/report` → `http://localhost:8000/telemetry/report` resuelve la llamada en servidor sin código intermedio.
 
 ## Docker y orquestación
 
@@ -179,3 +201,9 @@
 - Tests API incidencias: cd services/incidents-api && uv run pytest
 - Website dev: cd uis/website && npm run dev
 - Login test admin: admin@healthcore.com / Admin123! (creado vía API)
+- Login telemetry admin: admin@healthcore.com / adminpass456 (seed en TinyDB)
+- Login telemetry test: test@healthcore.com / securepassword123 (seed en TinyDB)
+- Servidor standalone telemetry: cd services/telemetry && python server_standalone.py (puerto 8000)
+- Seed usuarios telemetry: cd services/telemetry && python seed_auth_users.py
+- Analysis pipeline test: cd services/telemetry && python -c "from analysis import *; r=run_all(); print({k: len(v) for k,v in r.items()})"
+- Dashboard telemetry: http://localhost:3000/telemetry (backoffice, requiere login)

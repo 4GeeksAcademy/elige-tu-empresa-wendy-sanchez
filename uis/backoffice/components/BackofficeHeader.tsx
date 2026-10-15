@@ -53,6 +53,12 @@ export default function BackofficeHeader() {
             >
               Supplier Directory
             </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/telemetry"
+            >
+              Telemetry
+            </Link>
             <span className="text-slate-600">|</span>
             <Link
               className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white text-cyan-200"

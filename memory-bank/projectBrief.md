@@ -26,3 +26,4 @@ En paralelo, se trabaja en digitalización interna para People/HR con un tracker
 - Interno (operaciones/HR): centraliza y agiliza gestión de información operativa y de reclutamiento.
 - Cumplimiento: da visibilidad de qué proveedores tienen acuerdos BAA/DPA firmados y conserva el histórico de la relación contractual.
 - Técnico: establece una base escalable de utilidades y componentes para siguientes hitos (backend, telemetria, RAG, agentes, workflows).
+- Telemetría: monitorizar el comportamiento de usuarios y sistema mediante un pipeline de análisis (pandas + Supabase) con 5 métricas operativas, dashboard en backoffice y autenticación JWT funcional.

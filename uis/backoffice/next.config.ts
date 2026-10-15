@@ -10,6 +10,11 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      // Proxy /api/telemetry/report → HealthCore API (Python backend)
+      {
+        source: "/api/telemetry/report",
+        destination: `${process.env.SUPPLIERS_API_URL ?? "http://backend:8000"}/telemetry/report`,
+      },
       // Proxy /api/incidents/* → Incidents API (nombre Docker: incidents-backend)
       {
         source: "/api/incidents/:path*",

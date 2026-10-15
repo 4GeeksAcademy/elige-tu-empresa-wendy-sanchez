@@ -17,6 +17,28 @@
 - Pendientes: configurar URL pública en el archivo local bloqueado y recibir seudónimo HMAC de autenticación. No se amplió el backend por decisión expresa del usuario.
 - Diez pruebas focalizadas, las 46 pruebas del backoffice y tipos del servicio pasan. El typecheck global mantiene 11 errores ajenos al cambio y lint mantiene un aviso previo de AuthContext. Detalle al final del plan de telemetría.
 
+### Telemetría: Fase 5 — Autenticación funcional para backoffice (2026-10-11)
+- **Problema detectado**: TinyDB sin usuarios (`data/process/suppliers_db.json` en `.gitignore`, nunca ejecutado seed). API principal (`main.py`) no arranca por SQLModel + Python 3.14. Servidor standalone sin auth.
+- **Seed de usuarios**: `services/telemetry/seed_auth_users.py` — script autónomo que crea `admin@healthcore.com` / `adminpass456` y `test@healthcore.com` / `securepassword123`.
+- **Módulo auth standalone**: `services/telemetry/auth_standalone.py` — bcrypt, JWT (jose), consultas TinyDB. Sin dependencia de `services/api/`.
+- **Endpoints en `server_standalone.py`**: `POST /auth/login` (login+JWT), `GET /auth/me` (perfil+rol+telemetry_user_id).
+- **Cadena completa verificada**: Navegador → Next.js proxy → `localhost:8000/auth/*` → 200 OK.
+- **Archivos**: `seed_auth_users.py` (creado), `auth_standalone.py` (creado), `server_standalone.py` (modificado), `services/api/.env` (modificado, JWT_SECRET_KEY).
+
+### Telemetría: Fase 4 — Dashboard de telemetría en backoffice (2026-10-11)
+- **Página creada**: `uis/backoffice/app/telemetry/page.tsx` — 5 paneles visuales (events_per_day, error_rate_by_type, latency_percentiles_by_route, event_type_distribution, auth_failure_rate).
+- **Selector de fechas**: campos datetime-local que recargan el reporte vía `/api/telemetry/report`.
+- **Proxy**: rewrite en `next.config.ts`; route handler bugado eliminado.
+- **Navegación**: enlace "Telemetry" en BackofficeHeader.
+- **Datos de prueba**: 100 eventos en Supabase (14 días, 5 tipos).
+
+### Telemetría: Fase 3 — auth_failure_rate_by_day (2026-10-11)
+- **Función creada**: `auth_failure_rate_by_day()` en `services/telemetry/analysis.py`.
+- **SQL**: filtra `auth_login_failed` + `auth_login_succeeded`.
+- **Pandas**: groupby día → pivot → tasa de fallo.
+- **Integrada en `run_all()`**: servida automáticamente en `GET /telemetry/report`.
+- **Auditoría 10/10**: todos los acceptance criteria cumplidos.
+
 ### Telemetría: control channel refactorizado y 422 corregido (2026-10-06)
 - **Refactor del control channel**: `TelemetryService.control.ts` tenía fetch pipeline independiente a `/api/telemetry/control`, violando el principio de "única `track()`". Se refactorizó a `recordTelemetryControl()` que valida propiedades y llama a `track()`. Todos los eventos frontend van por `/api/telemetry/events`.
 - **3 tests actualizados**: expectativas cambiadas de `"/api/telemetry/control"` a `"/api/telemetry/events"`. 2 de 3 correcciones pasan.
