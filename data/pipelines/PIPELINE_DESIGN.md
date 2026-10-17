@@ -590,7 +590,111 @@ permisos deben permitir lectura de `telemetry_events` y escritura
 10. Confirmar el mecanismo de buffer offline y el envío por lotes, si
     corresponde, según las capacidades del frontend.
 
-## 14. Checklist de aceptación
+## 14. Frecuencia y ejecución del pipeline
+
+### Frecuencia prevista
+
+El pipeline se ejecuta **el primer día hábil de cada mes a las 07:00 UTC**,
+de forma que la CEO y el equipo directivo dispongan del reporte mensual
+consolidado desde la mañana del primer día laboral.
+
+| Concepto | Valor |
+|---|---|
+| Cadencia | Mensual |
+| Día de ejecución | Primer día hábil del mes |
+| Hora objetivo | 07:00 UTC |
+| Período procesado | Mes natural anterior completo |
+| Trigger por defecto | `scheduled` |
+
+### Mecanismo de disparo
+
+El pipeline acepta tres orígenes de disparo (`--trigger`):
+
+| Trigger | Uso previsto |
+|---|---|
+| `scheduled` | Ejecución automática programada (cron mensual) |
+| `manual` | Disparo ad-hoc desde la API o CLI por un operador |
+| `recalculation` | Recálculo solicitado tras ingreso de eventos tardíos del período |
+
+Los eventos que lleguen después del cierre mensual conservan su `timestamp`
+original y fuerzan un recálculo del mes correspondiente. La tabla de destino
+es idempotente (`ON CONFLICT (clinic_id, month_start) DO UPDATE`), por lo que
+repetir la ejecución para un mismo mes es seguro: los valores se reemplazan
+con los nuevos cómputos, no se acumulan.
+
+### Ejecución como CLI
+
+El archivo ``data/pipelines/pipeline.py`` es el punto de entrada ejecutable:
+
+```bash
+# Procesar el mes anterior (por defecto)
+python data/pipelines/pipeline.py
+
+# Procesar un mes específico
+python data/pipelines/pipeline.py --month 2026-07-01
+
+# Especificar el origen del disparo
+python data/pipelines/pipeline.py --month 2026-07-01 --trigger scheduled
+
+# Inicializar esquema reporting antes de ejecutar
+python data/pipelines/pipeline.py --init-schema
+
+# Salida JSON (para integrar con wrappers)
+python data/pipelines/pipeline.py --month 2026-07-01 --json
+```
+
+### Integración con cron (ejemplo)
+
+```cron
+# Todos los primeros días hábiles a las 07:00 UTC
+# Ajustar según calendario de días festivos
+0 7 1 * * cd /opt/healthcore && python data/pipelines/pipeline.py --trigger scheduled >> /var/log/healthcore/pipeline.log 2>&1
+```
+
+### Ejecución como librería
+
+Desde código Python:
+
+```python
+from data.pipelines.runner import trigger_monthly_clinic_supply_performance
+
+# Disparo programado
+result = trigger_monthly_clinic_supply_performance(
+    month_start="2026-07-01",
+    trigger_source="scheduled",
+)
+```
+
+Los endpoints de ``services/reporting/`` exponen el disparo vía
+``POST /reporting/pipeline-runs`` y la consulta de resultados vía
+``GET /reporting/monthly-clinic-supply-performance``.
+
+### Dependencias de infraestructura
+
+- **Base de datos:** PostgreSQL / Supabase con el esquema `reporting` creado.
+  La inicialización automática se realiza al arrancar ``services/reporting/main.py``
+  o manualmente con ``--init-schema``.
+- **Prefect:** Se necesita una instancia del servidor Prefect para la
+  orquestación de flows. Si no hay servidor externo, Prefect inicia uno
+  efímero automáticamente (modo EPHEMERAL).
+- **Variables de entorno:** ``DATABASE_URL`` debe estar configurada en
+  ``services/api/.env``.
+
+### Decisiones resueltas
+
+Varias de las decisiones abiertas en la sección anterior (13) han sido
+implementadas:
+
+| # | Decisión | Resolución |
+|---|---|---|
+| 4 | Versión y despliegue de Prefect | Prefect 3.8.8 instalado vía pip en el entorno. Sin servidor persistente dedicado — el worker inicia servidor efímero automáticamente. |
+| 5 | Autorización de endpoints | JWT Bearer token, validado con la misma `JWT_SECRET_KEY` y algoritmo HS256 que el API principal de services/api/. |
+| 6 | Registro de ejecución | Sí: se inserta al inicio (`create_pipeline_run` en `run_store.py`) y se actualiza durante el flow. Una caída abrupta deja el registro con estado `failed` y checkpoint parcial. |
+| 7 | Frecuencia y heartbeat | Frecuencia mensual definida aquí. No hay heartbeat interno del pipeline (la tarea dura minutos, no horas). |
+| 8 | Duración esperada | < 5 minutos para 12 clínicas, < 15 minutos bajo carga máxima (estimado). |
+
+
+## 15. Checklist de aceptación
 
 -   [x] Existe una sección `Current State` y se explica la brecha del
     reporte de telemetría.
