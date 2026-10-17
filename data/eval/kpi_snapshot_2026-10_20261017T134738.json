@@ -1,0 +1,72 @@
+[
+  {
+    "clinic_id": "1",
+    "country": "US",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 0,
+    "critical_stockout_count": 0,
+    "expiry_risk_count": 0,
+    "currency": "USD"
+  },
+  {
+    "clinic_id": "2",
+    "country": "US",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 0,
+    "critical_stockout_count": 1,
+    "expiry_risk_count": 0,
+    "currency": "USD"
+  },
+  {
+    "clinic_id": "3",
+    "country": "US",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 0,
+    "critical_stockout_count": 0,
+    "expiry_risk_count": 0,
+    "currency": "USD"
+  },
+  {
+    "clinic_id": "4",
+    "country": "US",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 0,
+    "critical_stockout_count": 0,
+    "expiry_risk_count": 0,
+    "currency": "USD"
+  },
+  {
+    "clinic_id": "5",
+    "country": "UK",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 1,
+    "critical_stockout_count": 0,
+    "expiry_risk_count": 0,
+    "currency": "USD"
+  },
+  {
+    "clinic_id": "7",
+    "country": "UK",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 1,
+    "critical_stockout_count": 0,
+    "expiry_risk_count": 0,
+    "currency": "GBP"
+  },
+  {
+    "clinic_id": "8",
+    "country": "UK",
+    "month_start": "2026-10-01",
+    "total_supply_cost": "0.00",
+    "supply_consumption_count": 1,
+    "critical_stockout_count": 0,
+    "expiry_risk_count": 0,
+    "currency": "GBP"
+  }
+]

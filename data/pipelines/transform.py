@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime, date, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ def _parse_cost(tags: dict) -> Decimal | None:
         return None
     try:
         return Decimal(str(cost_raw))
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, InvalidOperation):
         logger.warning("Coste no convertible a Decimal: %r", cost_raw)
         return None
 
@@ -79,10 +79,12 @@ def deduplicate_events(events: list[dict]) -> tuple[list[dict], int]:
     unique: list[dict] = []
     for ev in events:
         eid = ev.get("event_id")
-        if eid in seen:
-            continue
-        seen.add(eid)
-        unique.append(ev)
+        # Si el evento no tiene event_id, se conserva siempre (no hay
+        # clave de duplicado). Si tiene, se chequea contra el conjunto.
+        if eid is None or eid not in seen:
+            if eid is not None:
+                seen.add(eid)
+            unique.append(ev)
     return unique, len(events) - len(unique)
 
 
@@ -120,7 +122,8 @@ def aggregate_kpis(
 
     for ev in events:
         tags = ev.get("tags") or {}
-        clinic_id = (tags.get("clinic_id") or ev.get("clinic_id") or "unknown").strip()
+        raw_clinic_id = tags.get("clinic_id") or ev.get("clinic_id") or "unknown"
+        clinic_id = str(raw_clinic_id).strip()
         country = (tags.get("country") or ev.get("country") or "US").strip()
         event_type = ev.get("event_type", "")
 

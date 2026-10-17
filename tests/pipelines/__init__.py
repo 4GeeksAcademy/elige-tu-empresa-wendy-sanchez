@@ -1,0 +1,1 @@
+"""Tests del pipeline mensual de desempeño de insumos por clínica."""

@@ -223,7 +223,7 @@
       "schemaVersion": "1.0.0",
       "category": "inventory",
       "classification": "mandatory_context",
-      "description": "Una clínica confirma una entrega de suministros de proveedor, después del commit.",
+      "description": "Una clínica confirma una entrega de suministros de proveedor, después del commit. Extensión aditiva: total_cost y currency son opcionales para el KPI de coste.",
       "delivery": {
         "mode": "stream",
         "targetLatencySecondsP95": 10,
@@ -235,7 +235,9 @@
         "product_id",
         "product_category",
         "quantity",
-        "vendor_ref"
+        "vendor_ref",
+        "total_cost",
+        "currency"
       ],
       "requiredProperties": [
         "clinic_id",
@@ -284,6 +286,19 @@
           "type": "string",
           "pattern": "^[a-f0-9]{64}$",
           "description": "HMAC-SHA256 del nombre de proveedor normalizado, calculado solo en servidor con clave de telemetría versionada; permite agrupar proveedores sin exportar el texto."
+        },
+        "total_cost": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Importe total de la entrega en la moneda de la clínica. Valor numérico, no negativo. Si no se envía, el KPI de coste se registra como incompleto."
+        },
+        "currency": {
+          "type": "string",
+          "enum": [
+            "USD",
+            "GBP"
+          ],
+          "description": "Moneda del coste: USD para clínicas US, GBP para clínicas UK. Debe coincidir con el país de la clínica."
         }
       },
       "privacy": {

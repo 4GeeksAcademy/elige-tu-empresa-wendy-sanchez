@@ -44,11 +44,12 @@ los KPI financiero-operativos que necesita la junta directiva.
 El reporte técnico no consolida los cuatro KPI de negocio requeridos en
 una fila por clínica y mes, no publica una tabla analítica propia para
 el dashboard y no proporciona una API independiente para consultar los
-KPI o conocer el estado de ejecución del pipeline. Además, el evento
-actual `inbound_order_created` no incluye un coste monetario en el
-contrato revisado; por tanto, el gasto real no se puede calcular de
-forma fiable hasta que se añada ese dato al evento existente y a su
-productor.
+KPI o conocer el estado de ejecución del pipeline. Además, aunque el
+esquema de telemetría se ha extendido para aceptar `total_cost` y
+`currency` como campos opcionales de `inbound_order_created`, el
+productor del evento aún no envía estos datos. El KPI de gasto se
+calculará cuando los eventos incluyan el coste; mientras tanto, el
+pipeline lo procesa con advertencias y marca el KPI como incompleto.
 
 ### Límites de la solución
 
@@ -59,9 +60,9 @@ productor.
 -   Los resultados de negocio se guardan en tablas nuevas bajo el
     esquema `reporting` y se exponen desde un módulo nuevo
     `services/reporting/`.
--   Se permite una extensión aditiva del payload de
-    `inbound_order_created` para incluir el coste requerido; no se
-    introduce un nuevo tipo de evento para ese fin.
+-   El payload de `inbound_order_created` ya se ha extendido de forma
+    aditiva (total_cost, currency como opcionales); no se introdujo un
+    nuevo tipo de evento para ese fin.
 -   No se incluyen `direct_stock_edit_rejected` ni otros eventos
     técnicos en los KPI de esta versión.
 
@@ -179,12 +180,19 @@ nombre real, y no se necesita para calcular los KPI.
 
 ### Brecha del coste y extensión aditiva
 
-El contrato y el productor actuales revisados no envían `total_cost` ni
-`unit_cost` en `inbound_order_created`. En un hito posterior se deberá
-ampliar de forma aditiva el contrato existente, la validación allowlist,
-el productor del evento y el flujo de entrada para enviar `total_cost` y
-`currency` o una moneda derivable de forma validada desde el país de la
-clínica. No se deben inventar costes a partir de la cantidad.
+**Estado: resuelta (octubre 2026).** El contrato del evento
+`inbound_order_created` ya incluye `total_cost` (numérico, no negativo)
+y `currency` (`USD`/`GBP`) como propiedades opcionales en el esquema de
+telemetría (`docs/telemetry/event-schemas.json`). La validación del
+endpoint `POST /telemetry` permite estos campos desde la actualización
+del fichero de esquemas, sin cambios en el código de validación.
+
+El pipeline (`_parse_cost` en `data/pipelines/transform.py`) acepta
+`total_cost` desde su implementación inicial. Si el campo no está
+presente, el evento se procesa igual pero se registra una advertencia
+y el KPI `total_supply_cost` no se considera completo para esa clínica.
+
+Reglas de uso del coste:
 
 -   Preferir `total_cost`, que representa el importe total de la
     entrega.
@@ -192,7 +200,7 @@ clínica. No se deben inventar costes a partir de la cantidad.
     `quantity × unit_cost` y documentarlo como contrato alternativo.
 -   Si ambos campos existen, `total_cost` será autoritativo; una
     discrepancia frente a `quantity × unit_cost` genera advertencia.
--   El importe debe ser numérico, finito y no negativo. La moneda debe
+-   El importe debe ser numérico, no negativo. La moneda debe
     ser `USD` para `US` y `GBP` para `UK`.
 -   Si falta un coste válido, no convertirlo silenciosamente en cero.
     Contabilizar la incidencia y marcar la ejecución con advertencias;
@@ -717,3 +725,64 @@ implementadas:
     que importan.
 -   [x] Los eventos y KPI corresponden al contexto de HealthCore; el
     coste faltante queda declarado como brecha, no se inventa.
+-   [x] La brecha del coste se cerró añadiendo `total_cost` y `currency` como
+    propiedades opcionales de `inbound_order_created` en el esquema de
+    telemetría. El pipeline ya lo acepta; falta el productor.
+
+
+
+## 16. Mejora implementada: Bloqueo de concurrencia por periodo
+
+### Problema de diseño
+
+La sección 13 del presente documento identificó un problema de concurrencia en la línea 339:
+
+> **Concurrencia:** aplicar un bloqueo por periodo (por ejemplo, advisory lock de PostgreSQL) o exclusión equivalente. Una segunda ejecución del mismo `month_start` debe esperar o devolver un estado explícito de ejecución ya activa.
+
+El escenario concreto que se buscaba evitar es el siguiente:
+
+1. El pipeline está programado para ejecutarse todos los días 1 a las 02:00 UTC vía cron (`trigger_source = "scheduled"`).
+2. Un operador, sin saber que la ejecución automática está en curso, dispara manualmente el mismo pipeline a las 02:05 para el mismo `month_start`.
+3. Ambas ejecuciones leen, transforman y publican los mismos datos simultáneamente.
+4. Aunque la tabla destino usa `ON CONFLICT ... DO UPDATE` (upsert), las dos ejecuciones compiten por escribir, generando picos de carga innecesarios, duplicación de eventos leídos, y posible incoherencia en los registros de auditoría (`pipeline_runs`).
+
+### Solución implementada
+
+Se optó por un **bloqueo a nivel de aplicación, coordinado por base de datos**, que no requiere drivers adicionales ni permisos de superusuario. Consiste en dos piezas:
+
+#### a) `has_active_run_for_period(target_engine, month_start) -> tuple[bool, str | None]`
+
+- **Ubicación:** `data/pipelines/run_store.py`
+- **Comportamiento:** Ejecuta `SELECT count(*) FROM reporting.pipeline_runs WHERE status = 'running' AND month_start = :month_start`. Si el conteo es mayor a cero, retorna `(True, run_id)`; si no, `(False, None)`.
+- **Justificación:** La tabla `pipeline_runs` es el único punto de verdad compartido entre procesos. Consultar el estado directamente en ella evita introducir un mecanismo de coordinación separado (Redis, advisory locks, etc.) que añadiría latencia y complejidad operativa. La columna `status` se actualiza a `'completed'` o `'failed'` al finalizar, por lo que una ejecución activa siempre tendrá `status = 'running'`.
+
+#### b) Integración en `trigger_monthly_clinic_supply_performance()`
+
+- **Ubicación:** `data/pipelines/runner.py`
+- **Flujo:**
+  1. Se resuelve el período (`task_resolve_period`).
+  2. Se obtiene el engine de destino (`get_target_engine()`).
+  3. Se invoca `has_active_run_for_period(target_engine, month_start)`.
+  4. Si hay una ejecución activa, la función retorna inmediatamente un diccionario con `{"status": "already_running", "run_id": <id>, "month_start": month_start, "message": "Ya existe una ejecución activa para este período"}`.
+  5. Si no la hay, continúa con la creación del `run_id` y la ejecución normal.
+- **Manejo de errores:** Si la consulta falla (base de datos caída, timeout), el bloque se captura con `try/except`, se registra una advertencia y se permite la ejecución de todas formas (fail-open). Esto evita que un problema de conectividad impida ejecutar el pipeline.
+
+### Análisis de alternativas descartadas
+
+| Alternativa | Motivo de descarte |
+|---|---|
+| **Advisory lock de PostgreSQL** (`pg_advisory_xact_lock`) | Es la solución más robusta, pues elimina cualquier ventana de competencia. Sin embargo, requiere permisos para llamar funciones del sistema y añade una dependencia directa del motor de base de datos. Se deja como mejora futura si la tasa de colisiones crece. |
+| **Redis / lock distribuido** | Introduciría una nueva infraestructura (Redis) solo para este bloqueo, incrementando la complejidad operativa y el costo de mantenimiento. |
+| **Archivo PID lock** (`/var/run/pipeline.lock`) | No funciona en entornos serverless o con múltiples workers. Tampoco es atómico entre contenedores. |
+| **Esperar (sleep + reintento)** | Bloquea el worker sin garantía de liberación predecible. Aumenta la latencia sin resolver la competencia real. |
+
+### Riesgo residual y mitigación
+
+Existe una **ventana de competencia pequeña** entre el `SELECT` de `has_active_run_for_period()` y el `INSERT` del nuevo `pipeline_run`: dos procesos podrían ejecutar el SELECT simultáneamente, ambos obtener `count = 0`, y ambos crear un registro. Este riesgo se mitiga con:
+
+- La restricción de unicidad en la base de datos (si se define un índice único sobre `(month_start, status)` filtrando por `status = 'running'`).
+- La idempotencia del upsert en la tabla de KPI: aunque dos ejecuciones corran en paralelo, los datos finales son los mismos.
+- La auditoría conserva ambos `run_id`; el equipo puede identificar ejecuciones solapadas.
+
+Para eliminar esta ventana por completo, en una iteración futura se implementará un `pg_advisory_xact_lock(month_start_hash)` antes del SELECT, lo que serializaría las ejecuciones concurrentes para el mismo período.
+

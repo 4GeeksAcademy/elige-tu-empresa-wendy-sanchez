@@ -15,6 +15,9 @@ import sys
 from datetime import date, datetime
 from typing import Any
 
+from data.pipelines.database import get_target_engine
+from data.pipelines.run_store import has_active_run_for_period
+
 # Configurar logging ANTES de cualquier import del pipeline
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +52,37 @@ def trigger_monthly_clinic_supply_performance(
         month_start,
         trigger_source,
     )
+
+    # Verificar bloqueo de concurrencia: si ya hay una ejecución activa
+    # para el mismo periodo, no iniciar una nueva.
+    try:
+        from data.pipelines.subflows.supply_event_ingestion import task_resolve_period
+        resolved_start, resolved_end = task_resolve_period.fn(month_start)
+        target_engine = get_target_engine()
+        has_active, active_run_id = has_active_run_for_period(target_engine, resolved_start)
+        if has_active:
+            logger.warning(
+                "Ejecución omitida por concurrencia: ya existe una ejecución activa "
+                "(run_id=%s) para el periodo %s",
+                active_run_id,
+                resolved_start.date(),
+            )
+            return {
+                "status": "already_running",
+                "run_id": active_run_id,
+                "month_start": resolved_start.isoformat(),
+                "message": f"Ya existe una ejecución activa ({active_run_id}) para este periodo",
+                "events_read": 0,
+                "events_valid": 0,
+                "events_rejected": 0,
+                "events_deduplicated": 0,
+                "rows_inserted": 0,
+                "rows_updated": 0,
+                "warning_count": 0,
+                "error_message": None,
+            }
+    except Exception as exc:
+        logger.warning("No se pudo verificar concurrencia (continuando): %s", exc)
 
     # El flow Prefect se ejecuta de forma síncrona aquí.
     # En producción, Prefect Server/Scheduler gestionaría esto.

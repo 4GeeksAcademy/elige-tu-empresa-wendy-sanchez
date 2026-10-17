@@ -60,6 +60,24 @@ class PipelineRunTriggerOut(BaseModel):
     month_end: str | None = None
 
 
+# ── Mapa de nombres reales de clínicas ───────────────────────────────
+# Basado en BRANCH_LABELS de uis/backoffice/lib/incidents.ts
+# y CLINIC_TO_BRANCH de packages/shared/python/incident_model.py
+# US clinics: 001-004, 009-010 | UK clinics: 005-008
+CLINIC_NAMES: dict[str, str] = {
+    "clinic-001": "Central — Austin Main Clinic",
+    "clinic-002": "Austin — North",
+    "clinic-003": "Houston Medical Center",
+    "clinic-004": "Miami Brickell",
+    "clinic-005": "London City",
+    "clinic-006": "London West End",
+    "clinic-007": "Manchester Central",
+    "clinic-008": "Cambridge — Royal",
+    "clinic-009": "Orlando East",
+    "clinic-010": "Atlanta Midtown",
+}
+
+
 class ClinicKpiOut(BaseModel):
     """KPI de una sola clinica para un mes determinado.
 
@@ -69,6 +87,7 @@ class ClinicKpiOut(BaseModel):
     """
 
     clinic_id: str
+    clinic_name: str = ""
     country: str
     total_supply_cost: float = 0.0
     supply_consumption_count: int = 0
@@ -210,8 +229,11 @@ async def get_monthly_kpis(
 
     clinics = []
     for r in rows:
+        clinic_id = r.get("clinic_id", "")
+        clinic_name = CLINIC_NAMES.get(clinic_id, "")
         clinics.append(ClinicKpiOut(
-            clinic_id=r.get("clinic_id", ""),
+            clinic_id=clinic_id,
+            clinic_name=clinic_name,
             country=r.get("country", ""),
             total_supply_cost=float(r.get("total_supply_cost", 0)),
             supply_consumption_count=int(r.get("supply_consumption_count", 0)),

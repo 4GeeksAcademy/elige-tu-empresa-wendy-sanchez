@@ -207,3 +207,56 @@
 - Seed usuarios telemetry: cd services/telemetry && python seed_auth_users.py
 - Analysis pipeline test: cd services/telemetry && python -c "from analysis import *; r=run_all(); print({k: len(v) for k,v in r.items()})"
 - Dashboard telemetry: http://localhost:3000/telemetry (backoffice, requiere login)
+- **Auth Standalone**: `cd services/api && python auth_standalone.py` (puerto 8000, login + /me)
+- **Reporting API**: `cd services/reporting && uvicorn main:app --host 0.0.0.0 --port 8001 --reload`
+- **Reporting Dashboard**: http://localhost:3001/reporting (backoffice, requiere login)
+- **Pipeline (Prefect)**: `cd data/pipelines && python -c "from runner import trigger_monthly_clinic_supply_performance; print(trigger_monthly_clinic_supply_performance())"`
+
+## Servicios de Reporting y Pipeline
+
+### Auth Standalone (`services/api/auth_standalone.py`)
+- **Propósito**: Servidor FastAPI ligero que provee únicamente `POST /auth/login` y `GET /auth/me` para el backoffice.
+- **Stack**: bcrypt + python-jose (JWT HS256, 24h expiración) + TinyDB (`data/process/suppliers_db.json`).
+- **CORS**: permitido para todos los orígenes (desarrollo).
+- **No depende de SQLModel ni Supabase**: evita el crash de `models.py` L315 en Python 3.14.
+- **Credenciales semilla**: `admin@healthcore.com` / `adminpass456` (admin), `test@healthcore.com` / `securepassword123` (user).
+- **Bug corregido**: `/auth/me` cambiado de query param a `Header(None)` para leer correctamente `Authorization: Bearer <token>`.
+
+### Reporting API (`services/reporting/`)
+- **Propósito**: API independiente (puerto 8001) que expone KPIs mensuales de suministros por clínica.
+- **Stack**: FastAPI + SQLAlchemy (text()) + Supabase PostgreSQL.
+- **Auth**: `OAuth2PasswordBearer` con misma `JWT_SECRET_KEY` que `services/api/`. Valida tokens sin acceder a base de datos de usuarios.
+- **Endpoints**:
+  - `GET /reporting/monthly-clinic-supply-performance` — lista KPIs del último periodo o por mes específico
+  - `GET /reporting/pipeline-runs/latest` — última ejecución del pipeline
+  - `POST /reporting/pipeline-runs` — disparo manual del pipeline
+- **Clinic Name Mapping**: `CLINIC_NAMES` dict en `routes/reporting.py` asigna nombres reales a IDs `clinic-001`..`clinic-010`.
+- **Tabla destino**: `reporting.monthly_clinic_supply_performance` en Supabase PostgreSQL.
+
+### Pipeline de Datos (`data/pipelines/`)
+- **Orquestador**: Prefect 3.8.8.
+- **Componentes**:
+  - `extract.py`: Extracción de datos fuente (telemetry_events + suppliers).
+  - `transform.py`: Transformación y agregación — Bug corregido: int clinic_id crasheaba `.strip()`.
+  - `load.py`: Carga en tabla destino reporting.
+  - `flows.py`: Flujos Prefect (`@flow`) — Bug corregido: `.submit()` no soportado en Prefect 3.x para `@flow` objects.
+  - `runner.py`: `trigger_monthly_clinic_supply_performance()` — entry point de ejecución.
+  - `run_store.py`: Persistencia de metadatos de ejecución en tabla `pipeline_runs`.
+  - `database.py`: Conexiones SQLAlchemy a base de datos destino (Supabase PostgreSQL).
+  - `models.py`: Modelos de datos del pipeline.
+  - `PIPELINE_DESIGN.md`: Documento de diseño (archivo ignorado por Copilot).
+- **Limitaciones conocidas**:
+  - Prefect 3.8.8: `@flow` objects no tienen `.submit()`. Llamar directamente.
+  - Supabase PgBouncer: prepared statement cache conflict. Usar raw SQL.
+  - Python 3.14 + SQLModel 0.0.48: `TypeError: issubclass()` — servicios standalone evitan el crash.
+
+### Demo Data (Reporting)
+- 10 filas insertadas directamente en `reporting.monthly_clinic_supply_performance` para Octubre 2026.
+- 5 clínicas US (USD) + 5 clínicas UK (GBP).
+- Coste total mensual: $13,251.25.
+
+### Dashboard Reporting (`uis/backoffice/app/reporting/page.tsx`)
+- Página protegida por AuthGuard en `/reporting`.
+- Tabla de KPIs y resumen visual.
+- Proxy en `next.config.ts`: `/api/reporting/:path*` → `http://localhost:8001/reporting/:path*`.
+- **Fix JWT**: Reemplazado `fetch(url)` por `request<T>(url)` (httpClient.ts) para incluir Bearer token.

@@ -48,6 +48,14 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Dashboard**: `uis/backoffice/app/telemetry/page.tsx` — 5 paneles visuales protegidos por AuthGuard. Selector de fechas. Proxy via rewrite en `next.config.ts`.
 - **Eventos de telemetría**: 41 eventos (5 obligatorios, 36 oportunidades) definidos en `docs/telemetry/event-schemas.json`.
 
+8. **Reporting Mensual — Supply Performance Pipeline + Dashboard (Oct 2026)**
+- **Auth Standalone (`services/api/auth_standalone.py`)**: Servidor FastAPI ligero (puerto 8000) para login JWT del backoffice. Evita SQLModel (crash Python 3.14). Usa bcrypt + TinyDB.
+- **Reporting API (`services/reporting/`)**: API FastAPI independiente (puerto 8001) con 3 endpoints JWT-protegidos para KPIs mensuales de suministros por clínica.
+- **Pipeline de datos (`data/pipelines/`)**: Orquestación Prefect 3.8.8 (extract → transform → load) para proceso ETL mensual de telemetry_events a tabla reporting.
+- **Dashboard Reporting**: Página protegida `/reporting` en backoffice con tabla de KPIs, nombres reales de clínica (mapeo `clinic-001` → "Central — Austin Main Clinic"), consumo, stockouts y riesgo caducidad.
+- **Demo Data**: 10 clínicas (5 US + 5 UK) con datos de Octubre 2026 insertados en Supabase PostgreSQL.
+- **Cadena E2E verificada**: Login → JWT → Reporting API → Dashboard con datos y nombres de clínica.
+
 ## Usuarios clave
 - Pacientes potenciales de HealthCore (especialmente mercado bilingue en EE. UU.).
 - Equipo de recepción y experiencia del paciente.

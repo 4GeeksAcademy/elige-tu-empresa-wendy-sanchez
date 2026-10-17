@@ -46,13 +46,15 @@ def get_monthly_clinic_supply_performance(
         params = {"month_start": month_start}
     else:
         stmt = sa_text("""
-            SELECT DISTINCT ON (month_start)
-                   clinic_id, country, month_start,
+            SELECT clinic_id, country, month_start,
                    total_supply_cost, supply_consumption_count,
                    critical_stockout_count, expiry_risk_count,
                    currency, computed_at
             FROM reporting.monthly_clinic_supply_performance
-            ORDER BY month_start DESC
+            WHERE month_start = (
+                SELECT MAX(month_start) FROM reporting.monthly_clinic_supply_performance
+            )
+            ORDER BY clinic_id
         """)
         params = {}
 

@@ -160,6 +160,53 @@ def update_pipeline_run(
     logger.info("Pipeline run %s actualizado: %s", run_id, status or "progreso")
 
 
+
+# ── Bloqueo de concurrencia ──────────────────────────
+
+
+def has_active_run_for_period(
+    target_engine,
+    month_start: datetime,
+) -> tuple[bool, str | None]:
+    """Verifica si ya existe una ejecucion activa para el mismo periodo.
+
+    Una ejecucion se considera activa si su estado es ``running`` y su
+    ``month_start`` coincide con el solicitado.
+
+    Args:
+        target_engine: Motor SQLAlchemy de escritura.
+        month_start: Inicio del periodo a verificar.
+
+    Returns:
+        (has_active, active_run_id) - ``has_active`` es ``True`` si existe
+        una ejecucion activa, y ``active_run_id`` es su UUID (o ``None``).
+    """
+    stmt = sa_text("""
+        SELECT run_id, status
+        FROM reporting.pipeline_runs
+        WHERE month_start = :month_start
+          AND status = 'running'
+        ORDER BY started_at DESC
+        LIMIT 1
+    """)
+    with target_engine.connect() as conn:
+        row = conn.execute(
+            stmt,
+            {"month_start": month_start.date() if isinstance(month_start, datetime) else month_start}
+        ).mappings().one_or_none()
+
+    if row is not None:
+        logger.warning(
+            "Concurrencia detectada: ya existe una ejecucion activa "
+            "(run_id=%s, month_start=%s) para el periodo solicitado",
+            row["run_id"],
+            month_start,
+        )
+        return True, str(row["run_id"])
+
+    return False, None
+
+
 # ── Consulta del último registro ──────────────────────────────────────
 
 
