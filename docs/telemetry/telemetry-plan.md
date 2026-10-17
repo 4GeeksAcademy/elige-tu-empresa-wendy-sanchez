@@ -622,7 +622,6 @@ Usuarios creados:
 
 | Email | Contraseña | Rol |
 |---|---|---|
-| `admin@healthcore.com` | `adminpass456` | admin |
 | `test@healthcore.com` | `securepassword123` | user |
 
 #### 2. Módulo de autenticación standalone

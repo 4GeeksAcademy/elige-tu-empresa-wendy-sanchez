@@ -59,6 +59,64 @@
 - Configuración de `NEXT_PUBLIC_TELEMETRY_ENDPOINT` pendiente en el archivo local bloqueado para edición. Avances documentados solo al final de `docs/telemetry/telemetry-plan.md`, después del plan original.
 - Diez pruebas focalizadas pasan; tipos focalizados sin errores. Typecheck global: 11 errores ajenos; aviso lint de AuthContext confirmado en HEAD. Dependencias locales reportan 28 vulnerabilidades, sin cambios de lockfiles.
 
+### Pipeline de Reporting Mensual — Supply Performance (2026-10-11/12)
+
+**Problema**: No existía un dashboard operativo que mostrara los KPI mensuales de desempeño de insumos por clínica (coste, consumo, stockouts, riesgo de caducidad). La API principal no arranca (SQLModel + Python 3.14), y el pipeline de datos (Prefect 3.8.8) tenía múltiples bugs de versión y lógica.
+
+**Arquitectura de solución — 3 servicios independientes**:
+
+1. **`services/api/auth_standalone.py`** (CREADO):
+   - Servidor FastAPI ligero en puerto 8000 que provee exclusivamente `POST /auth/login` y `GET /auth/me` para el backoffice.
+   - Usa bcrypt + python-jose + TinyDB (`data/process/suppliers_db.json`).
+   - **No depende de SQLModel ni de Supabase** — esto es crítico porque `models.py` (línea 315) crashea en Python 3.14 con `TypeError: issubclass() arg 1 must be a class`.
+   - Credenciales: `admin@healthcore.com` / `adminpass456` (admin), `test@healthcore.com` / `securepassword123` (user).
+   - Token JWT expira en 24h (TOKEN_EXPIRE_SECONDS=86400).
+   - Bug corregido: `/auth/me` cambiado de query param `authorization: str | None = None` a `authorization: str | None = Header(None)` para leer HTTP header correctamente.
+
+2. **`services/reporting/`** (CREADO — suite completa):
+   - API FastAPI independiente en puerto 8001 con 3 endpoints JWT-protegidos:
+     - `GET /reporting/monthly-clinic-supply-performance` — KPI mensuales (coste, consumo, stockouts, expiry)
+     - `GET /reporting/pipeline-runs/latest` — última ejecución del pipeline
+     - `POST /reporting/pipeline-runs` — disparo manual del pipeline
+   - **`auth.py`**: Usa `OAuth2PasswordBearer` con la misma `JWT_SECRET_KEY` que `services/api/`. Valida tokens sin necesidad de acceder a la base de datos de usuarios.
+   - **`queries.py`**: Función `get_monthly_clinic_supply_performance()` con consulta SQL sobre `reporting.monthly_clinic_supply_performance`. Bug DISTINCT ON corregido (ver más abajo).
+   - **`routes/reporting.py`**: Endpoints con modelos Pydantic (`ClinicKpiOut`, `MonthlyKpisResponse`, `PipelineRunOut`, `PipelineRunTriggerOut`).
+   - **Clinic name mapping**: Diccionario `CLINIC_NAMES` en rutas/reporting.py que asigna `clinic-001` → `"Central — Austin Main Clinic"` ... `clinic-010` → `"Atlanta Midtown"`. 5 clínicas US, 5 UK.
+
+3. **Pipeline de datos (`data/pipelines/`)**:
+   - Diseñado en `PIPELINE_DESIGN.md` (archivo ignorado por Copilot pero existente en disco).
+   - Usa **Prefect 3.8.8** como orquestador.
+   - Componentes: `extract.py` → `transform.py` → `load.py`, con `flows.py` (Prefect flows), `runner.py` (trigger), `run_store.py` (persistencia de ejecuciones), `database.py` (conexiones SQLAlchemy), `models.py` (modelos de datos).
+   - **Bug corregido en `transform.py`**: `clinic_id = (tags.get("clinic_id") or ...).strip()` crasheaba cuando `clinic_id` era `int` en vez de `str`. Convertido a str antes de .strip().
+   - **Bug corregido en `flows.py`**: `subflow_clinic_kpi_snapshot.submit(return_state=True)` no funciona en Prefect 3.x porque `@flow` objects no tienen método `.submit()` (solo `@task` lo tiene). Reemplazado con try/except y llamada directa.
+   - **Bug corregido en `queries.py`**: `SELECT DISTINCT ON (month_start)` en PostgreSQL devuelve exactamente 1 fila por mes, no todas las clínicas. Cambiado a `WHERE month_start = (SELECT MAX(month_start) FROM ...)`, devolviendo las 10 clínicas del último periodo.
+   - **PgBouncer workaround**: Supabase usa PgBouncer (pooler) que causa problemas de caché de prepared statements. Solución: usar raw SQL strings con valores inline en lugar de queries parametrizadas con named parameters.
+
+**Demo Data**:
+- Insertado directamente en `reporting.monthly_clinic_supply_performance` en Supabase PostgreSQL (10 filas para Octubre 2026).
+- Cada clínica con KPIs realistas: coste ($430 – $3,200), consumo (12–95 unidades), stockouts (0–5), riesgo caducidad (0–4).
+- Coste total mensual combinado: **$13,251.25**.
+- Divisas: USD para clínicas US (001-004, 009-010), GBP para UK (005-008).
+
+**Dashboard Backoffice — Fix JWT**:
+- `uis/backoffice/app/reporting/page.tsx` usaba `fetch(url)` sin cabecera Authorization, causando error "Credenciales inválidas o ausentes" del reporting API (OAuth2PasswordBearer).
+- **Solución**: Reemplazar `fetch(url)` por `request<T>(url)` de `lib/httpClient.ts` que auto-inyecta `Authorization: Bearer <token>` desde localStorage.
+- Afectó dos endpoints: `fetchKpis()` y `fetchLatestRun()`.
+- También se añadió `clinic_name?: string` a interfaces locales y tabla/cards actualizadas para mostrar `{clinic.clinic_name || clinic.clinic_id}`.
+
+**Dependencias de servicio (puertos)**:
+| Servicio | Puerto | Estado |
+|----------|--------|--------|
+| Auth Standalone (auth_standalone.py) | 8000 | ✅ JWT login + /me |
+| Reporting API (services/reporting/) | 8001 | ✅ KPI + pipeline endpoints |
+| Backoffice Next.js | 3001 | ✅ Dashboard reporting funcional |
+| Supabase PostgreSQL (pooler) | 6543 | ✅ Reporting table con 10 filas |
+
+**Errores conocidos**:
+- Python 3.14 + SQLModel 0.0.48 → `TypeError: issubclass()` — la API principal NO arranca. Solución: auth_standalone.py y reporting API como servicios independientes.
+- Prefect 3.8.8 no es compatible con `.submit()` en `@flow` objects. Solución alternativa con llamadas directas.
+- Supabase PgBouncer causa errores de prepared statement cache en queries repetidas con named parameters. Workaround: raw SQL.
+
 ### 1) Landing y formulario bilingüe
 - index.html e index.es.html: secciones corporativas de HealthCore con JSON-LD requerido.
 - application.html y application.es.html: formulario de consulta de pacientes.

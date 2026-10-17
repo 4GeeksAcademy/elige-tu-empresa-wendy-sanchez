@@ -189,6 +189,28 @@
 
 ---
 
+16. **Pipeline de Reporting Mensual — Supply Performance (completado — Oct 2026)**:
+- **Auth Standalone (`services/api/auth_standalone.py`)**: Servidor FastAPI ligero (puerto 8000) que provee `POST /auth/login` y `GET /auth/me` usando bcrypt + python-jose + TinyDB. No depende de SQLModel (evita crash Python 3.14). Token JWT 24h. Credenciales: `admin@healthcore.com` / `adminpass456`, `test@healthcore.com` / `securepassword123`.
+- **Reporting API (`services/reporting/`)**: API FastAPI independiente (puerto 8001) con 3 endpoints JWT-protegidos para KPI mensuales, consulta de última ejecución y disparo manual del pipeline.
+- **Pipeline de datos (`data/pipelines/`)**: Diseño Prefect 3.8.8 (extract → transform → load) con flows, runner y run_store.
+- **Dashboard Reporting**: Página `uis/backoffice/app/reporting/page.tsx` con tabla de KPIs, protegida por JWT, proxy en next.config.ts.
+- **Demo Data**: 10 filas insertadas en `reporting.monthly_clinic_supply_performance` (Oct 2026, 10 clínicas, $13,251.25 total).
+- **Clinic Name Mapping**: Diccionario `CLINIC_NAMES` en reporting.py mapea `clinic-001` → `"Central — Austin Main Clinic"`...`clinic-010` → `"Atlanta Midtown"`. Mostrado en frontend como `{clinic.clinic_name || clinic.clinic_id}`.
+- **Bugs corregidos en pipeline**:
+  1. `transform.py`: int clinic_id crasheaba `.strip()` — añadido `str()` antes de .strip().
+  2. `flows.py`: Prefect 3.x no soporta `.submit()` en `@flow` — cambiado a try/except direct call.
+  3. `queries.py`: `DISTINCT ON` devolvía 1 fila — cambiado a subquery `WHERE month_start = (SELECT MAX(...))`.
+  4. Supabase PgBouncer: prepared statement cache conflict — workaround con raw SQL.
+- **Fix JWT Frontend**: `page.tsx` reemplazó `fetch(url)` por `request<T>(url)` (httpClient.ts) para incluir Bearer token.
+
+17. **E2E Integration — Cadena completa verificada**:
+   - Login → POST `/auth/login` → JWT token ✅
+   - Token → GET `/auth/me` → perfil + rol ✅
+   - Token → GET `/reporting/monthly-clinic-supply-performance` → 10 clinics, $13,251.25 ✅
+   - Dashboard reporting → login → tabla con KPIs y nombres de clínica ✅
+   - 38/38 backend tests passing ✅
+   - 61/62 frontend tests passing (1 pre-existing telemetry timeout) ✅
+
 ## Riesgos o brechas potenciales
 - No hay pruebas automatizadas persistidas para la API de proveedores (la auditoría se ejecutó con scripts ad hoc).
 - Falta verificar formalmente métricas de rendimiento (PageSpeed) en URL pública.
@@ -200,6 +222,9 @@
 - **Dependencia de Supabase**: la API de inventario depende de una conexión externa a Supabase. Si la conexión falla, todo el módulo de inventario queda inoperativo.
 - **Variables de entorno**: authProxy.ts depende de SUPPLIERS_API_URL / INCIDENTS_API_URL que pueden no estar definidas (fallback a `http://backend:8000`).
 - **Caché en memoria**: Si la aplicación escala a múltiples workers, cada worker tendrá su propia caché en memoria sin compartir estado. Para multi-worker se debe migrar a Redis.
+- **Python 3.14 + SQLModel 0.0.48**: `TypeError: issubclass()` impide que la API principal arranque. Solución temporal: servicios standalone (auth_standalone.py, reporting API, telemetry server). No hay solución compatible con SQLModel en Python 3.14.
+- **Prefect 3.8.8**: `@flow` objects no tienen `.submit()`. Las flows deben llamarse directamente. Documentado en flows.py con try/except.
+- **Supabase PgBouncer**: Prepared statement cache conflict en queries repetidas. Usar raw SQL en lugar de named parameters donde sea necesario.
 
 ## Próximos pasos previstos
 1. Documentar el tracker con README especifico de dominio (setup, variables de entorno, endpoints, flujo funcional).
