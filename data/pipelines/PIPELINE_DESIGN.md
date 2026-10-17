@@ -19,11 +19,25 @@ eventos operativos y los persiste en PostgreSQL/Supabase, en la tabla
 `timestamp`, `event_type`, `schema_version`, `request_id` y `tags`
 (`JSONB`). El productor coloca en `tags` las propiedades del evento.
 
-El endpoint existente `GET /telemetry/report`, implementado mediante
-`services/telemetry/analysis.py`, responde preguntas de **observabilidad
-y calidad técnica de la telemetría**: por ejemplo, actividad de eventos
-y señales operativas que ya contemple ese análisis. No es el reporte
-financiero-operativo mensual que necesita la junta.
+El endpoint `GET /telemetry/report`, implementado en
+`services/telemetry/server_standalone.py` mediante el módulo
+`services/telemetry/analysis.py`, responde actualmente **cinco métricas
+concretas de observabilidad técnica** orquestadas por `run_all()`:
+
+| # | Métrica | Función en `analysis.py` | Qué responde |
+|---|---|---|---|
+| 1 | Volumen de eventos por día | `events_per_day()` | ¿Cuántos eventos genera el sistema cada día calendario? |
+| 2 | Tasa de error por tipo de evento | `error_rate_by_type()` | ¿Qué tipos de evento concentran los fallos del sistema? |
+| 3 | Percentiles de latencia por ruta | `latency_percentiles_by_route()` | ¿Qué rutas son las más lentas? (P50, P95, P99) |
+| 4 | Distribución de tipos de evento | `event_type_distribution()` | ¿Qué tipos de evento dominan el tráfico del sistema? |
+| 5 | Tasa de fallo de login por día | `auth_failure_rate_by_day()` | ¿Qué días concentran más fallos de autenticación? |
+
+Estas cinco métricas son de **observabilidad técnica** — responden preguntas
+de ingeniería sobre el comportamiento del sistema de telemetría (volumen,
+errores, latencia). El reporte se sirve con una caché en memoria de 60 segundos
+a través de `server_standalone.py` y acepta ventanas de fechas arbitrarias vía
+query params `start_date` / `end_date`. Ninguna de estas métricas consolida
+los KPI financiero-operativos que necesita la junta directiva.
 
 ### Brecha de negocio
 
@@ -367,12 +381,20 @@ Tasks alineadas con las etapas ETL:
 7.  `finalize_run_log` --- guarda contadores, advertencias y estado
     final.
 
-Se registrarán los estados de ejecución equivalentes a `Scheduled`,
-`Pending`, `Running`, `Completed` y `Failed`, conforme a la versión
-instalada de Prefect. Un error de task debe propagarse al flow y quedar
-reflejado en el registro persistente. Las credenciales se gestionan
-mediante secretos/bloques de Prefect o variables de entorno protegidas;
-nunca se guardan en el repositorio ni en logs.
+Se utilizarán los siguientes estados de ejecución de Prefect, que se
+reflejan en el campo `status` de `reporting.pipeline_runs`:
+
+| Estado Prefect | Cuándo se aplica | Se refleja en `pipeline_runs.status` como |
+|---|---|---|
+| `Scheduled` | El flow está en cola, esperando ejecutarse (programación mensual o trigger manual) | `running` (aún no empezó a procesar) |
+| `Pending` | Las dependencias del flow están resolviéndose | `running` |
+| `Running` | Una o más tasks están en ejecución activa | `running` |
+| `Completed` | Todas las tasks finalizaron sin error | `completed` |
+| `Failed` | Una task lanzó una excepción no recuperable | `failed` |
+
+Un error de task debe propagarse al flow y quedar reflejado en el registro
+persistente. Las credenciales se gestionan mediante secretos/bloques de Prefect
+o variables de entorno protegidas; nunca se guardan en el repositorio ni en logs.
 
 ## 9. Registro de ejecución y auditoría
 
