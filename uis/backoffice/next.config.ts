@@ -10,6 +10,11 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
+      // Proxy /api/reporting/* → Reporting API (puerto 8001)
+      {
+        source: "/api/reporting/:path*",
+        destination: `${process.env.REPORTING_API_URL ?? "http://localhost:8001"}/reporting/:path*`,
+      },
       // Proxy /api/telemetry/report → HealthCore API (Python backend)
       {
         source: "/api/telemetry/report",

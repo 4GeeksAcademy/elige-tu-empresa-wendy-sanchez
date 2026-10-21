@@ -175,6 +175,43 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - No hay route handler intermedio — al usar rewrite directo, se eliminó el route handler bugado anterior que usaba `base.protocol` (propiedad JS URL inválida).
 - **Auth**: login via `POST /api/auth/login` → rewrite → `localhost:8000/auth/login` → JWT. `GET /api/auth/me` → rewrite → `localhost:8000/auth/me`.
 
+### 34) Patrón de servicios standalone para evitar SQLModel crash
+- **Problema**: Python 3.14 + SQLModel 0.0.48 causa `TypeError: issubclass() arg 1 must be a class` al cargar `MedicalSupply(SQLModel, table=True)` en `models.py:315`.
+- **Solución**: Crear servidores FastAPI independientes que no importan `models.py`:
+  - `services/telemetry/server_standalone.py` — telemetría + auth (puerto 8000)
+  - `services/api/auth_standalone.py` — auth-only (puerto 8000, coexiste)
+  - `services/reporting/main.py` — reporting API (puerto 8001)
+- Cada servicio standalone replica solo las funciones necesarias (bcrypt, JWT, consultas TinyDB/SQLAlchemy) sin tocar SQLModel.
+- **Regla**: Si un nuevo endpoint no necesita modelos SQLModel, debe implementarse como servicio standalone, no en `main.py`.
+
+### 35) Patrón de Reporting — API independiente con JWT compartido
+- `services/reporting/` es una API FastAPI completamente independiente (puerto 8001) que comparte la misma `JWT_SECRET_KEY` con el API principal.
+- `auth.py` usa `OAuth2PasswordBearer(tokenUrl="/auth/login")` para extraer y validar tokens sin acceder a base de datos de usuarios.
+- No replica usuarios, perfiles ni roles — solo verifica que el token es válido (firma + expiración).
+- Los endpoints de reporting se protegen con `_user_id: int = Depends(get_current_user_id)`.
+
+### 36) Patrón de Clinic Name Mapping
+- Los IDs internos de clínica (`clinic-001`, ..., `clinic-010`) se mapean a nombres reales mediante un diccionario plano en el backend.
+- `CLINIC_NAMES` en `services/reporting/routes/reporting.py` asigna cada ID a un nombre descriptivo.
+- El frontend muestra `{clinic.clinic_name || clinic.clinic_id}` como fallback.
+- El mapeo se centraliza en el backend para evitar duplicación entre frontends.
+- Fuentes del mapeo: `BRANCH_LABELS` en `uis/backoffice/lib/incidents.ts` + `CLINIC_TO_BRANCH` en `packages/shared/python/incident_model.py`.
+
+### 37) Patrón de pipeline de datos con Prefect 3.x
+- **`data/pipelines/`** implementa un pipeline ETL con Prefect 3.8.8.
+- **Fases**: extract → transform → load, cada una en su propio módulo.
+- **Restricción Prefect 3.x**: `@flow` objects NO tienen método `.submit()`. Las flows deben ejecutarse mediante llamada directa o dentro de un `@task`.
+- **Workaround**: Usar try/except para llamar directamente al subflow, capturando cualquier error de flujo.
+- **Runner**: `trigger_monthly_clinic_supply_performance()` en `runner.py` orquesta todo el pipeline.
+- **Run Store**: `run_store.py` persiste metadatos de cada ejecución en tabla `pipeline_runs`.
+- **Demo Data**: Cuando el pipeline no puede ejecutarse (Prefect incompatibilidad, PgBouncer), se insertan datos demo directamente en la tabla destino para verificar la cadena E2E.
+
+### 38) Patrón de Supabase PgBouncer workaround
+- Supabase usa PgBouncer (pooler) en modo transaccional, lo que causa conflictos de prepared statement cache en queries repetidas con named parameters estilo SQLAlchemy.
+- **Solución**: Usar `sqlalchemy.text()` con raw SQL en lugar de `text("... :param")` con named parameters.
+- Alternativamente, configurar `connect_args={"options": "-c prepared_statement_cache_size=0"}` al crear el engine.
+- Este workaround es necesario solo para tablas en Supabase PostgreSQL vía pooler.
+
 ### 26) Patrón de caché — Cache-Aside (backend)
 - **Estrategia cache-aside**: el código pregunta primero a la caché (`cache.get(key)`); si existe el valor, lo devuelve sin tocar la base de datos. Si no existe, ejecuta la operación (consulta DB, cálculo), almacena el resultado en caché con `cache.set(key, value, ttl)`, y lo devuelve.
 - **Clave única por combinación de parámetros**: en endpoints con filtros (GET /incidents), la clave incluye todos los parámetros de consulta serializados para que cada combinación de filtros tenga su propia entrada en caché.
