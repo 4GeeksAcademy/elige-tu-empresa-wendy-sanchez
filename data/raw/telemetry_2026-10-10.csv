@@ -1,0 +1,13 @@
+timestamp,event_type,tags
+2026-10-10T06:36:41.563307+00:00,api_request_failed,"{""method"": ""POST"", ""service"": ""healthcore_api"", ""error_code"": ""validation_error"", ""error_class"": ""validation"", ""status_code"": 422, ""route_template"": ""/inventory/orders/outbound""}"
+2026-10-10T08:36:41.563307+00:00,api_request_failed,"{""method"": ""POST"", ""service"": ""healthcore_api"", ""error_code"": ""internal_error"", ""error_class"": ""internal"", ""status_code"": 500, ""route_template"": ""/inventory/orders/outbound""}"
+2026-10-10T12:00:00+00:00,api_latency_recorded,"{""method"": ""GET"", ""service"": ""backoffice"", ""duration_ms"": 345, ""status_code"": 200, ""cache_result"": ""miss"", ""route_template"": ""/inventory/products""}"
+2026-10-10T12:00:00+00:00,auth_logout_completed,"{""application"": ""backoffice"", ""logout_reason"": ""user_action""}"
+2026-10-10T12:00:00+00:00,service_health_check_failed,"{""service"": ""backoffice"", ""check_name"": ""synthetic_route"", ""duration_ms"": 150, ""failure_code"": ""unexpected_status"", ""consecutive_failures"": 3}"
+2026-10-10T12:00:00+00:00,inbound_order_created,"{""cost"": 250.0, ""country"": ""US"", ""currency"": ""USD"", ""quantity"": 100, ""clinic_id"": 1, ""product_id"": 5, ""vendor_ref"": ""aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"", ""product_category"": ""ppe""}"
+2026-10-10T12:05:00+00:00,service_health_check_failed,"{""service"": ""backoffice"", ""check_name"": ""synthetic_route"", ""duration_ms"": 150, ""failure_code"": ""unexpected_status"", ""consecutive_failures"": 3}"
+2026-10-10T12:36:41.563307+00:00,backoffice_page_viewed,"{""country"": ""US"", ""section"": ""suppliers"", ""role_group"": ""staff"", ""application"": ""backoffice"", ""route_template"": ""/suppliers""}"
+2026-10-10T14:36:41.563307+00:00,api_latency_recorded,"{""method"": ""POST"", ""service"": ""healthcore_api"", ""duration_ms"": 45, ""status_code"": 401, ""cache_result"": ""not_applicable"", ""route_template"": ""/auth/login""}"
+2026-10-10T17:36:41.563307+00:00,api_latency_recorded,"{""method"": ""GET"", ""service"": ""healthcore_api"", ""duration_ms"": 850, ""status_code"": 200, ""cache_result"": ""miss"", ""route_template"": ""/inventory/orders/inbound""}"
+2026-10-10T20:36:41.563307+00:00,api_latency_recorded,"{""method"": ""GET"", ""service"": ""healthcore_api"", ""duration_ms"": 120, ""status_code"": 200, ""cache_result"": ""hit"", ""route_template"": ""/inventory/products""}"
+2026-10-10T20:36:41.563307+00:00,auth_login_succeeded,"{""country"": ""US"", ""role_group"": ""staff"", ""application"": ""backoffice"", ""auth_method"": ""password""}"

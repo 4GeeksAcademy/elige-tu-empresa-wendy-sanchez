@@ -11,6 +11,7 @@
 - **Archivos nuevos**: `services/job_runner.py` (control de estado + log_result), `services/nightly/{__init__,nightly_service}.py`, `scripts/nightly_export.py`, `data/migrations/0002_job_runs.sql`, `data/migrations/README.md`, `tests/nightly/*`, `background-processes.md`.
 - **Tests**: **30/30** pasan vía `.venv-nightly/bin/python -m pytest tests/nightly -q` (incl. caplog de logs INFO/ERROR). Entorno de tests: `.venv-nightly/` (NO commitear, añadido a .gitignore).
 - **Auditoría del proceso**: **10/10 criterios ✅** con evidencia estática + demostración en vivo (`scripts/_audit_hito7_demo.py` lanza DOS instancias CLI reales en carrera contra una BD SQLite compartida). La demo es reproducible (limpia su BD y el CSV residual de `data/raw/`, `exit=0`). Hallazgos y soluciones del desarrollo registrados en `background-processes.md` §11 (reintento tras fallo con `reset_failed_to_pending`, módulo en `services/job_runner.py`, logger estable `healthcore.nightly` + `log_result`, pipeline real `python -m data.pipelines.runner`).
+- **Humo completo Supabase (2026-10-22)**: corrida real con `--skip-pipeline --target-date 2026-10-10` → `completed`, 12 filas en `data/raw/telemetry_2026-10-10.csv`, fila en `job_runs` (`exported_rows=12`); 2ª corrida → `noop_export`. Se validó por primera vez la rama Postgres contra Postgres real. Hallazgo menor: `schema_migrations` count 0 en Postgres (ver `background-processes.md` §11.6).
 - Branch `2do-plano` activo. **NO commitear** (usuario sigue iterando).
 
 ## Entregables activos en el repositorio

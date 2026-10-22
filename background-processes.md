@@ -458,4 +458,22 @@ sigue en verde (**30/30**, `.venv-nightly/bin/python -m pytest tests/nightly -q`
   FastAPI, máquina de estados con `target_date`, lock = `processing`, idempotencia
   por `(job_name, target_date)`, fallo → `failed` sin zombis, export CSV con
   nombre y contenido, `job_runs` ≠ `pipeline_runs`, logs con timestamp+job+estado,
+
+### 11.6. Humo en vivo contra Supabase (ramas Postgres y SQLite)
+
+- **Hallazgo:** toda la suite y la demo de auditoría verifican la **rama SQLite**
+  (dev/tests). La rama **Postgres** (`BIGSERIAL`, `now()`, `UNIQUE`, `CHECK
+  status`) nunca se había ejecutado contra un Postgres real.
+- **Solución/verificación (2026-10-22):** corrida real contra Supabase
+  (`--skip-pipeline --target-date 2026-10-10`): OUTCOME `completed`, 12 filas
+  exportadas a `data/raw/telemetry_2026-10-10.csv`, fila en `job_runs` con
+  `status=completed` y `exported_rows=12`. Segunda corrida → `noop_export`
+  (idempotencia sobre Postgres real). La rama Postgres funciona.
+- **Hallazgo derivado (menor):** `schema_migrations` quedó con **count 0** en
+  Postgres: `_ensure_schema_postgres` crea las tablas con DDL hardcodeado pero,
+  a diferencia de `_ensure_schema_sqlite`, **no inserta la versión** en
+  `schema_migrations`. Como `CREATE TABLE IF NOT EXISTS` es idempotente, el
+  comportamiento es correcto, pero la tabla de versiones queda vacía y no hay
+  trazabilidad de qué se aplicó. Pendiente de decidir si se documenta
+  explícitamente o se alinea el registro de versiones entre ambas ramas.
   disparo externo (cron/contenedor) y override de `TARGET_DATE`.
