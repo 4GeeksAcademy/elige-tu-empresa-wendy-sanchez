@@ -1,4 +1,4 @@
-"""Servicio de orquestación nocturna (Hito 7).
+"""Servicio de orquestación nocturna (proceso de segundo plano).
 
 Lógica de estado y control de ejecuciones del script nocturno de exportación
 de telemetría. Independiente de la API FastAPI: corre como proceso aparte en

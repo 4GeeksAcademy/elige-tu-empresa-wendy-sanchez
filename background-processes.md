@@ -1,4 +1,4 @@
-# Procesos en segundo plano — Job nocturno de telemetría (Hito 7)
+# Procesos en segundo plano — Job nocturno de telemetría
 
 > Documento de decisión: por qué un script independiente + crontab + máquina de
 > estados en BD, en vez de un scheduler dentro de la API.
@@ -67,7 +67,7 @@ misma línea se simplifica a:
    se apunta a `.venv-nightly`; en producción a `.venv` del proyecto:
 
    ```cron
-   # HealthCore — job nocturno de telemetría (Hito 7)
+   # HealthCore — job nocturno de telemetría (proceso de segundo plano)
    0 2 * * *  cd /opt/healthcore && /opt/healthcore/.venv/bin/python scripts/nightly_export.py >> /var/log/healthcore/nightly_export.log 2>&1
    ```
 
@@ -108,7 +108,7 @@ proceso principal (equivalente a cron, pero empaquetado):
   se solapa en el arranque con una corrida previa aún en `processing`, aborta
   silenciosamente.
 
-### 2.3. Qué está PROHIBIDO (requisito explícito del Hito 7)
+### 2.3. Qué está PROHIBIDO (requisito explícito del proceso de segundo plano)
 
 - **NUNCA** ejecutar el job nocturno dentro del proceso FastAPI:
   - No **APScheduler**, no `@repeat_every`, no hooks de **lifespan** en el
@@ -169,7 +169,7 @@ proceso principal (equivalente a cron, pero empaquetado):
 
 ### 3.1. Capas y por qué `job_runs` ≠ `pipeline_runs`
 
-- **`job_runs`** → capa de **ORQUESTACIÓN NOCTURNA** (Hito 7). Un registro por
+- **`job_runs`** → capa de **ORQUESTACIÓN NOCTURNA** (proceso de segundo plano). Un registro por
   `(job_name, target_date)`. Guarda estado, timestamps, error y metadatos de la
   exportación (filas, ruta del CSV).
 - **`reporting.pipeline_runs`** → capa del **pipeline ETL** (Hito 6). Un registro
@@ -220,7 +220,7 @@ pending ──► processing ──► completed
 ```
 
 - **El lock ES el estado `processing`** mismo — no hay tabla, columna ni flag de
-  bloqueo adicional (requisito explícito del Hito 7). El helper
+  bloqueo adicional (requisito explícito del proceso de segundo plano). El helper
   `has_processing_lock(job_name, target_date)` permite consultar si el lock está
   tomado (abortar silenciosamente); la TOMA es `mark_processing(...)` (UPDATE
   atómico).
@@ -314,7 +314,7 @@ Implementación:
 
 ## 8. Pipeline invocado (Hito 6) — ajuste del subprocess
 
-Referencia original del Hito 7: `python -m data.pipelines.telemetry_kpi_daily.run
+Referencia original del proceso de segundo plano: `python -m data.pipelines.telemetry_kpi_daily.run
 --no-prefect`. **Ese módulo no existe** en el repo; el pipeline real del Hito 6
 vive en `data/pipelines/runner.py` (pipeline mensual de desempeño de insumos por
 clínica) cuyo entrypoint es:
@@ -351,7 +351,7 @@ psql "$DATABASE_URL" -f data/migrations/0002_job_runs.sql
 
 ## 10. Supervisión
 
-### 10.1. Log de ejecución (Hito 7 §6 — observabilidad)
+### 10.1. Log de ejecución (observabilidad)
 
 El script escribe sus líneas por un **logger estable** (`healthcore.nightly`) que
 cualquier proceso puede capturar (cron redirige a archivo; el contenedor
@@ -390,3 +390,72 @@ SELECT job_name, target_date, status, started_at, finished_at, error_message
 
 - **Alertas** sugeridas: cualquier fila con `status='failed'` o lasting > 24 h en
   `processing` (este último no debería ocurrir gracias a la máquina de estados).
+
+---
+
+## 11. Hallazgos y soluciones (auditoría del proceso de segundo plano)
+
+Registro de los problemas detectados durante el desarrollo y la auditoría
+(30 pruebas automáticas + demostración en vivo con **dos instancias CLI reales**
+ejecutándose a la vez), y la solución aplicada en cada caso. La suite completa
+sigue en verde (**30/30**, `.venv-nightly/bin/python -m pytest tests/nightly -q`).
+
+### 11.1. Reintento tras fallo: la fila `failed` no podía volver a tomar el lock
+
+- **Hallazgo:** `mark_processing` solo permite la transición `pending→processing`
+  (por diseño del lock). Tras un fallo (`processing→failed`), el reintento del
+  mismo día no encontraba una fila en `pending` y no podía volver a tomar el
+  lock: el día quedaba atascado en `failed`.
+- **Solución:** transición atómica `reset_failed_to_pending` que mueve la fila
+  `failed → pending`, **solo** desde `failed` (nunca desde `processing`, para no
+  robar un lock vivo). El reintento vuelve a pasar por `mark_processing` con
+  normalidad.
+- **Evidencia:** el demo fuerza un fallo (C5) y deja la fila en `failed` con
+  `error_message`; la única fila en `processing` tras el fallo es la que el
+  propio demo retiene deliberadamente (C3b), confirmando que **no hay estados
+  zombi**.
+
+### 11.2. Módulo de control de estado en el lugar exigido por la especificación
+
+- **Hallazgo:** el control de estado se implementó inicialmente en
+  `services/nightly/job_store.py`; la especificación del proceso de segundo plano exige que el
+  módulo viva en `services/job_runner.py`.
+- **Solución:** se movió el módulo a `services/job_runner.py` y se actualizaron
+  los imports de `nightly_service.py`, `scripts/nightly_export.py`, los tests y
+  la documentación; el módulo antiguo se eliminó.
+
+### 11.3. Formato de log estable y punto único de emisión
+
+- **Hallazgo:** la primera versión emitía los logs con un logger de módulo
+  (heredaba el nivel WARNING por defecto, haciendo fallar los tests `caplog`) y
+  el bloque `except` usaba un `logger.exception` crudo que duplicaba formato y
+  violaba la especificación de observabilidad (§6).
+- **Solución:** se creó el logger estable `healthcore.nightly` (`_JOB_LOGGER`) y
+  todo pasa por el helper `log_result()` con formato normalizado
+  (`event=... job=... status=... outcome=... target_date=... ts=...`). El manejo
+  de errores usa `log_result(..., exc_info=True)` en lugar de
+  `logger.exception`, garantizando una sola fuente de verdad (ver §10.1).
+
+### 11.4. Pipeline real invocado (Hito 6)
+
+- **Hallazgo:** la referencia original
+  `python -m data.pipelines.telemetry_kpi_daily.run` **no existe** en el repo; el
+  pipeline real del Hito 6 es `python -m data.pipelines.runner`.
+- **Solución:** `_DEFAULT_PIPELINE_CMD = "python -m data.pipelines.runner"` (ver
+  §8).
+
+### 11.5. Concurrencia real verificada en vivo
+
+- **Hallazgo a validar:** el lock atómico de BD (`processing`) debe garantizar
+  que dos instancias simultáneas del CLI no dupliquen el trabajo.
+- **Solución/verificación:** `scripts/_audit_hito7_demo.py` lanza **dos procesos
+  CLI reales** a la vez contra una BD SQLite compartida. Resultado observado: una
+  instancia obtiene `outcome=completed` y la otra `aborted` (si ve la fila en
+  `processing`) o `noop_export` (si ya la ve `completed`) — en ambos casos
+  **exactamente una** instancia hace el trabajo.
+- El demo es **reproducible** (limpia su BD y el CSV residual de `data/raw/`,
+  `exit=0`) y cubre los **10 criterios de aceptación**: independencia de
+  FastAPI, máquina de estados con `target_date`, lock = `processing`, idempotencia
+  por `(job_name, target_date)`, fallo → `failed` sin zombis, export CSV con
+  nombre y contenido, `job_runs` ≠ `pipeline_runs`, logs con timestamp+job+estado,
+  disparo externo (cron/contenedor) y override de `TARGET_DATE`.

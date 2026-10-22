@@ -173,6 +173,24 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - Cada panel llama a `fetch('/api/telemetry/report')` con `date_from`/`date_to` como query params opcionales.
 - El proxy en `next.config.ts` (`/api/telemetry/report` → `http://localhost:8000/telemetry/report`) resuelve la llamada en servidor.
 - No hay route handler intermedio — al usar rewrite directo, se eliminó el route handler bugado anterior que usaba `base.protocol` (propiedad JS URL inválida).
+
+## Patrones del proceso de segundo plano (script nocturno de telemetría)
+
+### 34) Patrón: proceso 100% independiente de la API
+- El job nocturno es un **proceso externo** (cron del SO o contenedor scheduler dedicado) que **no importa** FastAPI/uvicorn/starlette/APScheduler.
+- Disparo por crontab `0 2 * * *` UTC o contenedor Docker dedicado; NUNCA vía lifespan/APScheduler/@repeat_every en la API (requisito explícito del proceso de segundo plano).
+- El CLI `scripts/nightly_export.py` es el único entrypoint: imprime JSON + exit code (0 = ok, 1 = falló) para vigilancia desde cron.
+
+### 35) Patrón: máquina de estados en BD como distributed lock
+- La tabla `job_runs` (job_name, target_date, status) es el control de estado e idempotencia.
+- **El lock ES el estado `processing`**: la toma es un UPDATE atómico `pending → processing` con `WHERE status='pending'` (rowcount==1 ⇒ ganó). No hay tabla/flag de bloqueo separado.
+- 2.ª instancia: ve `processing` ⇒ aborta en silencio (exit 0, outcome `aborted`); ve `completed` ⇒ noop (outcome `noop_export`) — idempotencia por `(job_name, target_date)`.
+- Fallo ⇒ `failed` con `error_message` (nunca queda `processing` zombi). Reintento vía `reset_failed_to_pending` (transición atómica solo desde `failed`, nunca desde `processing`).
+
+### 36) Patrón: observabilidad con logger estable + helper log_result
+- Logger dedicado `healthcore.nightly` + helper `log_result()` centralizado en `services/job_runner.py`.
+- Formato normalizado por línea: `event=... job=nightly_export status=... outcome=... target_date=... ts=...`.
+- INFO para inicio/fin/omisión por duplicado/abort; ERROR con `exc_info=True` para fallos. Sin `logger.exception` crudo (una sola fuente de verdad).
 - **Auth**: login via `POST /api/auth/login` → rewrite → `localhost:8000/auth/login` → JWT. `GET /api/auth/me` → rewrite → `localhost:8000/auth/me`.
 
 ### 34) Patrón de servicios standalone para evitar SQLModel crash

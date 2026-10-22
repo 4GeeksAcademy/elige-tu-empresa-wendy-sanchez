@@ -1,4 +1,4 @@
-"""Tests de la orquestación completa del job nocturno (Hito 7).
+"""Tests de la orquestación completa del job nocturno.
 
 Cubre ``services/nightly/nightly_service.py``:
 
@@ -232,7 +232,7 @@ def test_run_nightly_retries_after_failure(job_engine, tmp_path, monkeypatch):
 
 
 # ======================================================================
-# Observabilidad (Hito 7 §6) — logs INFO/ERROR con job + estado
+# Observabilidad — logs INFO/ERROR con job + estado
 # ======================================================================
 
 

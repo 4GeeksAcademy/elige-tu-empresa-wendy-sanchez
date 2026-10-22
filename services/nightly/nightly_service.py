@@ -15,7 +15,7 @@ Este módulo implementa EXACTAMENTE la máquina de estados del script nocturno:
     6(alt). ``mark_failed(exc)`` — ante CUALQUIER excepción. Nunca se queda en
         ``processing`` (sin registros zombi).
 
-Observabilidad (Hito 7 §6): los eventos normales —inicio, fin y omisión por
+Observabilidad: los eventos normales —inicio, fin y omisión por
 duplicado— se registran a nivel INFO; las excepciones a nivel ERROR. Cada
 línea de log incluye timestamp, nombre del job (``job=nightly_export``) y
 estado resultante (``status=...``) gracias al helper ``log_result`` de
@@ -54,7 +54,7 @@ from services.job_runner import (
 
 logger = logging.getLogger(__name__)
 
-# ── Constantes de convención (según CONTEXT del Hito 7) ────────────────
+# ── Constantes de convención (proceso de segundo plano) ─────────────────
 
 # "Ayer" = día calendario anterior en UTC.
 TARGET_DATE = "TARGET_DATE"          # sobrescribe la fecha objetivo para pruebas

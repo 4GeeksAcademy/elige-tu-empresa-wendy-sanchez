@@ -1,8 +1,8 @@
 """Control de estado de ``job_runs`` — máquina de estados y lock del job nocturno.
 
 Módulo de ``services/`` que implementa la CAPA DE CONTROL DE ESTADO del script
-nocturno de telemetría (Hito 7): crear, actualizar y consultar filas de
-``job_runs``.
+nocturno de telemetría (proceso de segundo plano): crear, actualizar y consultar
+filas de ``job_runs``.
 
 Concepto arquitectónico: **en procesamiento en segundo plano, un dato no existe
 solo como dato — existe como un estado.**
@@ -36,11 +36,9 @@ Helper de consultas para idempotencia/lock:
 - ``has_completed_for_date(job_name, target_date)`` — True si el día ya terminó
   bien (idempotencia: no re-exportar).
 
-Observabilidad (Hito 7 §6): ``log_result(**kwargs)`` emite una línea de log
-NORMALIZADA con timestamp (``ts``), nombre del job (``job``) y estado
-resultante (``status``). Eventos normales a INFO; excepciones a ERROR. Sin
-``log_result`` no hay una forma fiable de cumplir "cada línea lleva timestamp,
-job y estado" — cada llamada la construiría a mano.
+Observabilidad (proceso de segundo plano): ``log_result(**kwargs)`` emite una
+línea de log NORMALIZADA con timestamp (``ts``), nombre del job (``job``) y
+estado resultante (``status``). Eventos normales a INFO; excepciones a ERROR.
 
 Capas: la tabla ``job_runs`` es la capa de ORQUESTACIÓN NOCTURNA. NO es un
 duplicado de ``reporting.pipeline_runs`` (ETL interno del Hito 6) — capas
@@ -71,7 +69,7 @@ logger = logging.getLogger(__name__)
 # dependan de la clase/estructura interna de servicios/.
 _JOB_LOGGER = logging.getLogger("healthcore.nightly")
 
-# Formato normalizado del log de una ejecución (observabilidad, Hito 7 §6).
+# Formato normalizado del log de una ejecución (observabilidad).
 # Cada línea lleva: timestamp ISO, nombre del job y estado resultante.
 _LOG_FORMAT = (
     "event=%(event)s job=%(job)s status=%(status)s "
@@ -92,7 +90,7 @@ def log_result(
 ) -> None:
     """Emite una línea de log NORMALIZADA para el job nocturno.
 
-    Requisito de observabilidad (Hito 7 §6): cada línea de log incluye
+    Requisito de observabilidad: cada línea de log incluye
     timestamp (``ts``), nombre del job (``job``) y estado resultante
     (``status``). Los eventos normales (inicio, fin, omisión por duplicado)
     van a INFO; las excepciones a ERROR (``level=logging.ERROR`` + ``exc_info``

@@ -1,4 +1,4 @@
-"""Tests de la máquina de estados de job_runs (servicio job_runner, Hito 7).
+"""Tests de la máquina de estados de job_runs (servicio job_runner).
 
 Cubre la lógica de estados en ``services/job_runner.py`` sobre SQLite
 en memoria:
