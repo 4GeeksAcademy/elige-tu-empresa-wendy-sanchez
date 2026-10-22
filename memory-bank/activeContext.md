@@ -1,5 +1,17 @@
 # Active Context
 
+## Hito 7 — Job nocturno de telemetría (2026-10-22)
+- **Entregable**: script nocturno independiente de la API que exporta telemetría del día anterior a CSV, lanza el pipeline (Hito 6) como subprocess, y deja constancia en BD (`job_runs`).
+- **Nueva tabla**: `job_runs` (id, job_name, target_date, status, started_at, finished_at, error_message, created_at, exported_rows, csv_path) con UNIQUE(job_name,target_date) e índice idéntico. DDL en `data/migrations/0002_job_runs.sql`. NO se fusiona con `reporting.pipeline_runs` (capa de ETL Hito 6, lock propio por periodo).
+- **Máquina de estados**: `pending → processing → completed | failed`, con reintento `failed → pending`. El lock ES el estado `processing` (UPDATE atómico `WHERE status='pending'`); no hay tabla/flag de bloqueo aparte. Nunca quedan registros en `processing` (sin zombis).
+- **Trigger**: **crontab** `0 2 * * *` (02:00 UTC) o **contenedor scheduler dedicado** (recomendado en prod); documentado en `background-processes.md` (§2, 2.1–2.3). Prohibido dentro de FastAPI (no APScheduler/@repeat_every/lifespan).
+- **"Ayer"** = `now(UTC).date() - timedelta(days=1)`; override con `TARGET_DATE=YYYY-MM-DD` o `--target-date` (var opcional para pruebas).
+- **Pipeline real invocado**: `python -m data.pipelines.runner` (el `telemetry_kpi_daily` de la referencia NO existe). Ajustado en `nightly_service._DEFAULT_PIPELINE_CMD`.
+- **Observabilidad (§6)**: logger estable `healthcore.nightly`; INFO (started/finished/skip_duplicate/aborted) y ERROR (failed con traceback). Cada línea: timestamp + `job=nightly_export` + `status=`. Helper central `log_result()` en `services/job_runner.py`.
+- **Archivos nuevos**: `services/job_runner.py` (control de estado + log_result), `services/nightly/{__init__,nightly_service}.py`, `scripts/nightly_export.py`, `data/migrations/0002_job_runs.sql`, `data/migrations/README.md`, `tests/nightly/*`, `background-processes.md`.
+- **Tests**: **30/30** pasan vía `.venv-nightly/bin/python -m pytest tests/nightly -q` (incl. caplog de logs INFO/ERROR). Entorno de tests: `.venv-nightly/` (NO commitear, añadido a .gitignore).
+- Branch `2do-plano` activo. **NO commitear** (usuario sigue iterando).
+
 ## Entregables activos en el repositorio
 
 ### Telemetría: Fase 5 — Autenticación funcional para backoffice (2026-10-11)

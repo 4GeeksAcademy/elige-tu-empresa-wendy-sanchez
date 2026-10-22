@@ -2,6 +2,15 @@
 
 ## Estado actual del desarrollo
 
+### Hito 7 — Job nocturno de telemetría (2026-10-22)
+- **Completado**: `job_runs` (orquestación nocturna) creado como capa propia, distinta de `reporting.pipeline_runs` (ETL Hito 6). DDL `data/migrations/0002_job_runs.sql` + auto-migración idempotente.
+- **Completado**: `services/job_runner.py` (CONTROL DE ESTADO: estados + lock atómico = `processing` + helpers `has_processing_lock`/`has_completed_for_date` + `log_result`), `services/nightly/nightly_service.py` (orquestación: export CSV → subprocess pipeline → registros), `scripts/nightly_export.py` (CLI con flags `--skip-pipeline`, `--force`, `--target-date`, `--list`, `--dry-run`).
+- **Completado**: idempotencia por día (noop si `completed`), aborto silencioso si otra instancia tiene el lock, `failed` con `error_message` ante excepción, reintento `failed → pending`.
+- **Completado (spec #5 — Disparador)**: `background-processes.md` con decisión cron `0 2 * * *`, instalación del crontab, opción de contenedor scheduler dedicado (recomendada en prod) y prohibición explícita de APScheduler/@repeat_every/lifespan. `TARGET_DATE` documentada como var opcional para pruebas.
+- **Completado (spec #6 — Observabilidad)**: logger estable `healthcore.nightly`, formato normalizado `event=... job=nightly_export status=... ts=...` vía `log_result()`; INFO para inicio/fin/omisión por duplicado y ERROR para excepciones con traceback. Tests con `caplog` añadidos.
+- **Tests**: **30/30** pasan (`.venv-nightly/bin/python -m pytest tests/nightly -q`).
+- **Pendiente**: instalar crontab en el entorno real, ejecución de humo contra Supabase con `DATABASE_URL` real, seguimiento post-deploy en `job_runs`. `npm run typecheck` pendiente de ejecutar (AGENTS.md). **NO commitear** (usuario sigue iterando).
+
 ### Telemetría: brechas de auditoría corregidas (2026-10-06)
 - Privacidad de valores y formato temporal reforzados en ambas fronteras; expiración sin HMAC válido deja de perderse.
 - Entrega de hechos obligatorios independiente del cliente: cola backend, lotes, reintentos y deduplicación de caducidad posterior a recepción confirmada; el stub no almacena eventos.
