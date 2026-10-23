@@ -16,3 +16,4 @@ data/process/suppliers_db.json
 .env.local
 .env.*.local
 services/api/.env
+.venv-nightly/

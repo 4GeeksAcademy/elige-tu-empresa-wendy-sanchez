@@ -91,6 +91,19 @@
 - **`docs/telemetry/event-schemas.json`**: Catálogo de 41 eventos (5 obligatorios, 36 oportunidades).
 - **`docs/telemetry/telemetry-plan.md`**: Plan de telemetría completo con fases 1-5, arquitectura, decisiones técnicas.
 
+### Proceso de segundo plano — Script nocturno de telemetría (independiente de la API)
+- **Entorno de tests**: `.venv-nightly/` (raíz, gitignoreado): sqlalchemy 2.1.6, pandas 3.1.0, pytest 9.1.1, python-dotenv. Python 3.14. **Driver Postgres añadido**: `psycopg` 3.3.6 (+`psycopg2-binary` 2.9.13) para conexión a Supabase (el esquema `postgresql://` de SQLAlchemy 2.x requiere psycopg v3).
+- **`.env` (raíz)**: `DATABASE_URL` de Supabase (`postgresql://...pooler.supabase.com:6543`). Ni `job_runner.py` ni el CLI cargan `.env` automáticamente — leen con `os.getenv()`. Para pruebas manuales hay que `load_dotenv()` o exportar la var.
+- **Supabase verificado (2026-10-22, solo lectura)**: Postgres 17.6 OK; `telemetry_events` = **31 filas** (2026-10-04 al 2026-10-11; pico 2026-10-10=12). `job_runs`/`schema_migrations` **aún NO existen** (el job los auto-crearía con `ensure_schema`). Para un futuro humo completo: `--target-date 2026-10-10`.
+- **Supabase — humo completo ejecutado (2026-10-22)**: corrida real con `--skip-pipeline --target-date 2026-10-10` → OUTCOME `completed`, 12 filas exportadas a `data/raw/telemetry_2026-10-10.csv`, fila en `job_runs` en `completed` con `exported_rows=12`. Idempotencia: 2ª corrida → `noop_export`. Se verificó la rama **Postgres** por primera vez contra Postgres real (BIGSERIAL, `now()`, UNIQUE(job_name,target_date), CHECK status). **Hallazgo**: `_ensure_schema_postgres` NO inserta versiones en `schema_migrations` (count 0), a diferencia de `_ensure_schema_sqlite`. DDL Postgres hardcodeado, sin versionar por fila en esa rama.
+- **`services/job_runner.py`** (CONTROL DE ESTADO): estados `pending → processing → completed | failed` + reintento `failed → pending`. El lock ES el estado `processing` (UPDATE atómico `WHERE status='pending'`). Helpers: `has_processing_lock`, `has_completed_for_date`, `mark_processing`, `reset_failed_to_pending`, `mark_completed`, `mark_failed`, `log_result`. Logger estable `healthcore.nightly`.
+- **`services/nightly/nightly_service.py`**: orquestación `run_nightly()` (export CSV → subprocess pipeline → registro). `_DEFAULT_PIPELINE_CMD = "python -m data.pipelines.runner"` (pipeline real del Hito 6).
+- **`scripts/nightly_export.py`**: CLI con flags `--skip-pipeline`, `--force`, `--target-date`, `--list`, `--dry-run`. Salida JSON; exit 0 (completed/noop_export/aborted) / 1 (failed).
+- **Tabla `job_runs`**: UNIQUE(job_name, target_date), DDL en `data/migrations/0002_job_runs.sql`. Auto-migración `ensure_schema` (versionada en `schema_migrations`, _MIGRATIONS 1-3).
+- **Dual dialecto SQL**: SQLite (dev/tests, `CURRENT_TIMESTAMP` / `INTEGER PRIMARY KEY AUTOINCREMENT`) y Postgres/Supabase (prod, `now()` / `BIGSERIAL`) vía `sqlalchemy.text()`.
+- **Disparo**: crontab `0 2 * * *` UTC o contenedor scheduler dedicado (recomendado en prod). PROHIBIDO dentro de FastAPI (no APScheduler/@repeat_every/lifespan). `TARGET_DATE=YYYY-MM-DD` (env o `--target-date`) para override.
+- **Demo de auditoría**: `scripts/_audit_hito7_demo.py` — reproducible, lanza 2 instancias CLI reales en carrera contra BD SQLite compartida.
+
 ## Decisiones de arquitectura tomadas
 1. Mantener hito web y hito Next.js coexistiendo en el mismo repo para evaluación incremental.
 2. Centralizar tipos de dominio del tracker en types/candidate.ts.
