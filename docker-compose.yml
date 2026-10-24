@@ -7,6 +7,8 @@
 #   uis              → Frontends: website (Next.js, :3000) + backoffice (Next.js, :3001)
 #   backend          → HealthCore API (FastAPI, :8000)
 #   incidents-backend → Incidents API (FastAPI, :8010)
+#   redis            → Celery broker (Redis, :6379)
+#   flower           → Celery monitor (Flower, :5555)
 #
 # Red: healthcore-net (definida explícitamente)
 #   Todos los servicios se comunican por nombre Docker, no por localhost.
@@ -61,10 +63,14 @@ services:
     environment:
       SERVICE_NAME: "api"
       PORT: "${SERVICE_BACKEND_PORT:-8000}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
     volumes:
       # Bind mount del código fuente para recarga en caliente
       - ./services:/workspace/services
       - ./data:/workspace/data
+    depends_on:
+      redis:
+        condition: service_started
     networks:
       - healthcore-net
     restart: unless-stopped
@@ -83,15 +89,90 @@ services:
     environment:
       SERVICE_NAME: "incidents-api"
       PORT: "${SERVICE_INCIDENTS_PORT:-8010}"
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
     volumes:
       # Bind mount del código fuente para recarga en caliente
       - ./services:/workspace/services
       - ./data:/workspace/data
+    depends_on:
+      redis:
+        condition: service_started
     networks:
       - healthcore-net
     restart: unless-stopped
+
+  # ── Redis (Broker de mensajería para Celery) ────────────────────────
+  # Actúa como broker y result backend. Política noeviction para no perder
+  # mensajes de la cola aunque se alcance el límite de memoria.
+  redis:
+    image: redis:7-alpine
+    container_name: healthcore-redis
+    hostname: redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - healthcore-net
+    restart: unless-stopped
+
+  # ── Flower (Monitor de Celery) ──────────────────────────────────────
+  # Interfaz web para inspeccionar colas, workers y tareas en tiempo real.
+  flower:
+    image: mher/flower:2.0
+    container_name: healthcore-flower
+    hostname: flower
+    ports:
+      - "${FLOWER_PORT:-5555}:5555"
+    environment:
+      CELERY_BROKER_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      FLOWER_PORT: "${FLOWER_PORT:-5555}"
+    depends_on:
+      - redis
+    networks:
+      - healthcore-net
+    restart: unless-stopped
+
+  # ── Celery Worker ───────────────────────────────────────────────────
+  # Proceso independiente que consume tareas de la cola. Corre con
+  # recarga automática para desarrollo (--autoreload).
+  celery-worker:
+    build:
+      context: .
+      dockerfile: services/Dockerfile
+    container_name: healthcore-celery-worker
+    hostname: celery-worker
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      PYTHONPATH: "/workspace"
+    volumes:
+      - ./services:/workspace/services
+      - ./data:/workspace/data
+    depends_on:
+      redis:
+        condition: service_started
+    networks:
+      - healthcore-net
+    restart: unless-stopped
+    working_dir: /workspace
+    command: >
+      celery -A services.celery_app worker
+      --loglevel=info
+      --concurrency=4
+      --max-tasks-per-child=100
+      --without-gossip
+      --without-mingle
+      --without-heartbeat
+      -E
 
 networks:
   healthcore-net:
     name: healthcore-net
     driver: bridge
+
+volumes:
+  redis-data:
+    driver: local

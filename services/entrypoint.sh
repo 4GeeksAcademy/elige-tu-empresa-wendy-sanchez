@@ -28,6 +28,10 @@ esac
 
 PORT="${PORT:-${DEFAULT_PORT}}"
 
+# Añadir /workspace al PYTHONPATH para importar servicios compartidos
+# (services.celery_app, etc.) desde cualquier subdirectorio.
+export PYTHONPATH="/workspace:${PYTHONPATH:-}"
+
 echo "→ Arrancando ${SERVICE_NAME} en puerto ${PORT} (reload activo)..."
 cd "${APP_DIR}"
 
