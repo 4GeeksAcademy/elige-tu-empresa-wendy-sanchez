@@ -119,6 +119,14 @@ services:
 
   # ── Flower (Monitor de Celery) ──────────────────────────────────────
   # Interfaz web para inspeccionar colas, workers y tareas en tiempo real.
+  # Requiere CELERY_RESULT_BACKEND para mostrar tareas completadas/fallidas.
+  # El worker debe ejecutarse con el flag -E (--events) para que Flower reciba eventos.
+  # Flower 2.0 requiere FLOWER_UNAUTHENTICATED_API=1 para exponer su API REST.
+  #
+  # NOTA: Si Flower dentro del contenedor no logra conectar a Redis
+  # (timeout connecting to server), se puede ejecutar localmente:
+  #   celery -A services.celery_app flower -l info
+  # desde services/api/ apuntando a redis://localhost:6379/0
   flower:
     image: mher/flower:2.0
     container_name: healthcore-flower
@@ -127,7 +135,9 @@ services:
       - "${FLOWER_PORT:-5555}:5555"
     environment:
       CELERY_BROKER_URL: "${REDIS_URL:-redis://redis:6379/0}"
+      CELERY_RESULT_BACKEND: "${REDIS_URL:-redis://redis:6379/0}"
       FLOWER_PORT: "${FLOWER_PORT:-5555}"
+      FLOWER_UNAUTHENTICATED_API: "1"
     depends_on:
       - redis
     networks:
@@ -167,7 +177,6 @@ services:
       --without-mingle
       --without-heartbeat
       -E
-
 networks:
   healthcore-net:
     name: healthcore-net
