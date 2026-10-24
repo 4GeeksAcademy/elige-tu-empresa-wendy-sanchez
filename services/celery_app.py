@@ -276,14 +276,18 @@ def log_task_retry(sender=None, request=None, reason=None, einfo=None, **kwargs)
     """Registra cada reintento con número de intento, razón y duración acumulada."""
     error_msg = str(reason) if reason else "unknown"
     traceback_str = str(einfo) if einfo else ""
-    logger.info(
-        "Task RETRY: task_id=%s attempt=%d/%d reason=%s\n%s",
-        request.id if request else "unknown",
-        (request.retries + 1) if request and hasattr(request, "retries") else "?",
-        request.max_retries if request and hasattr(request, "max_retries") else "?",
-        error_msg,
-        traceback_str[:500] if traceback_str else "(no traceback)",
+    _task_id = request.id if request else "unknown"
+    _retries = int(request.retries) + 1 if request and hasattr(request, "retries") else "?"
+    _max = getattr(sender, "max_retries", "?")
+    _traceback = traceback_str[:500] if traceback_str else "(no traceback)"
+    # Preformateado completo para evitar que el formateador de Celery
+    # vuelva a interpretar placeholders y falle por tipo de dato incorrecto.
+    msg = (
+        f"Task RETRY: task_id={_task_id} "
+        f"attempt={_retries}/{_max} "
+        f"reason={error_msg}\n{_traceback}"
     )
+    logger.info(msg)
 
 
 @task_revoked.connect
