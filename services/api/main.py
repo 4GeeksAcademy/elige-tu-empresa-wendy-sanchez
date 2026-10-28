@@ -7,7 +7,7 @@ from pathlib import Path
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
@@ -19,8 +19,10 @@ from routes.auth import router as auth_router
 from routes.inventory import router as inventory_router
 from routes.profiles import router as profiles_router
 from routes.suppliers import router as suppliers_router
+from routes.tasks import router as tasks_router
 from routes.telemetry import router as telemetry_router
 from routes.users import router as users_router
+from services.celery_app import analyze_incidents_csv as celery_analyze_task
 from telemetry import TELEMETRY_ENDPOINT
 import telemetry_delivery
 
@@ -93,6 +95,7 @@ async def timing_middleware(request: Request, call_next):
 
 
 app.include_router(suppliers_router)
+app.include_router(tasks_router)
 app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
@@ -186,8 +189,13 @@ def root() -> RootResponse:
     )
 
 
-@app.post("/api/incidents/analyze", response_model=AnalysisResponse)
-async def analyze_incidents(file: UploadFile = File(...)) -> AnalysisResponse:
+@app.post("/api/incidents/analyze", status_code=202)
+async def analyze_incidents(file: UploadFile = File(...)):
+    """Analiza un CSV de incidencias de forma asíncrona.
+
+    Encola la tarea en Celery y devuelve 202 Accepted con un task_id.
+    El cliente puede consultar GET /tasks/{task_id} para obtener el resultado.
+    """
     if file.filename is None or file.filename.strip() == "":
         raise HTTPException(status_code=400, detail="Debes enviar un fichero CSV")
 
@@ -206,36 +214,29 @@ async def analyze_incidents(file: UploadFile = File(...)) -> AnalysisResponse:
             detail="Codificación inválida: el fichero debe estar en UTF-8",
         ) from exc
 
-    try:
-        report = analyze_csv_text(text)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    # ── Encolar tarea en Celery ────────────────────────────────────────
+    # La tarea recibe solo el contenido del CSV (string) y el nombre.
+    # El worker lo procesa en segundo plano. No bloqueamos la respuesta.
+    task = celery_analyze_task.delay(csv_content=text, filename=file.filename)
 
-    global _last_report
-    global _last_csv_export
-    _last_report = report
-    _last_csv_export = report_to_csv_text(report)
+    logger.info(
+        "Task enqueued: task_id=%s filename=%s size=%d",
+        task.id,
+        file.filename,
+        len(text),
+    )
 
-    return AnalysisResponse(
-        source_file=file.filename,
-        summary=AnalysisSummary(
-            total=report["total"],
-            valid=report["valid"],
-            invalid=report["invalid"],
-            invalid_breakdown=report["invalid_breakdown"],
-            category_counts=report["category_counts"],
-            status_counts=report["status_counts"],
-            country_counts=report["country_counts"],
-            score_counts={str(k): v for k, v in report["score_counts"].items()},
-            scored_cases=report["scored_cases"],
-            closed_cases=report["closed_cases"],
-            average_score=report["average_score"],
-            percentages=AnalysisPercentages(
-                categories=report["percentages"]["categories"],
-                statuses=report["percentages"]["statuses"],
-                countries=report["percentages"]["countries"],
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "task_id": task.id,
+            "status": "PENDING",
+            "detail": (
+                "La tarea ha sido encolada. "
+                "Consulta GET /tasks/{task_id} para obtener el resultado."
             ),
-        ),
+        },
+        headers={"Location": f"/tasks/{task.id}"},
     )
 
 

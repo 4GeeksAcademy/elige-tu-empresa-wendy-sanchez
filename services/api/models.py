@@ -1,4 +1,9 @@
-from __future__ import annotations
+"""Modelos de datos de HealthCore API — SQLModel + Pydantic.
+
+SQLModel necesita tipos resueltos en tiempo de definición de clase
+(no strings diferidos), por lo que NO usamos ``from __future__ import annotations``
+en este módulo. Las clases ``table=True`` fallarían con Python 3.14+.
+"""
 
 from datetime import date, datetime, timezone
 from enum import Enum
