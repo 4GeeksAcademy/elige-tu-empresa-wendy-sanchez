@@ -193,7 +193,54 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - INFO para inicio/fin/omisión por duplicado/abort; ERROR con `exc_info=True` para fallos. Sin `logger.exception` crudo (una sola fuente de verdad).
 - **Auth**: login via `POST /api/auth/login` → rewrite → `localhost:8000/auth/login` → JWT. `GET /api/auth/me` → rewrite → `localhost:8000/auth/me`.
 
-### 34) Patrón de servicios standalone para evitar SQLModel crash
+## Patrones de cola de tareas asíncronas (Redis + Celery)
+
+### 37) Patrón: Cola de Tareas Asíncronas — Productor-Consumidor (Redis + Celery)
+- **FastAPI actúa como Productor**: recibe la solicitud HTTP, crea un mensaje ligero (solo metadatos y referencias, nunca blobs completos), y lo deposita en la cola Redis mediante `task.delay()`. Responde **202 Accepted** inmediatamente con `task_id` y `status: PENDING`. Incluye header `Location: /tasks/{task_id}`.
+- **Redis actúa como Broker y Result Backend**: almacena mensajes en memoria con persistencia AOF. Política `noeviction` para garantizar que nunca se descartan mensajes por falta de memoria. Configurado con `--appendonly yes --maxmemory-policy noeviction`.
+- **Celery Worker actúa como Consumidor**: proceso independiente (contenedor Docker separado) que escucha la cola, toma mensajes de uno en uno y los procesa. Corre con `concurrency=4` y flag `-E` para emitir eventos a Flower.
+- **Flower actúa como Monitor**: interfaz web en `http://localhost:5555` para inspeccionar colas, workers y tareas en tiempo real. Requiere que el worker arranque con `-E` (events).
+- **Dead Letter Queue (DLQ)**: las tareas que fallan tras `max_retries=3` se persisten en TinyDB (`data/process/task_dlq.json`) con `task_id`, `task_name`, `attempt`, `error`, `exc_type`, `args`, `kwargs`, `timestamp`. El endpoint `GET /tasks/{task_id}` consulta automáticamente la DLQ cuando el estado es `failure`.
+- **Reglas**: mensajes ligeros (solo metadatos), productor y consumidor son procesos distintos, broker persistente (Redis AOF + noeviction).
+
+### 38) Patrón: Task Base con DLQ automática (HealthCoreTask)
+- **`HealthCoreTask(Task)`**: clase base abstracta de Celery que extiende `Task` y añade DLQ automática.
+- **`abstract = True`**: no se puede instanciar directamente, solo como base de tareas concretas.
+- **`max_retries = 3`** y **`default_retry_delay = 10`**: valores por defecto para reintentos.
+- **`on_failure()`**: sobrescrito para persistir el fallo en TinyDB (`task_id`, `attempt=max_retries`, `error`, `exc_type`, `task_name`, `args`, `kwargs`, `timestamp`) antes de delegar en `super().on_failure()`. Esto garantiza que toda tarea que herede de `HealthCoreTask` tenga registro en DLQ automáticamente.
+- **Uso**: decorar la tarea con `@celery_app.task(bind=True, base=HealthCoreTask, ...)`.
+
+### 39) Patrón: Reintentos con backoff exponencial y jitter
+- **`autoretry_for=(Exception,)`**: reintenta automáticamente ante cualquier excepción.
+- **`max_retries=3`**: máximo 3 intentos totales (1 original + 2 reintentos).
+- **`retry_backoff=True`**: backoff exponencial — 10s, 20s, 40s.
+- **`retry_backoff_max=300`**: límite superior de 5 minutos entre reintentos.
+- **`retry_jitter=True`**: añade ruido aleatorio (± unos segundos) para evitar tormentas de reintentos (thundering herd).
+- **`task_acks_late=True`**: el worker confirma la tarea solo al completar exitosamente. Si el worker se cae durante el procesamiento, la tarea se reencola automáticamente.
+- **`task_reject_on_worker_lost=True`**: si el worker se pierde inesperadamente, la tarea se reencola para otro worker.
+
+### 40) Patrón: Señales Celery para trazabilidad del ciclo de vida
+- **`task_success`**: registra nombre de la tarea al completarse correctamente.
+- **`task_failure`**: registra `task_id`, mensaje de error y traceback (primeros 500 caracteres).
+- **`task_retry`**: registra `task_id`, número de intento (`attempt={_retries}/{_max}`), razón del fallo y traceback. Usa preformateo para evitar que Celery reinterprete placeholders.
+- **`task_revoked`**: registra `task_id` y fecha de expiración.
+- **`on_after_configure`**: registra broker URL, backend URL y colas configuradas al iniciar el worker.
+
+### 41) Patrón: Cola DLQ explícita en Celery
+- Además de la DLQ persistente en TinyDB, se define una **cola DLQ explícita** en Celery (`healthcore.dlq`) con su propio exchange y routing key.
+- Las tareas que fallan irreversiblemente pueden redirigirse a esta cola para inspección manual sin perder el mensaje original.
+- Configuración: `task_queues={"healthcore.default": {...}, "healthcore.dlq": {...}}`.
+- Esto permite que un worker dedicado a la cola DLQ procese (o simplemente acumule) las tareas fallidas.
+
+### 42) Patrón: Logging con get_task_logger y time.monotonic()
+- La tarea `analyze_incidents_csv` usa `get_task_logger(__name__)` para logging específico de la tarea con trazabilidad.
+- Registra **STARTED** con `task_id`, `filename`, `csv_size`.
+- Registra **SUCCESS** con `task_id`, `filename`, `duration` (segundos con `time.monotonic()`), `total`, `valid`, `invalid`.
+- `time.monotonic()` es más fiable que `time.time()` para medir duración (no afectado por cambios de hora del sistema).
+
+## Patrones de servicios standalone e infraestructura de datos
+
+### 43) Patrón de servicios standalone para evitar SQLModel crash
 - **Problema**: Python 3.14 + SQLModel 0.0.48 causa `TypeError: issubclass() arg 1 must be a class` al cargar `MedicalSupply(SQLModel, table=True)` en `models.py:315`.
 - **Solución**: Crear servidores FastAPI independientes que no importan `models.py`:
   - `services/telemetry/server_standalone.py` — telemetría + auth (puerto 8000)
@@ -202,20 +249,20 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - Cada servicio standalone replica solo las funciones necesarias (bcrypt, JWT, consultas TinyDB/SQLAlchemy) sin tocar SQLModel.
 - **Regla**: Si un nuevo endpoint no necesita modelos SQLModel, debe implementarse como servicio standalone, no en `main.py`.
 
-### 35) Patrón de Reporting — API independiente con JWT compartido
+### 44) Patrón de Reporting — API independiente con JWT compartido
 - `services/reporting/` es una API FastAPI completamente independiente (puerto 8001) que comparte la misma `JWT_SECRET_KEY` con el API principal.
 - `auth.py` usa `OAuth2PasswordBearer(tokenUrl="/auth/login")` para extraer y validar tokens sin acceder a base de datos de usuarios.
 - No replica usuarios, perfiles ni roles — solo verifica que el token es válido (firma + expiración).
 - Los endpoints de reporting se protegen con `_user_id: int = Depends(get_current_user_id)`.
 
-### 36) Patrón de Clinic Name Mapping
+### 45) Patrón de Clinic Name Mapping
 - Los IDs internos de clínica (`clinic-001`, ..., `clinic-010`) se mapean a nombres reales mediante un diccionario plano en el backend.
 - `CLINIC_NAMES` en `services/reporting/routes/reporting.py` asigna cada ID a un nombre descriptivo.
 - El frontend muestra `{clinic.clinic_name || clinic.clinic_id}` como fallback.
 - El mapeo se centraliza en el backend para evitar duplicación entre frontends.
 - Fuentes del mapeo: `BRANCH_LABELS` en `uis/backoffice/lib/incidents.ts` + `CLINIC_TO_BRANCH` en `packages/shared/python/incident_model.py`.
 
-### 37) Patrón de pipeline de datos con Prefect 3.x
+### 46) Patrón de pipeline de datos con Prefect 3.x
 - **`data/pipelines/`** implementa un pipeline ETL con Prefect 3.8.8.
 - **Fases**: extract → transform → load, cada una en su propio módulo.
 - **Restricción Prefect 3.x**: `@flow` objects NO tienen método `.submit()`. Las flows deben ejecutarse mediante llamada directa o dentro de un `@task`.
@@ -224,11 +271,13 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - **Run Store**: `run_store.py` persiste metadatos de cada ejecución en tabla `pipeline_runs`.
 - **Demo Data**: Cuando el pipeline no puede ejecutarse (Prefect incompatibilidad, PgBouncer), se insertan datos demo directamente en la tabla destino para verificar la cadena E2E.
 
-### 38) Patrón de Supabase PgBouncer workaround
+### 47) Patrón de Supabase PgBouncer workaround
 - Supabase usa PgBouncer (pooler) en modo transaccional, lo que causa conflictos de prepared statement cache en queries repetidas con named parameters estilo SQLAlchemy.
 - **Solución**: Usar `sqlalchemy.text()` con raw SQL en lugar de `text("... :param")` con named parameters.
 - Alternativamente, configurar `connect_args={"options": "-c prepared_statement_cache_size=0"}` al crear el engine.
 - Este workaround es necesario solo para tablas en Supabase PostgreSQL vía pooler.
+
+## Patrones de alto rendimiento (caché, lazy loading, timing)
 
 ### 26) Patrón de caché — Cache-Aside (backend)
 - **Estrategia cache-aside**: el código pregunta primero a la caché (`cache.get(key)`); si existe el valor, lo devuelve sin tocar la base de datos. Si no existe, ejecuta la operación (consulta DB, cálculo), almacena el resultado en caché con `cache.set(key, value, ttl)`, y lo devuelve.

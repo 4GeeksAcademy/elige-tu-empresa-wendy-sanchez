@@ -136,15 +136,103 @@
 29. **Telemetría — seed de usuarios autónomo**: `seed_auth_users.py` es un script independiente que escribe en TinyDB sin depender de `models.py` ni de `database.py`. Usa passlib directamente para hashear contraseñas. Esto evita el crash de SQLModel al importar modelos. Los usuarios se escriben en la tabla `users` de `data/process/suppliers_db.json`.
 30. **Telemetría — dashboard sin route handler intermedio**: A diferencia de auth/suppliers que usan route handlers Next.js con lógica server-side, el dashboard de telemetría usa un rewrite directo en `next.config.ts`. Esto es más simple y evita bugs como el anterior `base.protocol` (propiedad URL inválida en JavaScript). El rewrite `/api/telemetry/report` → `http://localhost:8000/telemetry/report` resuelve la llamada en servidor sin código intermedio.
 
+## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
+
+### Arquitectura
+```
+FastAPI (Productor) → Redis (Broker) → Celery Worker (Consumidor) → TinyDB (DLQ)
+                           ↓
+                     Flower (Monitor en :5555)
+```
+
+### Componentes
+
+| Componente | Rol | Tecnología |
+|---|---|---|
+| **FastAPI** | **Productor** | Recibe HTTP, crea mensaje ligero, lo deposita en Redis. Responde 202 Accepted con `task_id`. |
+| **Redis** | **Broker + Result Backend** | Redis 7-alpine con AOF y política `noeviction`. Mensajes persistentes incluso si el worker se cae. |
+| **Celery Worker** | **Consumidor** | Proceso independiente (contenedor Docker separado). `concurrency=4`, `max-tasks-per-child=100`, flag `-E` para eventos. |
+| **Flower** | **Monitor** | `mher/flower:2.0` — interfaz web en `http://localhost:5555` para inspeccionar colas, workers y tareas. |
+| **TinyDB (DLQ)** | **Dead Letter Queue** | Persistencia JSON en `data/process/task_dlq.json`. Almacena tareas que fallaron tras 3 intentos. |
+
+### Módulo Celery (`services/celery_app.py`)
+- **Instancia**: `Celery("healthcore", broker=REDIS_URL, backend=REDIS_URL)` — Redis es broker y result backend.
+- **Colas**: `healthcore.default` (por defecto) y `healthcore.dlq` (cola DLQ explícita).
+- **Tarea principal**: `analyze_incidents_csv` — recibe `csv_content` (string) y `filename`, llama a `analyze_csv_text()`, devuelve reporte con `source_file`, `report`, `csv_export`, `analyzed_at`, `duration_seconds`.
+- **Tarea base**: `HealthCoreTask(Task)` — abstracta con `max_retries=3`, `default_retry_delay=10`, `on_failure` que persiste en TinyDB.
+- **Reintentos**: `autoretry_for=(Exception,)`, `max_retries=3`, `retry_backoff=True` (10s, 20s, 40s), `retry_backoff_max=300`, `retry_jitter=True`.
+- **Señales**: `task_success`, `task_failure` (traceback 500 chars), `task_retry` (intento actual), `task_revoked`, `on_after_configure` — logging completo del ciclo de vida.
+- **Configuración**: `task_serializer=json`, `task_acks_late=True`, `task_reject_on_worker_lost=True`, `task_track_started=True`, `task_soft_time_limit=300`, `task_time_limit=330`, `result_expires=604800`.
+- **DLQ**: TinyDB en `data/process/task_dlq.json` con `task_id`, `task_name`, `attempt`, `error`, `exc_type`, `args`, `kwargs`, `timestamp`.
+
+### Endpoints
+- `POST /api/incidents/analyze` → 202 Accepted, encola en Celery, header `Location: /tasks/{task_id}`.
+- `GET /tasks/{task_id}` → estado (`pending | started | success | failure`), resultado, error, entrada DLQ si falló.
+
+| status | Significado |
+|---|---|
+| `pending` | Tarea en cola, ningún worker la ha tomado aún |
+| `started` | Un worker está procesándola |
+| `success` | Tarea completada, `result` disponible |
+| `failure` | Tarea falló tras agotar reintentos; en DLQ |
+
+### Servicios Docker
+- `redis`: `redis:7-alpine` con `--appendonly yes --maxmemory-policy noeviction`, puerto 6379, vol `redis-data:/data`.
+- `flower`: `mher/flower:2.0` con `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`, `FLOWER_UNAUTHENTICATED_API=1`, puerto 5555.
+- `celery-worker`: mismo build que backend, `concurrency=4`, `command: celery -A services.celery_app worker --loglevel=info --concurrency=4 --max-tasks-per-child=100 --without-gossip --without-mingle --without-heartbeat -E`.
+
+### Desarrollo local
+```bash
+# Worker
+cd services/api && PYTHONPATH=".." celery -A services.celery_app worker --loglevel=info --concurrency=2 -E
+
+# Flower
+cd services/api && PYTHONPATH=".." celery -A services.celery_app flower --loglevel=info
+
+# Docker Compose (todo incluido)
+docker compose up redis flower celery-worker -d
+```
+
+### Pruebas de flujo asíncrono
+```bash
+# Encolar tarea
+curl -X POST http://localhost:8000/api/incidents/analyze -F "file=@scripts/incidents-healthcore.csv"
+# → {"task_id": "abc-123", "status": "PENDING", ...}
+
+# Consultar estado
+curl http://localhost:8000/tasks/abc-123
+# → {"status": "success", "result": {...}}
+```
+
+### Reglas del patrón Productor-Consumidor
+1. **Los mensajes son ligeros**: nunca se pone un blob completo en el mensaje. Solo metadatos y referencias.
+2. **Productor y consumidor son procesos distintos**: la API nunca ejecuta la tarea pesada; solo la encola.
+3. **El broker es persistente**: Redis con AOF y `noeviction` garantiza que los mensajes no se pierden.
+
+### ¿Por qué Celery?
+- Madurez, flexibilidad (múltiples brokers), reintentos nativos (`autoretry_for`, `max_retries`, `retry_backoff`), monitoreo con Flower, integración sin fricción con FastAPI.
+
+### ¿Por qué Redis como broker?
+- Velocidad (operaciones sub-milisegundo), persistencia opcional con AOF, política `noeviction` para no perder mensajes.
+
+### ¿Por qué noeviction?
+Redis por defecto elimina claves al alcanzar `maxmemory`. Para un broker, perder tareas es inaceptable. `noeviction` lanza errores en escritura, forzando a dimensionar correctamente la memoria.
+
+### ¿Por qué TinyDB para la DLQ?
+- Persistencia duradera (sobrevive a reinicios de Redis), auditabilidad (JSON exportable/backupable), simplicidad para el volumen esperado de fallos.
+
+### Nota técnica
+La API principal (`services/api/main.py`) no arranca en Python 3.14 por incompatibilidad SQLModel 0.0.48 + Python 3.14 (`TypeError: issubclass()` con annotationlib ForwardRef). Sin embargo, la infraestructura Redis/Celery/DLQ funciona perfectamente independientemente de la API. El worker se comunica directamente con Redis por nombre Docker (`redis://redis:6379/0`).
+
 ## Docker y orquestación
 
 ### docker-compose.yml (raíz)
 - **Red**: `healthcore-net` (bridge explícito).
-- **Servicios**: `uis` (Node.js), `backend` (Python), `incidents-backend` (Python).
+- **Servicios**: `uis` (Node.js), `backend` (Python), `incidents-backend` (Python), `redis` (Redis 7-alpine), `flower` (mher/flower:2.0), `celery-worker` (Python).
 - **Contexto de build**: siempre `.` (raíz), con `.dockerignore` para filtrar.
 - **Montajes**: bind mounts de código fuente + volúmenes anónimos para `node_modules`.
 - **Variables de entorno**: via `env_file: .env`.
-- **Comunicación**: por nombre de servicio Docker (`http://backend:8000`, `http://incidents-backend:8010`).
+- **Comunicación**: por nombre de servicio Docker (`http://backend:8000`, `http://incidents-backend:8010`, `redis://redis:6379/0`).
 
 ### uis/Dockerfile
 - **Imagen base**: `node:22-alpine`.

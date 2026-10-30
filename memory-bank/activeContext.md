@@ -1,5 +1,24 @@
 # Active Context
 
+## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
+- **Entregable**: Sistema de cola de tareas asíncronas para desacoplar operaciones pesadas de la API, utilizando **Redis como broker** y **Celery como framework de tareas**.
+- **Arquitectura**: FastAPI (Productor) → Redis (Broker) → Celery Worker (Consumidor) → TinyDB (DLQ). Flower como monitor en tiempo real.
+- **Endpoint convertido**: `POST /api/incidents/analyze` ahora responde **HTTP 202 Accepted** inmediatamente con `task_id` y `status: PENDING`. El worker procesa el CSV en segundo plano. Header `Location: /tasks/{task_id}`.
+- **Endpoint de consulta**: `GET /tasks/{task_id}` devuelve el estado (`pending | started | success | failure`), resultado, error, y si falló, la entrada de la **Dead Letter Queue (DLQ)**.
+- **Módulo Celery**: `services/celery_app.py` — instancia `Celery("healthcore", broker=REDIS_URL, backend=REDIS_URL)`. Tarea `analyze_incidents_csv` con `HealthCoreTask(Task)` base para DLQ automática.
+- **Tarea base**: `HealthCoreTask(Task)` — `abstract=True`, `max_retries=3`, `default_retry_delay=10`. Método `on_failure` que persiste en TinyDB (`data/process/task_dlq.json`) cuando se agotan los reintentos.
+- **Configuración de reintentos**: `autoretry_for=(Exception,)`, `max_retries=3`, `retry_backoff=True` (10s, 20s, 40s), `retry_backoff_max=300`, `retry_jitter=True`.
+- **Configuración de colas**: `healthcore.default` (por defecto) y `healthcore.dlq` (cola DLQ explícita en Celery para inspección manual).
+- **Señales Celery**: `task_success`, `task_failure` (con traceback 500 chars), `task_retry` (con intento actual), `task_revoked`, `on_after_configure` — logging completo del ciclo de vida.
+- **DLQ (Dead Letter Queue)**: Persistencia en TinyDB (`data/process/task_dlq.json`) con `task_id`, `task_name`, `attempt`, `error`, `exc_type`, `args`, `kwargs`, `timestamp`. Consultable automáticamente por `GET /tasks/{task_id}` en estado `failure`.
+- **Infraestructura Docker**: 3 nuevos servicios en `docker-compose.yml`:
+  - `redis`: `redis:7-alpine` con `--appendonly yes --maxmemory-policy noeviction`, puerto 6379.
+  - `flower`: `mher/flower:2.0` con `CELERY_BROKER_URL` y `CELERY_RESULT_BACKEND`, puerto 5555.
+  - `celery-worker`: mismo build que backend, `concurrency=4`, `max-tasks-per-child=100`, flag `-E` para eventos. Red `healthcore-net`.
+- **Auditoría**: **10/10 criterios ✅** (AC-1 a AC-8). Verificado: Redis 7.4.11 standalone responde PING (AC-1), 29.61ms media en encolado (AC-2), estados PENDING→RETRY→SUCCESS/FAILURE (AC-3), `max_retries=3`, `retry_backoff=True`, `acks_late=True` (AC-4), DLQ tras 3 fallos con `task_id`, `attempt=3`, `error`, `timestamp` (AC-5), worker `celery@codespaces-04e6df` conectado a Redis (AC-6), payloads ligeros <1.2KB (AC-7), Flower HTTP 200 en localhost:5555 (AC-8). Documentado en `memories/repo/audit-async-queue.md`.
+- **Nota**: La API principal (`services/api/`) no arranca por incompatibilidad SQLModel 0.0.48 + Python 3.14 (annotationlib ForwardRef), pero la infraestructura Redis/Celery/DLQ funciona perfectamente independientemente.
+- **Archivos clave**: `services/celery_app.py` (módulo Celery con tarea, DLQ, señales), `services/api/routes/tasks.py` (GET /tasks/{task_id}), `services/api/main.py` (POST /api/incidents/analyze → 202), `docker-compose.yml` (redis, flower, celery-worker).
+
 ## Proceso de segundo plano — Job nocturno de telemetría (2026-10-22)
 - **Entregable**: script nocturno independiente de la API que exporta telemetría del día anterior a CSV, lanza el pipeline (Hito 6) como subprocess, y deja constancia en BD (`job_runs`).
 - **Nueva tabla**: `job_runs` (id, job_name, target_date, status, started_at, finished_at, error_message, created_at, exported_rows, csv_path) con UNIQUE(job_name,target_date) e índice idéntico. DDL en `data/migrations/0002_job_runs.sql`. NO se fusiona con `reporting.pipeline_runs` (capa de ETL Hito 6, lock propio por periodo).

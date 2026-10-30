@@ -2,6 +2,17 @@
 
 ## Estado actual del desarrollo
 
+### Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
+- **Completado**: Sistema de cola de tareas asíncronas para desacoplar operaciones pesadas de la API usando Redis como broker y Celery como framework de tareas.
+- **Completado**: `services/celery_app.py` — instancia Celery con Redis como broker y result backend, tarea `analyze_incidents_csv`, clase base `HealthCoreTask` con DLQ automática en `on_failure`.
+- **Completado**: Configuración de reintentos (`autoretry_for`, `max_retries=3`, `retry_backoff=True`, `retry_jitter=True`), colas (`healthcore.default`, `healthcore.dlq`), señales Celery (`task_success`, `task_failure`, `task_retry`, `task_revoked`).
+- **Completado**: Dead Letter Queue con TinyDB persistida en `data/process/task_dlq.json` — registro automático tras agotar reintentos con `task_id`, `task_name`, `attempt`, `error`, `exc_type`, `timestamp`.
+- **Completado**: Endpoint `POST /api/incidents/analyze` refactorizado de síncrono a asíncrono — ahora responde 202 Accepted con `task_id` y encola en Celery. Header `Location: /tasks/{task_id}`.
+- **Completado**: Endpoint `GET /tasks/{task_id}` — consulta el estado de la tarea (`pending | started | success | failure`), resultado, error, y entrada DLQ si falló.
+- **Completado**: Infraestructura Docker — 3 nuevos servicios en `docker-compose.yml`: `redis` (Redis 7-alpine con AOF y noeviction), `flower` (mher/flower:2.0 con monitoreo en :5555), `celery-worker` (concurrency=4, flag -E para eventos, red healthcore-net).
+- **Auditoría**: **10/10 criterios ✅** — Redis responde PING, encolado en 29.61ms media, estados correctos, reintentos con backoff, DLQ funcional, worker conectado, payloads ligeros, Flower accesible.
+- **Archivos**: `services/celery_app.py`, `services/api/routes/tasks.py`, `services/api/main.py` (endpoint async), `docker-compose.yml` (redis, flower, celery-worker).
+
 ### Proceso de segundo plano — Job nocturno de telemetría (2026-10-22)
 - **Completado**: `job_runs` (orquestación nocturna) creado como capa propia, distinta de `reporting.pipeline_runs` (ETL Hito 6). DDL `data/migrations/0002_job_runs.sql` + auto-migración idempotente.
 - **Completado**: `services/job_runner.py` (CONTROL DE ESTADO: estados + lock atómico = `processing` + helpers `has_processing_lock`/`has_completed_for_date` + `log_result`), `services/nightly/nightly_service.py` (orquestación: export CSV → subprocess pipeline → registros), `scripts/nightly_export.py` (CLI con flags `--skip-pipeline`, `--force`, `--target-date`, `--list`, `--dry-run`).

@@ -40,7 +40,18 @@ El producto en este repositorio tiene las siguientes superficies:
 - 4 páginas en el backoffice: productos con código de color, registro de entradas, registro de salidas con stock reactivo, historial de órdenes.
 - Datos semilla: 8 suministros con stock calculado, 12 clínicas.
 
-7. **Telemetría — Pipeline de análisis y dashboard (servidor standalone + backoffice)**
+7. **Cola de Tareas Asíncronas — Redis + Celery (Oct 2026)**
+- **Sistema de cola de tareas asíncronas** que desacopla las operaciones pesadas de la API para que los endpoints respondan inmediatamente (HTTP 202 Accepted) mientras un worker independiente procesa la tarea en segundo plano.
+- **Arquitectura Productor-Consumidor**: FastAPI (productor) encola tareas ligeras en Redis (broker), Celery Worker (consumidor) las procesa en un proceso separado, y TinyDB actúa como Dead Letter Queue (DLQ) para tareas que fallan tras 3 reintentos.
+- **Endpoint asíncrono**: `POST /api/incidents/analyze` ahora responde 202 Accepted con `task_id` y header `Location: /tasks/{task_id}`. El análisis de CSV de incidencias se procesa en segundo plano.
+- **Endpoint de consulta**: `GET /tasks/{task_id}` devuelve el estado (`pending | started | success | failure`), el resultado, y si falló, la entrada DLQ con detalles del error.
+- **Reintentos automáticos**: backoff exponencial (10s, 20s, 40s) con jitter, `acks_late=True` para no perder tareas si el worker se cae, máximo 3 intentos antes de DLQ.
+- **Dead Letter Queue**: persistencia en TinyDB (`data/process/task_dlq.json`) con todos los detalles del fallo. Consultable automáticamente por el endpoint de estado.
+- **Monitoreo**: Flower disponible en `http://localhost:5555` para inspeccionar colas, workers y tareas en tiempo real.
+- **Infraestructura Docker**: 3 nuevos servicios (`redis`, `flower`, `celery-worker`) añadidos a `docker-compose.yml` bajo la red `healthcore-net`.
+- **Auditoría**: 10/10 criterios cumplidos — Redis responde, encolado en ~30ms, estados correctos, reintentos funcionales, DLQ operativa, worker conectado, payloads ligeros, Flower accesible.
+
+8. **Telemetría — Pipeline de análisis y dashboard (servidor standalone + backoffice)**
 - **Servidor standalone**: `services/telemetry/server_standalone.py` — FastAPI en puerto 8000 que evita SQLModel (incompatible Python 3.14). Sirve `GET /telemetry/report` (5 métricas consolidadas) con caché de 60s, `POST /auth/login`, `GET /auth/me`, `GET /health`.
 - **Pipeline de análisis**: `services/telemetry/analysis.py` — 5 funciones pandas que leen Supabase PostgreSQL y producen métricas: `events_per_day()`, `error_rate_by_type()`, `latency_percentiles_by_route()`, `event_type_distribution()`, `auth_failure_rate_by_day()`. Orquestadas por `run_all()`.
 - **Autenticación standalone**: `services/telemetry/auth_standalone.py` — bcrypt + JWT (jose) + consultas TinyDB. Sin dependencia de `services/api/models.py`.
@@ -48,7 +59,7 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Dashboard**: `uis/backoffice/app/telemetry/page.tsx` — 5 paneles visuales protegidos por AuthGuard. Selector de fechas. Proxy via rewrite en `next.config.ts`.
 - **Eventos de telemetría**: 41 eventos (5 obligatorios, 36 oportunidades) definidos en `docs/telemetry/event-schemas.json`.
 
-8. **Reporting Mensual — Supply Performance Pipeline + Dashboard (Oct 2026)**
+9. **Reporting Mensual — Supply Performance Pipeline + Dashboard (Oct 2026)**
 - **Auth Standalone (`services/api/auth_standalone.py`)**: Servidor FastAPI ligero (puerto 8000) para login JWT del backoffice. Evita SQLModel (crash Python 3.14). Usa bcrypt + TinyDB.
 - **Reporting API (`services/reporting/`)**: API FastAPI independiente (puerto 8001) con 3 endpoints JWT-protegidos para KPIs mensuales de suministros por clínica.
 - **Pipeline de datos (`data/pipelines/`)**: Orquestación Prefect 3.8.8 (extract → transform → load) para proceso ETL mensual de telemetry_events a tabla reporting.
