@@ -209,6 +209,44 @@ class TestDatasetCoincideConContexto:
         assert (raw["revenue_usd"] > 0).all()
 
 
+class TestNombresDeFeatures:
+    """Blinda la semántica de los nombres de features (evita nombres engañosos).
+
+    Regresión de auditoría: ``rev_ma_12`` era en realidad un *máximo* rodante
+    (``ma`` sugiere "moving average") y ``rev_mi_12`` un mínimo. Se renombraron
+    a ``rev_max_12`` / ``rev_min_12``. Este test impide reintroducir el error.
+    """
+
+    def test_min_y_max_coinciden_con_pandas(self) -> None:
+        from scripts.sales_forecast.data import prepare_features
+
+        prepared = prepare_features(load_sales(DATA_CSV)).sort_values("month").reset_index(drop=True)
+
+        np.testing.assert_allclose(
+            prepared["rev_min_12"].to_numpy(),
+            prepared["revenue_usd"].rolling(12, min_periods=1).min().to_numpy(),
+        )
+        np.testing.assert_allclose(
+            prepared["rev_max_12"].to_numpy(),
+            prepared["revenue_usd"].rolling(12, min_periods=1).max().to_numpy(),
+        )
+        # Y que el "max" es efectivamente >= que el "min" en todo momento.
+        assert (prepared["rev_max_12"] >= prepared["rev_min_12"]).all()
+
+    def test_no_hay_features_con_nombre_engañoso_ni_codigo_muerto(self) -> None:
+        from scripts.sales_forecast.data import prepare_features
+
+        prepared = prepare_features(load_sales(DATA_CSV))
+        # Nombres antiguos (media rodante disfrazada de máximo) prohibidos.
+        assert "rev_ma_12" not in prepared.columns
+        assert "rev_mi_12" not in prepared.columns
+        # ``year_num`` se calculaba pero nunca fue feature (código muerto): fuera.
+        assert "year_num" not in prepared.columns
+        # Todas las features declaradas existen realmente en el dataframe.
+        missing = [f for f in FEATURES if f not in prepared.columns]
+        assert not missing, f"Features declaradas inexistentes: {missing}"
+
+
 class TestEntrenamientoYPrediccion:
     """Prueba funcional mínima: entrena y predice sin fuga aparente."""
 

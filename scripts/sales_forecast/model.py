@@ -3,7 +3,8 @@
 ¿Por qué XGBoost y no Random Forest aquí? No asumimos que uno es "mejor"
 porque sí; el argumento es específico de este caso:
 
-    1. Tamaño de datos:  ~107 filas de entrenamiento (120 − 13 warm-up). Es un
+    1. Tamaño de datos:  ~84 filas de entrenamiento efectivo (96 meses de
+       2016-01..2023-12 menos 12 de warm-up). Es un
        dataset *pequeño* y de series temporales, con un patrón mixto:
        tendencia de crecimiento (4% ± 2% anual), estacionalidad fuerte
        (Q4 alta, jul-ago baja) y ruido moderado. Random Forest promedia árboles
@@ -24,7 +25,7 @@ porque sí; el argumento es específico de este caso:
        regularización (gamma, l1, l2) que reduce el sobreajuste en series
        cortas.
 
-    4. Tiempo de cómputo:  con ~107 filas y 12 features el coste es
+    4. Tiempo de cómputo:  con ~84 filas y 12 features el coste es
        despreciable en ambos; no es un factor decisivo aquí, pero confirma que
        la *capacidad* extra de XGBoost no penaliza el flujo.
 

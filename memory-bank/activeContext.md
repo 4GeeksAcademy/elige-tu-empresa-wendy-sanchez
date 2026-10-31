@@ -8,7 +8,8 @@
 - **Modelo**: XGBoost regularizado (max_depth=4, lr=0.03, gamma=0.5, L1=0.5, L2=2.0). Justificación vs Random Forest: pocos datos, boosting capta estacionalidad; explicabilidad equivalente; RF sería candidato con más volumen y menos estacionalidad.
 - **Resultados (test 2024-2025)**: RMSE $157.336 (5,60 % del ingreso medio), MAPE 3,65 % (máx 8,85 %), Gini 0,8261, K2/R² 0,8044, PSI nivel 6,03 (alto por crecimiento estructural), PSI crecimiento ajustado 0,2718. Walk-forward RMSE 2024=$138.528, 2025=$137.440 → σ=$137.985, banda ±$270.451, cobertura 21/24 (87,5 %).
 - **Paquete**: `scripts/sales_forecast/{data,metrics,model,visualize}.py` + entrypoint `scripts/train_sales_forecast.py`. Artefactos: `reports/sales_forecast/metrics.json` y `forecast_vs_real.png`.
-- **Tests**: `tests/pipelines/test_sales_forecast_split.py` — 12/12 en verde (split 8/2 y anti-fuga de lags/escalado).
+- **Tests**: `tests/pipelines/test_sales_forecast_split.py` — 14/14 en verde (split 8/2, anti-fuga de lags/escalado, y blindaje de nombres de features).
+- **Auditoría (2026-10-31)**: 7/7 acceptance criteria verificados en ejecución con recálculo independiente. Hallazgos corregidos: (a) `test_escalado_...` era tautológico → reemplazado por reconstrucción exacta `(x−μ_train)/σ_train` y **validado con mutation test** (inyectar `fit(train+test)` hace fallar el test); (b) `rev_ma_12` (máximo rodante con nombre de "moving average") → `rev_max_12`, `rev_mi_12` → `rev_min_12`; (c) docstring decía "~107 filas" → corregido a 84; (d) `year_num` código muerto eliminado. Métricas idénticas bit a bit tras el refactor.
 - **Branch**: `feature/sales-forecast-model`. CONTEXT.md NO modificado (ruta protegida).
 
 ## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)

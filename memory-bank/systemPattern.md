@@ -298,3 +298,33 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - Middleware FastAPI que captura el tiempo de inicio antes de procesar la request y calcula la diferencia después de enviar la respuesta.
 - Loggea al formato: `METODO /ruta → CODIGO (X.XXms)` para permitir identificación de cuellos de botella sin herramientas externas de APM.
 - No interfiere con el flujo de la request ni añade latencia medible.
+
+## Patrones de modelado predictivo (scripts/sales_forecast)
+
+### 48) Patrón: validación temporal honesta en series de tiempo
+- **Split estrictamente cronológico, nunca aleatorio**: se corta por fecha (`TRAIN_END` / `TEST_START`), no con `train_test_split(shuffle=True)`. Un `KFold` aleatorio en una serie con tendencia hace que el modelo "vea el futuro" y produce métricas de fantasía.
+- **Invariantes verificados en código**: `_assert_split_invariants()` exige 7,5–8,5 años de entrenamiento, 1,5–2,5 años de prueba y ausencia de solape temporal. Si el CSV cambia de rango, el pipeline falla ruidosamente en lugar de degradar en silencio.
+- **Escalado ajustado solo con train**: el `StandardScaler` se ajusta con `train[SCALE_COLS]`; aplicar `.fit()` sobre el dataset completo mete media y desviación del futuro en el modelo. Es una fuga sutil, invisible en las métricas, que solo se detecta con un test específico.
+- **Warm-up explícito**: las features de lag (`rev_lag_12`) generan filas nulas al principio de la serie. Se descartan `WARMUP_ROWS=12` filas del inicio del entrenamiento en vez de imputarlas, para no inventar historia.
+
+### 49) Patrón: ingeniería de features causales (solo pasado)
+- Toda feature se calcula con información disponible en el instante `t` o antes: `shift()` para lags, `rolling(window).agg()` cerrado a la izquierda para ventanas, y nunca `.shift(-n)` ni estadísticos globales del dataset.
+- **Rodantes con nombre veraz**: `rev_min_12` y `rev_max_12` se llaman así porque son mínimo y máximo rodante. Un `rolling().max()` llamado `rev_ma_12` (moving average) es un nombre que miente y arruina el mantenimiento.
+- **Sin código muerto**: `year_num` se calculaba y no se usaba; se eliminó. Una feature que no entra al modelo no debe existir en el dataframe.
+- **Test de regresión de nombres**: `test_min_y_max_coinciden_con_pandas` recalcula cada rodante con pandas y compara; `test_no_hay_features_con_nombre_engañoso_ni_codigo_muerto` verifica que `FEATURES` y las columnas calculadas coinciden exactamente.
+
+### 50) Patrón: banda de variabilidad calibrada con errores fuera de muestra
+- **No se usa la desviación de los residuos de entrenamiento**: un modelo sobreajustado tiene residuos de entrenamiento minúsculos y produciría una banda falsamente estrecha.
+- **σ se deriva de la validación walk-forward**: se reentrena el modelo para cada año del periodo de prueba usando solo datos anteriores a ese año, se obtiene el RMSE de cada año, y σ = RMS de esos RMSE (con fallback a la desviación de residuos de train si no hay años suficientes).
+- **Banda = predicción ± 1,96σ**: se dibuja con `fill_between` más dos líneas de contorno, nunca una sola línea de predicción. Se verifica la cobertura empírica (21/24 meses dentro de la banda) y se documenta si no es ~95 %.
+
+### 51) Patrón: tests anti-fuga validados por mutación
+- **Un test verde no prueba nada si es tautológico**: `abs(mean(X_train_scaled)) < 0.15` siempre pasa, porque el escalado con train deja la media de train en 0 por construcción. Ese era el test original y no detectaba fugas.
+- **El arreglo correcto compara dos hipótesis**: se reconstruye `(x − μ_train) / σ_train` del conjunto de prueba y se comprueba que coincide con lo observado (`< 1e-9`) **y** que difiere de la hipótesis con fuga `(μ_test − μ_all) / σ_all` (`> 1e-6`). Así el test falla si el código cambia a `.fit(train + test)`.
+- **Obligatorio mutar antes de confiar**: se inyectó `scaler.fit(pd.concat([train, test]))` en `data.py`, se comprobó que el test **fallaba**, y se restauró el código (12 → 14 tests en verde). Un test anti-fuga que nunca se ha visto fallar no es evidencia.
+
+### 52) Patrón: métricas que sobreviven una conversación con Finanzas
+- **Cada métrica se acompaña de su lectura en dinero o porcentaje**: RMSE se reporta también como % del ingreso mensual medio (5,60 %), no solo en unidades al cuadrado.
+- **MSE** en USD² es correcta pero incomprensible; se documenta con una analogía (promedio de errores al cuadrado) y se acompaña de RMSE, que vuelve a la unidad original.
+- **PSI necesita contexto antes de alarmar**: en una serie con crecimiento sostenido, el PSI de nivel mide el crecimiento. Se reporta el PSI de nivel junto al PSI de crecimiento ajustado (sobre el log del crecimiento interanual) y se explica cuál usar para qué decisión.
+- **Se demuestra que las métricas son de prueba, no de entrenamiento**: train MSE = 51,5 M vs. test MSE = 24.754,8 M y train R² = 0,9996 vs. test R² = 0,8044. La diferencia es la prueba de que no hay autoengaño.

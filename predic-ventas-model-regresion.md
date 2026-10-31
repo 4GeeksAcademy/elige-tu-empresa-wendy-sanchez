@@ -86,7 +86,7 @@ scripts/
     ├── model.py                     # XGBoost + walk-forward + justificación
     └── visualize.py                 # gráfica predicción + banda de variabilidad
 tests/pipelines/
-└── test_sales_forecast_split.py     # 12 tests: split 8/2 y anti-fuga
+└── test_sales_forecast_split.py     # 14 tests: split 8/2, anti-fuga y nombres de features
 reports/sales_forecast/
 ├── forecast_vs_real.png             # entregable visual
 └── metrics.json                     # métricas para dashboard/Finanzas
@@ -126,7 +126,7 @@ Nunca se usa información futura para imputar (`bfill` está prohibido por dise�
 |---|---|---|
 | Retardos | `rev_lag_1`, `rev_lag_2` | Inercia mes a mes |
 | Retardo anual | `rev_lag_12` | Captura **estacionalidad** (mismo mes año anterior) |
-| Rodantes | `rev_ma_3`, `rev_mi_12`, `rev_ma_12`, `rev_std_12` | Nivel, rango y volatilidad del último año |
+| Rodantes | `rev_ma_3`, `rev_min_12`, `rev_max_12`, `rev_std_12` | Nivel, rango y volatilidad del último año |
 | Calendario | `month_num`, `season` | `season` codifica el patrón del CONTEXT: 2=oct-dic (alta), 0=jul-ago (baja), 1=resto |
 | Tendencia | `trend_index` | Meses desde 2016-01 (crecimiento anual 4 %±2 %) |
 | Operativas | `visits_count`, `avg_revenue_per_visit_usd` | Volumen y ticket medio |
@@ -150,7 +150,7 @@ Prueba:        2024-01 .. 2025-12   → 24 meses
   `avg_revenue_per_visit_usd`: se ajusta **solo con el entrenamiento** y se
   aplica a prueba (evita fuga de distribución).
 
-Esto se valida automáticamente con `_assert_split_invariants()` y con 12 tests
+Esto se valida automáticamente con `_assert_split_invariants()` y con 14 tests
 unitarios (ver §7).
 
 ---
@@ -341,7 +341,7 @@ confirma que, en promedio, el error porcentual está en un dígito.
 |---|---:|
 | `visits_count` (volumen de consultas) | 46,5 % |
 | `rev_lag_12` (mismo mes año anterior) | 44,8 % |
-| `rev_ma_12`, `season`, `rev_std_12` | 2,8 % / 1,3 % / 1,0 % |
+| `rev_max_12`, `season`, `rev_std_12` | 2,8 % / 1,3 % / 1,0 % |
 | Resto | <1 % cada una |
 
 **Traducción no técnica:** el modelo aprende que los ingresos dependen
@@ -352,11 +352,11 @@ meses del año pasado**. La estacionalidad es explícita, no una caja negra.
 
 ## 7. Pruebas y validación anti-fuga
 
-Archivo: **`tests/pipelines/test_sales_forecast_split.py`** → **12 tests en verde**.
+Archivo: **`tests/pipelines/test_sales_forecast_split.py`** → **14 tests en verde**.
 
 ```bash
 uv run python -m pytest tests/pipelines/test_sales_forecast_split.py -v
-# 12 passed
+# 14 passed
 ```
 
 Cubren el criterio no negociable del hito:
@@ -368,13 +368,31 @@ Cubren el criterio no negociable del hito:
 | `test_no_hay_solape_temporal` | Intersección de meses train ∩ test = vacía |
 | `test_corte_es_estrictamente_cronologico` | `train.max < test.min` |
 | `test_no_hay_fuga_en_features_de_lag` | `rev_lag_1[t] = rev[t-1]` y `rev_lag_12[t] = rev[t-12]`; las 12 primeras filas de `lag_12` son NaN (warm-up, no entran) |
-| `test_escalado_ajustado_solo_con_entrenamiento` | La columna escalada de train queda centrada (media ~0) → el scaler se ajustó con train |
+| `test_escalado_ajustado_solo_con_entrenamiento` | Reconstruye `(x−μ_train)/σ_train` con tolerancia 1e-9 en train **y** test, y discrimina contra la hipótesis de fuga (`fit` con train+test) |
 | `test_columnas_esperadas` | Cabecera exacta del CONTEXT.md |
 | `test_solo_serie_consolidada` | Solo `region == consolidated` |
 | `test_120_meses_sin_huecos` | 120 filas monotónicas |
 | `test_revenue_positivo` | `revenue_usd > 0` |
 | `test_target_es_revenue_usd` | El target es la columna correcta |
 | `test_prediccion_fuera_de_muestra_tiene_24_meses` | Predice 24 meses finitos y en orden de magnitud correcto |
+| `test_min_y_max_coinciden_con_pandas` | `rev_min_12`/`rev_max_12` coinciden con `rolling(12).min()/.max()` de pandas |
+| `test_no_hay_features_con_nombre_engañoso_ni_codigo_muerto` | Prohíbe `rev_ma_12`/`rev_mi_12`/`year_num`; todas las `FEATURES` existen de verdad |
+
+### 7.1 Hallazgos de la auditoría (todos corregidos)
+
+La auditoría se hizo sobre el **código y la ejecución**, no sobre este documento,
+con recálculo independiente de cada métrica y un *mutation test*:
+
+| Hallazgo | Severidad | Corrección |
+|---|---|---|
+| `test_escalado_...` comprobaba `mean(X_train escalado) ≈ 0`, una **tautología** que siempre pasa | Alta | Reemplazado por reconstrucción exacta de `(x−μ_train)/σ_train` + discriminante contra la hipótesis de fuga. **Validado con mutation test**: al inyectar `scaler.fit(concat(train, test))` el test falla |
+| `rev_ma_12` era un **máximo** rodante (`ma` sugiere "moving average") | Media | Renombrado a `rev_max_12`; `rev_mi_12` → `rev_min_12`. Métricas idénticas bit a bit tras el cambio |
+| Docstring afirmaba "~107 filas de entrenamiento (120 − 13 warm-up)" | Baja | Corregido a **84 filas** (96 meses − 12 warm-up) |
+| `year_num` se calculaba y nunca se usaba | Baja | Eliminado (código muerto). Nuevo test impide reintroducirlo |
+
+> **Verificación de invariancia:** tras renombrar features, el pipeline
+> reprodujo exactamente los mismos valores (MSE 24 754 766 765,26 · RMSE
+> 157 336,48 · MAPE 3,646 · PSI 6,032498 · Gini 0,826087 · K2 0,804383).
 
 ---
 
@@ -426,7 +444,7 @@ uv run python -m pytest tests/pipelines/test_sales_forecast_split.py -v
 | Requisito del CONTEXT.md | Dónde se cumple |
 |---|---|
 | Script de entreno en `scripts/` que carga el CSV | `scripts/train_sales_forecast.py` |
-| Primeros 8 años entreno / 2 últimos prueba | `data.py::temporal_split_and_scale` + 12 tests |
+| Primeros 8 años entreno / 2 últimos prueba | `data.py::temporal_split_and_scale` + 14 tests |
 | Features causales de lag/rodantes/calendario sin fuga | `data.py::_add_causal_features` + test de lag |
 | XGBoost o Random Forest con las 4 métricas | `model.py` (XGBoost) + `metrics.py` (MSE, PSI, Gini, K2; MAPE adicional) |
 | MSE en USD² **y** como % del ingreso medio | `metrics.py::mse_as_pct_of_avg_revenue` |

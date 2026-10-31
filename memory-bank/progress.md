@@ -2,6 +2,20 @@
 
 ## Estado actual del desarrollo
 
+### Modelo de pronóstico de ventas — Regresión con XGBoost (2026-10-31)
+- **Completado**: pipeline completo de pronóstico de ingresos mensuales en `scripts/sales_forecast/{data,metrics,model,visualize}.py` con entrypoint `scripts/train_sales_forecast.py` (7 pasos: carga → validación → features → split → entrenamiento → métricas → gráfico).
+- **Completado**: split temporal estricto 8 años/2 años — entrenamiento 2016-01..2023-12 (96 meses − 12 de warm-up = 84 efectivos) y prueba 2024-01..2025-12 (24 meses que el modelo nunca vio). Invariantes verificados en código con `_assert_split_invariants()`.
+- **Completado**: features causales solo con información pasada — `rev_lag_1`, `rev_lag_2`, `rev_lag_12`, `rev_ma_3`, `rev_min_12`, `rev_max_12`, `rev_std_12`, `month_num`, `season`, `trend_index`, `visits_count`, `avg_revenue_per_visit_usd`. `StandardScaler` ajustado SOLO con el conjunto de entrenamiento.
+- **Completado**: XGBoost regularizado (`max_depth=4`, `lr=0.03`, `gamma=0.5`, `reg_alpha=0.5`, `reg_lambda=2.0`, `random_state=42`) con justificación escrita frente a Random Forest.
+- **Completado**: las 4 métricas exigidas calculadas sobre el conjunto de prueba — MSE 24.754.766.765,26 USD² (= 5,6032 % del ingreso medio mensual al cuadrado), PSI de nivel 6,0325 y PSI de crecimiento ajustado 0,2718, Gini predictivo 0,8261, K2/R² 0,8044. Añadida MAPE 3,646 % (peor mes 8,849 %).
+- **Completado**: visualización con banda de variabilidad ±1,96σ = ±$270.451 (σ = $137.985 calculada como RMS de los RMSE walk-forward). Cobertura empírica 21/24 meses (87,5 %).
+- **Completado**: validación walk-forward que reentrena por año (RMSE 2024 = $138.528, 2025 = $137.440) usando solo datos anteriores a cada año.
+- **Completado**: artefactos exportados a `reports/sales_forecast/metrics.json` y `forecast_vs_real.png`; documentación íntegra en `predic-ventas-model-regresion.md`.
+- **Tests**: `tests/pipelines/test_sales_forecast_split.py` — **14/14 en verde** (6 de split/anti-fuga, 5 de invariantes del dataset, 2 de regresión de nombres de features, 1 de predicción fuera de muestra).
+- **Auditoría (2026-10-31)**: **7/7 acceptance criteria ✅** verificados en ejecución con recálculo independiente de las métricas (no se confió en la documentación). Hallazgos corregidos: (a) `test_escalado_ajustado_solo_con_entrenamiento` era tautológico → reemplazado por reconstrucción exacta `(x−μ_train)/σ_train` comparada contra la hipótesis con fuga, **validado con mutation test** (inyectar `fit(train+test)` hace fallar el test); (b) `rev_ma_12` era un máximo rodante con nombre de media móvil → renombrado a `rev_max_12`, `rev_mi_12` → `rev_min_12`; (c) docstring decía "~107 filas" → corregido a 84; (d) `year_num` era código muerto → eliminado. Métricas reproducidas idénticas bit a bit tras el refactor.
+- **Hallazgo documentado, no corregido (correcto por diseño)**: el PSI de nivel es alto (6,03) porque el ingreso medio crece de $2,81 M (train) a $3,37 M (test). No es una fuga ni un fallo del modelo: en una serie con crecimiento estructural el PSI de nivel mide el crecimiento. Se añadió el PSI de crecimiento ajustado (0,2718 → "moderado") y se redujeron los bins de 10 a 5 porque con solo 12 puntos de crecimiento los bins de 10 dejaban ~1 observación por bin y el ruido inflaba el valor.
+- **Branch**: `feature/sales-forecast-model`. `CONTEXT.md` **NO modificado** (ruta protegida); el script valida contra él pero no lo edita.
+
 ### Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
 - **Completado**: Sistema de cola de tareas asíncronas para desacoplar operaciones pesadas de la API usando Redis como broker y Celery como framework de tareas.
 - **Completado**: `services/celery_app.py` — instancia Celery con Redis como broker y result backend, tarea `analyze_incidents_csv`, clase base `HealthCoreTask` con DLQ automática en `on_failure`.
@@ -250,6 +264,10 @@
 - **Python 3.14 + SQLModel 0.0.48**: `TypeError: issubclass()` impide que la API principal arranque. Solución temporal: servicios standalone (auth_standalone.py, reporting API, telemetry server). No hay solución compatible con SQLModel en Python 3.14.
 - **Prefect 3.8.8**: `@flow` objects no tienen `.submit()`. Las flows deben llamarse directamente. Documentado en flows.py con try/except.
 - **Supabase PgBouncer**: Prepared statement cache conflict en queries repetidas. Usar raw SQL en lugar de named parameters donde sea necesario.
+- **Pronóstico de ventas**: el PSI de nivel es estructuralmente alto (6,03) por el crecimiento del negocio. Si alguien lo lee en aislamiento lo interpretará como un modelo roto; siempre hay que leerlo junto al PSI de crecimiento ajustado (0,2718).
+- **Pronóstico de ventas**: la banda de ±1,96σ cubre 21/24 meses (87,5 %), por debajo del 95 % nominal. Con n=24 la estimación de σ es ruidosa; la banda es una guía de magnitud, no un intervalo de confianza formal.
+- **Pronóstico de ventas**: el modelo no conoce variables exógenas (campañas, aperturas de clínica, cambios de tarifa). Su error explotará si el negocio cambia de régimen.
+- **Pronóstico de ventas**: el pipeline se ejecuta como script, no hay endpoint ni dashboard; la reutilización desde otro servicio requeriría exponer `train_sales_model()` detrás de una API.
 
 ## Próximos pasos previstos
 1. Documentar el tracker con README especifico de dominio (setup, variables de entorno, endpoints, flujo funcional).
@@ -263,3 +281,6 @@
 9. **Migrar a Redis** si el deployment escala a múltiples workers (la caché en memoria actual no comparte estado entre workers).
 10. **Implementar stale-while-revalidate** en el frontend para peticiones GET al servidor.
 11. **Evaluar SWR/TanStack Query** como sustituto de `useMemo` + fetch manual para caché de red con revalidación automática.
+12. **Pronóstico de ventas — automatizar la reejecución**: encadenar `scripts/train_sales_forecast.py` al proceso nocturno o a un cron mensual para que la banda y las métricas se refresquen con los datos nuevos, y versionar `metrics.json` para detectar degradación entre ejecuciones.
+13. **Pronóstico de ventas — incorporar variables exógenas**: altas de clínica, campañas de captación y cambios de tarifa explicarían parte del error residual que hoy queda en la banda.
+14. **Pronóstico de ventas — comparar contra un baseline**: un modelo sencillo (media móvil o regresión lineal con estacionalidad) como referencia haría el informe defendible también en la dirección contraria ("¿de verdad necesitamos XGBoost?").

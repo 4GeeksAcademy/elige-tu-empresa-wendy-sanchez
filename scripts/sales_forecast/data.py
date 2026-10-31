@@ -151,7 +151,6 @@ def _add_causal_features(df: pd.DataFrame) -> pd.DataFrame:
       vacaciones; resto moderado).
     - ``trend_index`` = nº de meses desde 2016-01 (captura el crecimiento
       anual base del 4% ± 2% descrito en CONTEXT.md §4).
-    - features de calendario horarias/días que aportan al árbol.
     """
     df = df.copy()
 
@@ -162,13 +161,12 @@ def _add_causal_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- estadísticas rodantes (solo historia) -----------------------------
     df["rev_ma_3"] = df["revenue_usd"].rolling(3, min_periods=1).mean()
-    df["rev_mi_12"] = df["revenue_usd"].rolling(12, min_periods=1).min()
-    df["rev_ma_12"] = df["revenue_usd"].rolling(12, min_periods=1).max()
+    df["rev_min_12"] = df["revenue_usd"].rolling(12, min_periods=1).min()
+    df["rev_max_12"] = df["revenue_usd"].rolling(12, min_periods=1).max()
     df["rev_std_12"] = df["revenue_usd"].rolling(12, min_periods=1).std()
 
     # --- calendario / estacionalidad --------------------------------------
     df["month_num"] = df["month"].dt.month
-    df["year_num"] = df["month"].dt.year
     # Estacionalidad del CONTEXT.md §4: Q4 = alta (gripe/fin de año),
     # jul-ago = baja (vacaciones), resto = moderada.
     df["season"] = df["month_num"].map(_season_code)
@@ -201,8 +199,8 @@ FEATURES = [
     "rev_lag_2",
     "rev_lag_12",
     "rev_ma_3",
-    "rev_mi_12",
-    "rev_ma_12",
+    "rev_min_12",
+    "rev_max_12",
     "rev_std_12",
     "month_num",
     "season",
