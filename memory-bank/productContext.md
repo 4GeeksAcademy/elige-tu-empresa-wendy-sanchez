@@ -67,6 +67,17 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Demo Data**: 10 clínicas (5 US + 5 UK) con datos de Octubre 2026 insertados en Supabase PostgreSQL.
 - **Cadena E2E verificada**: Login → JWT → Reporting API → Dashboard con datos y nombres de clínica.
 
+10. **Modelo de pronóstico de ventas — Regresión con XGBoost (Oct 2026)**
+- **Qué entrega**: pronóstico de ingresos mensuales de HealthCore para los 24 meses del bienio 2024-2025, comparado contra la realidad, con banda de variabilidad. Herramienta de planificación para Finanzas, no un dashboard en vivo (no hay endpoint; se ejecuta como script).
+- **Dataset**: `data/raw/healthcore_sales.csv` provisto en el escenario (no simulado), serie `consolidated`, 120 meses desde 2016-01 hasta 2025-12. El script valida columnas, rango de fechas, ausencia de huecos y unicidad de la serie consolidada antes de entrenar.
+- **Split 8/2**: entrenamiento 2016-01..2023-12 (96 meses, de los que 12 se descartan como warm-up de lags → 84 efectivos); prueba 2024-01..2025-12 (24 meses que el modelo nunca ve). No hay mezcla aleatoria: el corte es estrictamente cronológico.
+- **Features (12)**: lags (`rev_lag_1`, `rev_lag_2`, `rev_lag_12`), ventanas rodantes (`rev_ma_3`, `rev_min_12`, `rev_max_12`, `rev_std_12`), calendario (`month_num`, `season`, `trend_index`) y drivers operativos (`visits_count`, `avg_revenue_per_visit_usd`). Todas miran solo hacia atrás.
+- **Modelo**: XGBoost regularizado (`max_depth=4`, `learning_rate=0.03`, `gamma=0.5`, `reg_alpha=0.5`, `reg_lambda=2.0`, `random_state=42`). Se eligió sobre Random Forest por el tamaño de muestra (84 filas) y la estacionalidad marcada del negocio; la comparación razonada está en la documentación.
+- **Métricas (sobre prueba)**: RMSE $157.336 (5,60 % del ingreso mensual medio), MAPE 3,65 % (peor mes 8,85 %), Gini predictivo 0,8261, K2/R² 0,8044, PSI de nivel 6,03 (alto por crecimiento estructural, no por deriva de distribución) y PSI de crecimiento ajustado 0,2718.
+- **Banda de variabilidad**: ±$270.451 (±1,96σ) con σ = $137.985 derivada de la validación walk-forward (RMSE 2024 = $138.528, 2025 = $137.440). Cobertura empírica: 21 de 24 meses dentro de la banda (87,5 %).
+- **Artefactos**: `reports/sales_forecast/metrics.json` (métricas completas para consumo automático) y `reports/sales_forecast/forecast_vs_real.png` (predicción vs. real con banda).
+- **Documentación**: `predic-ventas-model-regresion.md` — justificación del algoritmo, definición de cada métrica en lenguaje explicable a Finanzas, tabla de resultados, lectura mes a mes, limitaciones y trazabilidad contra CONTEXT.md.
+
 ## Usuarios clave
 - Pacientes potenciales de HealthCore (especialmente mercado bilingue en EE. UU.).
 - Equipo de recepción y experiencia del paciente.
@@ -102,6 +113,9 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Incidencias**: no deben almacenar datos identificativos de pacientes (solo ID interno opaco). El campo description debe mostrar advertencia sobre no incluir PHI.
 - **Inventario**: `current_stock` siempre se calcula (nunca almacenado). No se puede registrar un consumo que resulte en stock negativo (HTTP 400). `consumption_type` solo acepta `"clinical_use"` o `"expiry_waste"`. Los datos de inventario son operativos, no PHI.
 - **Arquitectura dual de base de datos**: usuarios/autenticación en TinyDB, datos de inventario en Supabase PostgreSQL con SQLModel. No hay tabla de usuarios en SQLModel — `user_uuid` referencia TinyDB.
+- **Pronóstico de ventas**: el conjunto de prueba (2024-2025) es intocable durante el entrenamiento y el ajuste de hiperparámetros. Cualquier métrica reportada como rendimiento del modelo debe calcularse sobre ese conjunto, nunca sobre el de entrenamiento.
+- **Pronóstico de ventas**: el escalado (`StandardScaler`) se ajusta únicamente con datos de entrenamiento; ajustarlo con todo el histórico introduciría información del futuro en el modelo.
+- **Pronóstico de ventas**: un PSI de nivel alto no invalida el modelo por sí solo — en una serie con crecimiento estructural mide el crecimiento, no la rotura del supuesto. Se reporta siempre junto al PSI de crecimiento ajustado.
 
 ## Criterios de experiencia de usuario
 - Sin recargas completas para filtrar/buscar en tracker.

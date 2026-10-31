@@ -135,6 +135,11 @@
 28. **Telemetría — servidor standalone para evitar SQLModel crash**: La API principal (`services/api/main.py`) no arranca en Python 3.14 porque SQLModel 0.0.42 causa `TypeError: issubclass() arg 1 must be a class`. La solución no es degradar Python sino crear `services/telemetry/server_standalone.py` que no importa `models.py`. Este servidor coexiste en el mismo puerto 8000 y sirve telemetría + auth.
 29. **Telemetría — seed de usuarios autónomo**: `seed_auth_users.py` es un script independiente que escribe en TinyDB sin depender de `models.py` ni de `database.py`. Usa passlib directamente para hashear contraseñas. Esto evita el crash de SQLModel al importar modelos. Los usuarios se escriben en la tabla `users` de `data/process/suppliers_db.json`.
 30. **Telemetría — dashboard sin route handler intermedio**: A diferencia de auth/suppliers que usan route handlers Next.js con lógica server-side, el dashboard de telemetría usa un rewrite directo en `next.config.ts`. Esto es más simple y evita bugs como el anterior `base.protocol` (propiedad URL inválida en JavaScript). El rewrite `/api/telemetry/report` → `http://localhost:8000/telemetry/report` resuelve la llamada en servidor sin código intermedio.
+31. **Pronóstico de ventas — XGBoost sobre Random Forest**: Con 84 filas efectivas de entrenamiento y estacionalidad trimestral marcada, el boosting regularizado (`max_depth=4`, `learning_rate=0.03`, `gamma=0.5`, L1=0.5, L2=2.0) maneja mejor el sesgo que un bosque de árboles independientes, que necesita más volumen para promediar varianza. Random Forest sigue siendo el candidato natural si el histórico crece y la estacionalidad se diluye; la decisión está argumentada por escrito en `predic-ventas-model-regresion.md` en lugar de asumirse.
+32. **Pronóstico de ventas — política anti-fuga de datos**: split estrictamente cronológico 8/2 (sin `shuffle`), features exclusivamente causales (lags y rodantes que miran solo al pasado), `StandardScaler` ajustado únicamente con el conjunto de entrenamiento, warm-up de 12 filas descartado en lugar de imputado, y validación walk-forward que reentrena cada año con datos anteriores a ese año. Cualquier atajo que use el conjunto de prueba para ajustar algo rompe la validez del informe.
+33. **Pronóstico de ventas — banda calibrada fuera de muestra**: la incertidumbre no se toma de los residuos de entrenamiento (optimistas por definición en un modelo regularizado) sino del RMS de los RMSE de la validación walk-forward. Se reporta la cobertura empírica de la banda (±1,96σ → 21/24 = 87,5 %) para que el lector sepa cuánto fiarse.
+34. **Pronóstico de ventas — tests anti-fuga validados por mutación**: la suite incluye un test que reconstruye `(x−μ_train)/σ_train` y lo compara contra la hipótesis con fuga. Se validó inyectando un `.fit(train + test)` real en `data.py` y comprobando que el test fallaba; sin esa mutación, un test verde no es evidencia.
+35. **Pronóstico de ventas — nombres veraces en features y métricas**: `rev_min_12`/`rev_max_12` sustituyen a nombres heredados que describían mal la operación, y el PSI se reporta en dos variantes (nivel y crecimiento ajustado) porque en una serie con crecimiento estructural el PSI de nivel mide la tendencia, no una rotura del modelo.
 
 ## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
 
@@ -361,3 +366,30 @@ La API principal (`services/api/main.py`) no arranca en Python 3.14 por incompat
 - Tabla de KPIs y resumen visual.
 - Proxy en `next.config.ts`: `/api/reporting/:path*` → `http://localhost:8001/reporting/:path*`.
 - **Fix JWT**: Reemplazado `fetch(url)` por `request<T>(url)` (httpClient.ts) para incluir Bearer token.
+
+## Modelo de pronóstico de ventas (`scripts/sales_forecast/`)
+
+### Stack
+- **Gestor de paquetes**: `uv` 0.13.5 (proyecto propio en la raíz con `uv init --bare --name healthcore-sales-forecast`). Prohibido `pip install` y `pipenv`.
+- **Python 3.14.2** (`.venv/bin/python`), `requires-python = ">=3.14"`.
+- **pandas 3.1.0** — carga, validación e ingeniería de features.
+- **scikit-learn 1.9.1** — `StandardScaler`, `r2_score` (base del K2).
+- **xgboost 3.4.1** — `XGBRegressor` con `tree_method="hist"`.
+- **matplotlib 3.11.2** — backend `Agg` (sin display en CI/Codespaces), gráfico con `fill_between`.
+- **pytest 9.2.0** — suite de `tests/pipelines/`.
+
+### Módulos
+- **`data.py`**: constantes (`EXPECTED_COLUMNS`, `DATE_START`, `DATE_END`, `TEST_START`, `TRAIN_END`, `SCALE_COLS`, `WARMUP_ROWS=12`, `FEATURES`), `load_sales()`, `_fill_missing_values()`, `_add_causal_features()`, `_season_code()`, `prepare_features()`, `temporal_split_and_scale()`, `build_train_test_sets()`, `_assert_split_invariants()`.
+- **`metrics.py`**: `mse()`, `rmse()`, `mape()`, `psi()`, `psi_growth_adjusted()`, `gini_predictive()`, `k2_score()`, `metrics_table()`. Umbrales `PSI_STABLE=0.10`, `PSI_MODERATE=0.25`.
+- **`model.py`**: `train_sales_model()` → `ForecastResult(model, y_train_pred, y_test_pred, test_months, test_real, metrics, feature_importance, walk_forward_rmse_by_year)`; `_walk_forward_validation()` reentrena por año con su propio scaler.
+- **`visualize.py`**: `uncertainty_sigma()` (RMS de los RMSE walk-forward) y `plot_forecast_with_band()` (`ALPHA=1.96`).
+- **`scripts/train_sales_forecast.py`**: entrypoint de 7 pasos que imprime el resumen para Finanzas y exporta artefactos.
+
+### Datos y artefactos
+- **Entrada**: `data/raw/healthcore_sales.csv` (provisto en el escenario, no generado). 120 filas, serie `consolidated`, 2016-01..2025-12.
+- **Salida**: `reports/sales_forecast/metrics.json` y `reports/sales_forecast/forecast_vs_real.png`.
+- **Documentación**: `predic-ventas-model-regresion.md`.
+
+### Comandos
+- Entrenar y generar artefactos: `uv run scripts/train_sales_forecast.py` (o `uv run python scripts/train_sales_forecast.py`).
+- Tests del split: `uv run pytest tests/pipelines/test_sales_forecast_split.py -v`.
