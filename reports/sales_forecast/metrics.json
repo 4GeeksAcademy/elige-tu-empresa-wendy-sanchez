@@ -1,0 +1,40 @@
+{
+  "project": "HealthCore Sales Forecast",
+  "target": "revenue_usd",
+  "split": {
+    "train": "2016-01..2023-12",
+    "test": "2024-01..2025-12"
+  },
+  "n_train": 84,
+  "n_test": 24,
+  "model": "XGBoost (regularizado)",
+  "metrics_test": {
+    "mse_usd2": 24754766765.26,
+    "rmse_usd": 157336.48,
+    "mse_pct_avg_monthly_revenue": 5.6032,
+    "mape_pct": 3.646,
+    "psi": 6.032498,
+    "psi_growth_adjusted": 0.271788,
+    "gini": 0.826087,
+    "k2": 0.804383
+  },
+  "walk_forward_rmse_by_year_usd": {
+    "2024": 138527.89,
+    "2025": 137439.98
+  },
+  "feature_importance_pct": {
+    "visits_count": 46.5099983215332,
+    "rev_lag_12": 44.7599983215332,
+    "rev_ma_12": 2.799999952316284,
+    "season": 1.2999999523162842,
+    "rev_std_12": 1.0099999904632568,
+    "avg_revenue_per_visit_usd": 0.9100000262260437,
+    "rev_ma_3": 0.8899999856948853,
+    "rev_mi_12": 0.7300000190734863,
+    "month_num": 0.47999998927116394,
+    "rev_lag_2": 0.2199999988079071,
+    "rev_lag_1": 0.20999999344348907,
+    "trend_index": 0.18000000715255737
+  },
+  "plot": "reports/sales_forecast/forecast_vs_real.png"
+}

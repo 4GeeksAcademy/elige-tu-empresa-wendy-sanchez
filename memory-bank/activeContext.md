@@ -1,5 +1,16 @@
 # Active Context
 
+## Modelo de pronóstico de ventas — Regresión con XGBoost (2026-10-31)
+- **Entregable**: pronóstico honesto de ingresos mensuales de HealthCore, con split temporal 8 años/2 años, 4 métricas exigidas (MSE, PSI, Gini, K2) + MAPE, y visualización con banda de variabilidad. Documentado íntegro en `predic-ventas-model-regresion.md`.
+- **Entorno**: `uv 0.13.5` (`uv init --bare --name healthcore-sales-forecast`), Python 3.14, pandas 3.1, scikit-learn 1.9.1, xgboost 3.4.1, matplotlib 3.11.2, pytest 9.2.0. Nunca `pip install` ni `pipenv`.
+- **Datos**: `data/raw/healthcore_sales.csv` (provisto, no simulado), serie `consolidated`, 120 meses 2016-01..2025-12.
+- **Split sin fuga**: entreno 2016-01..2023-12 (96 meses − 12 de warm-up = 84), prueba 2024-01..2025-12 (24). `StandardScaler` ajustado SOLO con train. Features causales (lags/rodantes mirando solo atrás).
+- **Modelo**: XGBoost regularizado (max_depth=4, lr=0.03, gamma=0.5, L1=0.5, L2=2.0). Justificación vs Random Forest: pocos datos, boosting capta estacionalidad; explicabilidad equivalente; RF sería candidato con más volumen y menos estacionalidad.
+- **Resultados (test 2024-2025)**: RMSE $157.336 (5,60 % del ingreso medio), MAPE 3,65 % (máx 8,85 %), Gini 0,8261, K2/R² 0,8044, PSI nivel 6,03 (alto por crecimiento estructural), PSI crecimiento ajustado 0,2718. Walk-forward RMSE 2024=$138.528, 2025=$137.440 → σ=$137.985, banda ±$270.451, cobertura 21/24 (87,5 %).
+- **Paquete**: `scripts/sales_forecast/{data,metrics,model,visualize}.py` + entrypoint `scripts/train_sales_forecast.py`. Artefactos: `reports/sales_forecast/metrics.json` y `forecast_vs_real.png`.
+- **Tests**: `tests/pipelines/test_sales_forecast_split.py` — 12/12 en verde (split 8/2 y anti-fuga de lags/escalado).
+- **Branch**: `feature/sales-forecast-model`. CONTEXT.md NO modificado (ruta protegida).
+
 ## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
 - **Entregable**: Sistema de cola de tareas asíncronas para desacoplar operaciones pesadas de la API, utilizando **Redis como broker** y **Celery como framework de tareas**.
 - **Arquitectura**: FastAPI (Productor) → Redis (Broker) → Celery Worker (Consumidor) → TinyDB (DLQ). Flower como monitor en tiempo real.
