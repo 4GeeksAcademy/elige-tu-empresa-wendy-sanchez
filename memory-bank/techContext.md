@@ -141,6 +141,11 @@
 34. **Pronóstico de ventas — tests anti-fuga validados por mutación**: la suite incluye un test que reconstruye `(x−μ_train)/σ_train` y lo compara contra la hipótesis con fuga. Se validó inyectando un `.fit(train + test)` real en `data.py` y comprobando que el test fallaba; sin esa mutación, un test verde no es evidencia.
 35. **Pronóstico de ventas — nombres veraces en features y métricas**: `rev_min_12`/`rev_max_12` sustituyen a nombres heredados que describían mal la operación, y el PSI se reporta en dos variantes (nivel y crecimiento ajustado) porque en una serie con crecimiento estructural el PSI de nivel mide la tendencia, no una rotura del modelo.
 
+36. **Pronóstico de ventas — corrección de fuga en rolling features (2026-11-02)**: `rev_ma_3`, `rev_min_12`, `rev_max_12`, `rev_std_12` aplican `shift(1)` antes de `rolling()` para excluir `revenue_usd[t]`. Sin esta corrección constituían fuga de datos.
+37. **Pronóstico de ventas — descomposición aditiva**: `decompose_time_series()` en `visualize.py` separa la serie en tendencia (media rodante 12m), estacional (perfil mensual) y residual. Las fuerzas se miden como varianza relativa.
+38. **Pronóstico de ventas — comparador antes/después**: `compare_before_after.py` entrena el modelo con y sin la fuga para generar evidencia visual del impacto. La imagen se referencia en la documentación §11.6.
+39. **Pronóstico de ventas — tests de causalidad anti-fuga rodantes**: 5 nuevos tests en `TestCausalidadAntiFugaRodantes` que verifican que cada rolling feature NO contenga el target del mes `t`. El test existente `test_min_y_max_coinciden_con_pandas` se actualizó a `test_min_y_max_coinciden_con_pandas_y_shift` para verificar contra `shift(1)+rolling()`.
+
 ## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
 
 ### Arquitectura

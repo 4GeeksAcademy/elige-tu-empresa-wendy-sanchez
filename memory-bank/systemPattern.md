@@ -198,6 +198,33 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 ### 37) Patrón: Cola de Tareas Asíncronas — Productor-Consumidor (Redis + Celery)
 - **FastAPI actúa como Productor**: recibe la solicitud HTTP, crea un mensaje ligero (solo metadatos y referencias, nunca blobs completos), y lo deposita en la cola Redis mediante `task.delay()`. Responde **202 Accepted** inmediatamente con `task_id` y `status: PENDING`. Incluye header `Location: /tasks/{task_id}`.
 - **Redis actúa como Broker y Result Backend**: almacena mensajes en memoria con persistencia AOF. Política `noeviction` para garantizar que nunca se descartan mensajes por falta de memoria. Configurado con `--appendonly yes --maxmemory-policy noeviction`.
+
+## Patrones de pronóstico de ventas (XGBoost)
+
+### 38) Patrón: anti-fuga en features rodantes — shift(1) antes de rolling()
+- Toda feature que use `rolling()` sobre el target debe aplicar `shift(1)` antes del rolling para excluir el valor del mes `t` (el target que se está prediciendo).
+- Implementación: `rev_shifted = df["revenue_usd"].shift(1)` y luego `rev_shifted.rolling(window=3).mean()`, etc.
+- Sin `shift(1)`, las features `rev_ma_3`, `rev_min_12`, `rev_max_12` y `rev_std_12` incluyen `revenue_usd[t]`, constituyendo fuga de datos. La corrección es una sola línea por feature y no afecta significativamente las métricas (−1,5 % RMSE) cuando el modelo no depende de la fuga.
+
+### 39) Patrón: descomposición aditiva del target para diagnóstico
+- La función `decompose_time_series()` en `visualize.py` descompone la serie temporal en tres componentes aditivos:
+  1. **Tendencia**: media rodante de 12 meses (ventana centrada).
+  2. **Estacional**: perfil mensual promedio (desviación del mes respecto a la tendencia, promediada entre todos los años).
+  3. **Residual**: lo que queda tras restar tendencia y estacionalidad.
+- La función `plot_decomposition()` genera una figura de 4 paneles (original, tendencia, estacional, residual) y guarda `decomposition.png`.
+- Las fuerzas relativas se miden como la varianza de cada componente dividida por la varianza total de la serie.
+
+### 40) Patrón: justificación de features de negocio como riesgo
+- `visits_count` y `avg_revenue_per_visit_usd` son **componentes del target** (`revenue_usd = visits_count × avg_revenue_per_visit_usd`), no drivers independientes.
+- Aunque tienen importancia combinada del ~49,8 %, no son conocibles en `t−1` para un forecast real — si se usan, el modelo necesita sus valores pronosticados por separado.
+- El análisis de justificación se integra como paso 9 del pipeline y se exporta a `metrics.json` bajo `features_justification`.
+
+### 41) Patrón: comparativa antes/después como herramienta de auditoría
+- `scripts/sales_forecast/compare_before_after.py` replica intencionalmente el bug (`_add_causal_features_with_fuga()`) y entrena un segundo modelo con la corrección, generando una gráfica de 2 paneles:
+  - **Panel superior**: predicciones de ambos modelos solapadas sobre los datos reales.
+  - **Panel inferior**: diferencia de error absoluto mes a mes, con media discontinua para cada modelo.
+- Esto proporciona evidencia visual del impacto real de la corrección, que en este caso fue pequeño (−1,54 % RMSE) pero demostrable.
+- La imagen generada (`forecast_comparison_before_after.png`) se incorpora a la documentación en §11.6.
 - **Celery Worker actúa como Consumidor**: proceso independiente (contenedor Docker separado) que escucha la cola, toma mensajes de uno en uno y los procesa. Corre con `concurrency=4` y flag `-E` para emitir eventos a Flower.
 - **Flower actúa como Monitor**: interfaz web en `http://localhost:5555` para inspeccionar colas, workers y tareas en tiempo real. Requiere que el worker arranque con `-E` (events).
 - **Dead Letter Queue (DLQ)**: las tareas que fallan tras `max_retries=3` se persisten en TinyDB (`data/process/task_dlq.json`) con `task_id`, `task_name`, `attempt`, `error`, `exc_type`, `args`, `kwargs`, `timestamp`. El endpoint `GET /tasks/{task_id}` consulta automáticamente la DLQ cuando el estado es `failure`.

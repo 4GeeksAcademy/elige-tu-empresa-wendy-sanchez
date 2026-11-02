@@ -108,3 +108,147 @@ def plot_forecast_with_band(
     plt.close(fig)
 
     return out_path
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  Descomposición aditiva: tendencia + estacionalidad + residuo
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+def decompose_time_series(
+    df: pd.DataFrame,
+    revenue_col: str = "revenue_usd",
+    period: int = 12,
+) -> dict[str, np.ndarray | float]:
+    """Descomposición aditiva clásica de serie temporal.
+
+    Separa la serie en tres componentes:
+        ``serie = tendencia + estacionalidad + residuo``
+
+    Metodología:
+        1. **Tendencia**: media móvil centrada de ``period`` meses (ventana
+           completa, centrada, para suavizar la estacionalidad anual).
+        2. **Estacionalidad**: para cada mes (1-12), promedio de
+           ``(serie − tendencia)`` en ese mes de todos los años.
+        3. **Residuo**: lo que queda tras restar tendencia y estacionalidad.
+
+    Parámetros:
+        df: DataFrame con columna ``month`` (datetime) y ``revenue_col``.
+        revenue_col: nombre de la columna a descomponer.
+        period: ventana de descomposición (12 para estacionalidad anual).
+
+    Devuelve:
+        ``{"trend": ndarray, "seasonal": ndarray, "residual": ndarray,
+          "full": ndarray, "strength_trend_pct": float,
+          "strength_seasonal_pct": float,
+          "strength_residual_pct": float}``
+
+    Nota: la fuerza relativa se mide como la varianza de cada componente
+    dividida por la varianza total de la serie.
+    """
+    series = df[revenue_col].to_numpy().astype(float)
+    n = len(series)
+
+    # --- Tendencia: media móvil centrada de 12 meses ------------------------
+    series_pd = pd.Series(series)
+    trend = series_pd.rolling(period, center=True, min_periods=1).mean().to_numpy()
+
+    # --- Estacionalidad: perfil mensual -------------------------------------
+    months = df["month"].dt.month.to_numpy()
+    detrended = series - trend
+    seasonal = np.zeros(n)
+    for m in range(1, 13):
+        mask = months == m
+        if mask.any():
+            seasonal[mask] = detrended[mask].mean()
+    # Asegurar que la estacionalidad sume ~0 en un año completo
+    seasonal -= seasonal.mean()
+
+    # --- Residuo -------------------------------------------------------------
+    residual = series - trend - seasonal
+
+    # --- Fuerza relativa de cada componente ----------------------------------
+    total_var = np.var(series, ddof=1)
+    strength = {
+        "trend_pct": float(np.var(trend, ddof=1) / total_var * 100) if total_var > 0 else 0.0,
+        "seasonal_pct": float(np.var(seasonal, ddof=1) / total_var * 100) if total_var > 0 else 0.0,
+        "residual_pct": float(np.var(residual, ddof=1) / total_var * 100) if total_var > 0 else 0.0,
+    }
+
+    return {
+        "trend": trend,
+        "seasonal": seasonal,
+        "residual": residual,
+        "full": series,
+        **strength,
+    }
+
+
+def plot_decomposition(
+    decomp: dict,
+    out_path: str | Path = "reports/sales_forecast/decomposition.png",
+    title: str = "HealthCore — Descomposición de ingresos (tendencia + estacionalidad + residuo)",
+) -> Path:
+    """Genera y guarda la gráfica de descomposición de la serie temporal.
+
+    Muestra 4 paneles: serie original + tendencia, estacionalidad, residuo,
+    y un cuadro con la fuerza relativa de cada componente.
+    """
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    fig, axes = plt.subplots(4, 1, figsize=(14, 10), sharex=True)
+
+    n = len(decomp["full"])
+    x = np.arange(n)
+    months_labels = [
+        "2016", "2017", "2018", "2019", "2020", "2021", "2022", "2023", "2024", "2025"
+    ]
+    tick_positions = np.arange(0, n, 12)  # cada 12 meses = cada año
+
+    # Panel 1: Original + Tendencia
+    ax = axes[0]
+    ax.plot(x, decomp["full"], color="#2c3e50", linewidth=1.5, label="Ingreso real")
+    ax.plot(x, decomp["trend"], color="#c0392b", linewidth=2.0, label="Tendencia (media móvil 12m)")
+    ax.set_ylabel("USD")
+    ax.legend(loc="upper left", fontsize=8)
+    ax.set_title("Serie original y tendencia", fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    # Panel 2: Estacionalidad
+    ax = axes[1]
+    ax.plot(x, decomp["seasonal"], color="#27ae60", linewidth=1.8, marker=".", markersize=3)
+    ax.axhline(0, color="gray", linewidth=0.5)
+    ax.set_ylabel("USD")
+    ax.set_title("Estacionalidad (perfil mensual)", fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    # Panel 3: Residuo (ruido / eventos no capturados)
+    ax = axes[2]
+    ax.fill_between(x, 0, decomp["residual"], color="#7f8c8d", alpha=0.5)
+    ax.plot(x, decomp["residual"], color="#34495e", linewidth=1.0)
+    ax.axhline(0, color="gray", linewidth=0.5)
+    ax.set_ylabel("USD")
+    ax.set_title("Residuo (eventos no capturados por tendencia + estacionalidad)", fontsize=10)
+    ax.grid(True, alpha=0.3)
+
+    # Panel 4: Fuerza relativa (barras)
+    ax = axes[3]
+    labels = ["Tendencia", "Estacionalidad", "Residuo"]
+    values = [decomp["trend_pct"], decomp["seasonal_pct"], decomp["residual_pct"]]
+    colors = ["#c0392b", "#27ae60", "#7f8c8d"]
+    bars = ax.bar(labels, values, color=colors, alpha=0.8, edgecolor="gray")
+    for bar, v in zip(bars, values):
+        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.5,
+                f"{v:.1f}%", ha="center", va="bottom", fontsize=9, fontweight="bold")
+    ax.set_ylabel("Varianza explicada (%)")
+    ax.set_title("Fuerza relativa de cada componente", fontsize=10)
+    ax.set_ylim(0, max(values) * 1.25 + 5)
+    ax.grid(True, alpha=0.3, axis="y")
+
+    fig.suptitle(title, fontsize=13, fontweight="bold")
+    fig.tight_layout(rect=[0, 0, 1, 0.97])
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+    return out_path

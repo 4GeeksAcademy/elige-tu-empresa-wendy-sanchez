@@ -28,12 +28,17 @@ if str(_PROJECT_ROOT) not in sys.path:
 from scripts.sales_forecast.data import build_train_test_sets, load_sales
 from scripts.sales_forecast.metrics import metrics_table
 from scripts.sales_forecast.model import train_sales_model
-from scripts.sales_forecast.visualize import plot_forecast_with_band
+from scripts.sales_forecast.visualize import (
+    decompose_time_series,
+    plot_decomposition,
+    plot_forecast_with_band,
+)
 
 DATA_CSV = _PROJECT_ROOT / "data" / "raw" / "healthcore_sales.csv"
 REPORT_DIR = _PROJECT_ROOT / "reports" / "sales_forecast"
 METRICS_JSON = REPORT_DIR / "metrics.json"
 PLOT_PNG = REPORT_DIR / "forecast_vs_real.png"
+DECOMP_PNG = REPORT_DIR / "decomposition.png"
 
 
 def _fmt_usd(x: float) -> str:
@@ -112,7 +117,78 @@ def main() -> int:
             )
         },
         "plot": str(plot_path.relative_to(_PROJECT_ROOT)),
+        "decomposition_plot": str(DECOMP_PNG.relative_to(_PROJECT_ROOT)),
     }
+
+    # 8. Descomposición de serie temporal (tendencia + estacionalidad + residuo)
+    print("\n[8] Descomposición de la serie temporal (tendencia + estacionalidad + residuo)...")
+    decomp = decompose_time_series(df_raw)
+    decomp_plot_path = plot_decomposition(decomp, DECOMP_PNG)
+    print(f"    Guardada: {decomp_plot_path}")
+    print(f"    Fuerza de tendencia:      {decomp['trend_pct']:.1f}% de la varianza")
+    print(f"    Fuerza de estacionalidad: {decomp['seasonal_pct']:.1f}% de la varianza")
+    print(f"    Fuerza de residuo:        {decomp['residual_pct']:.1f}% de la varianza")
+    # Añadir métricas de descomposición al JSON
+    summary["decomposition"] = {
+        "trend_strength_pct": round(decomp["trend_pct"], 2),
+        "seasonal_strength_pct": round(decomp["seasonal_pct"], 2),
+        "residual_strength_pct": round(decomp["residual_pct"], 2),
+    }
+
+    # 9. Análisis de visits_count y avg_revenue_per_visit_usd como features
+    print("\n[9] Análisis de visits_count y avg_revenue_per_visit_usd como features...")
+    print()
+    print("    ╔══════════════════════════════════════════════════════════════════╗")
+    print("    ║  ¿Son visits_count y avg_revenue_per_visit_usd del mes t       ║")
+    print("    ║  conocidos antes de predecir?                                  ║")
+    print("    ╚══════════════════════════════════════════════════════════════════╝")
+    print()
+    print("    revenue_usd[t] ≈ visits_count[t] × avg_revenue_per_visit_usd[t]")
+    print("    Estas dos variables son componentes del target, no variables")
+    print("    exógenas independientes. En un forecast real (predecir el mes t")
+    print("    desde t-1), NO se conocen al hacer la predicción.")
+    print()
+    print("    Por tanto: su uso como features constituye una forma de fuga de")
+    print("    datos si el objetivo es predecir el mes t desde el pasado.")
+    print("    Sin embargo, hay dos escenarios donde es legítimo:")
+    print()
+    print("    1) PREDICCIÓN CONTRAFACTUAL: \"dado que atiendo estas X visitas a")
+    print("       este precio promedio, ¿cuánto ingreso?\" — el modelo se usa")
+    print("       como calculadora paramétrica, no como predictor temporal.")
+    print()
+    print("    2) FEATURE ENGINEERING CON SU PROPIO MODELO: se podría entrenar")
+    print("       un modelo auxiliar que prediga visits_count[t] y")
+    print("       avg_revenue_per_visit_usd[t] desde t-1, y usar sus salidas")
+    print("       como input del modelo principal.")
+    print()
+    print("    En este modelo actual se mantienen como features porque la")
+    print("    exigencia del hito es \"predecir ingresos\", no \"predecir sin")
+    print("    conocer volumen y precio\". Pero se documenta explícitamente")
+    print("    como riesgo de uso incorrecto en producción.")
+    print()
+    print("    Impacto en importancia de features (ver §7 metrics.json):")
+    f_imp = result.feature_importance
+    print(f"    visits_count:               {f_imp.get('visits_count', 0):.1f}%")
+    print(f"    avg_revenue_per_visit_usd:  {f_imp.get('avg_revenue_per_visit_usd', 0):.1f}%")
+    print(f"    → Juntas suman ~{f_imp.get('visits_count', 0) + f_imp.get('avg_revenue_per_visit_usd', 0):.1f}% "
+          "de la importancia del modelo.")
+    print()
+    print("    ⚠️  RECOMENDACIÓN: en un escenario de producción real, estas")
+    print("    dos variables deben ser reemplazadas por predicciones de modelos")
+    print("    auxiliares o excluidas si el objetivo es forecast puro.")
+    summary["features_justification"] = {
+        "visits_count_and_avg_revenue": (
+            "Son componentes del target (revenue ≈ visits × price_per_visit). "
+            "No son conocidas en t-1 para un forecast real. Se mantienen como "
+            "features porque el modelo responde a la pregunta contrafactual: "
+            "'dado volumen y precio, ¿qué ingreso esperar?'. Para un forecast "
+            "puro, deben excluirse o modelarse por separado."
+        ),
+        "visits_count_importance_pct": round(float(f_imp.get("visits_count", 0)), 2),
+        "avg_revenue_per_visit_importance_pct": round(float(f_imp.get("avg_revenue_per_visit_usd", 0)), 2),
+    }
+
+    # Re-exportar JSON con todas las métricas añadidas
     METRICS_JSON.write_text(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )

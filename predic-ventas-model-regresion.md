@@ -452,3 +452,237 @@ uv run python -m pytest tests/pipelines/test_sales_forecast_split.py -v
 | Visualización con rango de variabilidad | `visualize.py::plot_forecast_with_band` |
 | Prueba unitaria del split 8/2 | `tests/pipelines/test_sales_forecast_split.py` |
 | Columnas y target = `revenue_usd` consolidated | `data.py::EXPECTED_COLUMNS` + `load_sales` |
+
+---
+
+## 11. Auditoría anti-fuga, descomposición y justificación de features
+
+> **¿Qué pasó?** Durante una revisión de calidad se detectó que las features
+> rodantes `rev_ma_3`, `rev_min_12`, `rev_max_12` y `rev_std_12` se calculaban
+> con `rolling()` directamente sobre `revenue_usd`, **sin `shift(1)`**, lo que
+> hacía que la ventana incluyera `revenue_usd[t]` — el propio target del mes.
+> Eso es **fuga de datos**: el modelo veía el valor a predecir como parte de
+> la feature.
+
+### 11.1 Diagnóstico del error
+
+**Archivo:** `scripts/sales_forecast/data.py`, función `_add_causal_features()`
+
+**Código original (con fuga):**
+```python
+df["rev_ma_3"]   = df["revenue_usd"].rolling(3, min_periods=1).mean()    # ← usa rev[t]
+df["rev_min_12"] = df["revenue_usd"].rolling(12, min_periods=1).min()    # ← usa rev[t]
+df["rev_max_12"] = df["revenue_usd"].rolling(12, min_periods=1).max()    # ← usa rev[t]
+df["rev_std_12"] = df["revenue_usd"].rolling(12, min_periods=1).std()    # ← usa rev[t]
+```
+
+**Consecuencia:** en el mes *t*, `rev_ma_3` = media(`rev[t]`, `rev[t-1]`, `rev[t-2]`).
+El modelo recibía `rev[t]` como input cuando debía predecirlo.
+
+**¿Por qué no se detectó en las métricas?** Porque el test existente
+`test_min_y_max_coinciden_con_pandas` comprobaba que `rev_min_12` coincidiera
+con `rolling(12).min()`, que es precisamente la operación *incorrecta* — el
+test validaba el bug, no lo detectaba.
+
+**Código corregido:**
+```python
+rev_shifted = df["revenue_usd"].shift(1)                                   # ← anti-fuga
+df["rev_ma_3"]   = rev_shifted.rolling(3, min_periods=1).mean()           # solo pasado
+df["rev_min_12"] = rev_shifted.rolling(12, min_periods=1).min()            # solo pasado
+df["rev_max_12"] = rev_shifted.rolling(12, min_periods=1).max()            # solo pasado
+df["rev_std_12"] = rev_shifted.rolling(12, min_periods=1).std()            # solo pasado
+```
+
+### 11.2 Impacto en métricas (antes vs después de corregir la fuga)
+
+| Métrica | Antes (con fuga) | Después (corregido) | Diferencia |
+|:---|---:|---:|---:|
+| **RMSE** | \$157.336 | **\$154.910** | **−1,5 %** (mejoró) |
+| **MSE (% ingreso medio)** | 5,60 % | **5,52 %** | −0,08 pp |
+| **MAPE** | 3,65 % | **3,47 %** | −0,18 pp |
+| **Gini predictivo** | 0,8261 | **0,8188** | −0,0073 |
+| **K2 (R²)** | 0,8044 | **0,8104** | **+0,006** (mejoró) |
+| **RMSE walk-forward 2024** | \$138.528 | **\$134.459** | **−2,9 %** |
+| **RMSE walk-forward 2025** | \$137.440 | **\$136.268** | **−0,9 %** |
+
+**Conclusión del impacto:** el modelo **no dependía de la fuga** para funcionar.
+De hecho, al eliminar la fuga las métricas **mejoraron ligeramente**:
+- RMSE cayó \$2.426/mes (−1,5 %).
+- K2 (R²) subió de 80,4 % a 81,0 %.
+- Los errores walk-forward también bajaron, confirmando que el modelo es
+  **más robusto** sin la fuga.
+
+Esto se explica porque la fuga introducía ruido en las features rodantes
+(especialmente `rev_ma_3` incluía el mes actual, dando una media artificialmente
+cercana al target) que el modelo aprendía a "descontar" en lugar de aprender
+el patrón real de medias móviles del pasado.
+
+### 11.3 Tests añadidos o modificados (19 tests, todos en verde)
+
+```bash
+uv run python -m pytest tests/pipelines/test_sales_forecast_split.py -v
+# 19 passed
+```
+
+| Test | Clase | Qué verifica |
+|:---|---:|---|
+| `test_min_y_max_coinciden_con_pandas_y_shift` | `TestNombresDeFeatures` | `rev_min_12`/`rev_max_12` coinciden con `revenue_usd.shift(1).rolling(12).min()/.max()` (no con `rolling()` directo) |
+| `test_rev_ma_3_no_incluye_mes_t` | `TestCausalidadAntiFugaRodantes` | Para 5 meses arbitrarios, verifica que `rev_ma_3[t] = mean(revenue[t-1:t-3])` |
+| `test_rev_min_12_no_incluye_mes_t` | `TestCausalidadAntiFugaRodantes` | `rev_min_12[t] = min(revenue[t-12:t])` (excluye t) |
+| `test_rev_max_12_no_incluye_mes_t` | `TestCausalidadAntiFugaRodantes` | `rev_max_12[t] = max(revenue[t-12:t])` (excluye t) |
+| `test_rev_std_12_no_incluye_mes_t` | `TestCausalidadAntiFugaRodantes` | `rev_std_12[t] = std(revenue[t-12:t])` (excluye t) |
+| `test_rev_ma_3_primera_fila_es_nan` | `TestCausalidadAntiFugaRodantes` | Con `shift(1)` la primera fila es NaN (no hay pasado) |
+
+**Mutation testing implícito:** eliminar el `shift(1)` reintroduce la fuga y
+los tests de `TestCausalidadAntiFugaRodantes` fallan inmediatamente.
+
+### 11.4 Descomposición de la serie temporal (tendencia + estacionalidad + residuo)
+
+Se añadió una descomposición aditiva clásica que separa la serie de ingresos
+en tres componentes:
+
+```
+serie[t] = tendencia[t] + estacionalidad[t] + residuo[t]
+```
+
+**Metodología (`visualize.py::decompose_time_series`):**
+
+1. **Tendencia**: media móvil centrada de 12 meses (suaviza la estacionalidad
+   anual, captura el crecimiento estructural de HealthCore).
+2. **Estacionalidad**: para cada mes calendario (enero-diciembre), promedio de
+   `(serie − tendencia)` en ese mes en todos los años. Se centra para que la
+   suma anual sea cero.
+3. **Residuo**: lo que queda — eventos no capturados por tendencia ni
+   estacionalidad.
+
+**Fuerza relativa de cada componente (varianza explicada):**
+
+| Componente | Varianza explicada | Interpretación |
+|:---|---:|---|
+| **Tendencia** | **55,0 %** | Más de la mitad de la variabilidad de los ingresos se explica por el crecimiento estructural (+4 % ± 2 % anual). |
+| **Estacionalidad** | **39,5 %** | Casi el 40 % es el patrón predecible de picos oct-dic y valles jul-ago. |
+| **Residuo** | **2,9 %** | Solo el 3 % de la varianza es ruido/eventos no capturados. Esto explica el alto R² del modelo (81 %). |
+
+**Gráfica de descomposición:** `reports/sales_forecast/decomposition.png`
+
+![Descomposición de ingresos](reports/sales_forecast/decomposition.png)
+
+**Lectura para Sandra:** los ingresos de HealthCore tienen una estructura
+sorprendentemente limpia: el 94,5 % de su variabilidad mensual se explica
+por **tendencia + estacionalidad**. Solo el 2,9 % es "ruido" impredecible.
+Esto significa que un modelo que capture bien esas dos componentes (como
+XGBoost) va a funcionar bien.
+
+### 11.5 Justificación de `visits_count` y `avg_revenue_per_visit_usd`
+
+**Pregunta:** ¿Son `visits_count[t]` y `avg_revenue_per_visit_usd[t]` conocidos
+antes de predecir `revenue_usd[t]`?
+
+**Respuesta corta: NO — y se documenta como riesgo.**
+
+**Análisis detallado:**
+
+```
+revenue_usd[t] ≈ visits_count[t] × avg_revenue_per_visit_usd[t]
+```
+
+Estas dos variables son **componentes del target**, no variables exógenas
+independientes. En un escenario de forecast real (predecir el mes *t* desde
+el mes *t−1*), NO se conocen al hacer la predicción:
+
+- `visits_count[t]` requiere saber cuántas consultas se atenderán en el mes *t*
+  antes de que ocurra.
+- `avg_revenue_per_visit_usd[t]` requiere saber el ticket medio del mes *t*
+  antes de cerrar el mes.
+
+**Su uso como features constituye una forma de fuga de datos** si el objetivo
+es predicción temporal pura.
+
+**Sin embargo, existen dos escenarios donde su uso es legítimo:**
+
+1. **Predicción contrafactual:** "dado que planeamos atender *X* visitas a un
+   precio promedio de *Y* USD, ¿qué ingreso esperar?" — el modelo funciona como
+   calculadora paramétrica, no como predictor temporal.
+
+2. **Feature engineering con modelo auxiliar:** se entrena un modelo separado
+   que predice `visits_count[t]` y `avg_revenue_per_visit_usd[t]` desde *t−1*,
+   y sus salidas se usan como input del modelo principal de ingresos.
+
+**Impacto en el modelo actual:**
+
+| Feature | Importancia |
+|:---|---:|
+| `visits_count` | **48,9 %** |
+| `avg_revenue_per_visit_usd` | 0,9 % |
+| **Juntas** | **~49,8 %** |
+
+Casi el 50 % de la importancia del modelo recae en estas dos variables.
+Si se excluyeran, el modelo perdería capacidad predictiva significativa.
+
+**Recomendación para producción:**
+
+```python
+# Escenario recomendado para forecast real:
+# 1. Modelo auxiliar A: predice visits_count[t] desde t-1
+# 2. Modelo auxiliar B: predice avg_revenue_per_visit_usd[t] desde t-1
+# 3. El modelo principal usa las SALIDAS de A y B como features
+#    (no los valores reales del mes t)
+```
+
+Para el propósito de este hito (demostrar capacidad de modelado y métricas),
+las features se mantienen, pero cualquier uso en producción **debe** aplicar
+la estrategia de modelo auxiliar o excluir estas variables del feature set.
+
+### 11.6 Métricas finales post-auditoría (consolidadas)
+
+Artículo: `reports/sales_forecast/metrics.json`
+
+```json
+{
+  "metrics_test": {
+    "mse_usd2": 23997252376.54,
+    "rmse_usd": 154910.47,
+    "mse_pct_avg_monthly_revenue": 5.5168,
+    "mape_pct": 3.4738,
+    "psi": 6.032498,
+    "psi_growth_adjusted": 0.271788,
+    "gini": 0.818841,
+    "k2": 0.810369
+  },
+  "walk_forward_rmse_by_year_usd": {
+    "2024": 134459.23,
+    "2025": 136267.56
+  },
+  "decomposition": {
+    "trend_strength_pct": 54.99,
+    "seasonal_strength_pct": 39.46,
+    "residual_strength_pct": 2.94
+  },
+  "features_justification": {
+    "visits_count_and_avg_revenue": "Son componentes del target (...) No son conocidas en t-1 para un forecast real. (...) Para un forecast puro, deben excluirse o modelarse por separado.",
+    "visits_count_importance_pct": 48.94,
+    "avg_revenue_per_visit_importance_pct": 0.89
+  }
+}
+```
+
+**Gráfica comparativa — predicciones con fuga vs corregidas:**
+
+Archivo: `reports/sales_forecast/forecast_comparison_before_after.png`
+
+![Comparación antes/después de la corrección anti-fuga](reports/sales_forecast/forecast_comparison_before_after.png)
+
+*Panel superior: predicciones del modelo con fuga (rojo) y corregido (verde) sobre los datos reales (azul). Panel inferior: diferencia de error (|real−pred|) mes a mes; la línea discontinua muestra la media del error absoluto para cada modelo. La corrección reduce el RMSE de $157 336 a $154 910 (−1.54 %), con una mejora más notable en los meses de alta variabilidad estacional.*
+
+### 11.7 Resumen de cambios en el código
+
+| Archivo | Cambio |
+|---|---|
+| `scripts/sales_forecast/data.py` | `_add_causal_features()`: añadido `shift(1)` antes de cada `rolling()` para `rev_ma_3`, `rev_min_12`, `rev_max_12`, `rev_std_12`. Docstring actualizado. |
+| `tests/pipelines/test_sales_forecast_split.py` | `test_min_y_max_coinciden_con_pandas` → `test_min_y_max_coinciden_con_pandas_y_shift`: verifica contra `shift(1)+rolling()`. Añadida clase `TestCausalidadAntiFugaRodantes` con 5 tests. |
+| `scripts/sales_forecast/visualize.py` | Añadidas `decompose_time_series()` y `plot_decomposition()` para descomposición aditiva. |
+| `scripts/sales_forecast/compare_before_after.py` | Nuevo: genera gráfica comparativa entrenando el modelo con y sin la fuga, guardando `forecast_comparison_before_after.png`. |
+| `scripts/train_sales_forecast.py` | Integrada descomposición en pipeline (paso 8). Añadido análisis de justificación de features (paso 9). Exporta ambos al JSON. |
+| `reports/sales_forecast/metrics.json` | Añadidos `decomposition`, `decomposition_plot`, `features_justification`. |
+| `reports/sales_forecast/decomposition.png` | Nueva gráfica de descomposición (4 paneles). |
+| `reports/sales_forecast/forecast_comparison_before_after.png` | Nueva gráfica comparativa: predicciones con fuga vs corregidas (2 paneles). |

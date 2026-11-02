@@ -217,21 +217,30 @@ class TestNombresDeFeatures:
     a ``rev_max_12`` / ``rev_min_12``. Este test impide reintroducir el error.
     """
 
-    def test_min_y_max_coinciden_con_pandas(self) -> None:
+    def test_min_y_max_coinciden_con_pandas_y_shift(self) -> None:
+        """rev_min_12/rev_max_12 usan shift(1) + rolling (anti-fuga).
+
+        Con la corrección anti-fuga, todas las rolling() se aplican sobre
+        revenue_usd.shift(1) para excluir el mes t. Verificamos que coincidan
+        con pandas tras aplicar el shift.
+        """
         from scripts.sales_forecast.data import prepare_features
 
         prepared = prepare_features(load_sales(DATA_CSV)).sort_values("month").reset_index(drop=True)
 
+        rev_shifted = prepared["revenue_usd"].shift(1)
         np.testing.assert_allclose(
             prepared["rev_min_12"].to_numpy(),
-            prepared["revenue_usd"].rolling(12, min_periods=1).min().to_numpy(),
+            rev_shifted.rolling(12, min_periods=1).min().to_numpy(),
         )
         np.testing.assert_allclose(
             prepared["rev_max_12"].to_numpy(),
-            prepared["revenue_usd"].rolling(12, min_periods=1).max().to_numpy(),
+            rev_shifted.rolling(12, min_periods=1).max().to_numpy(),
         )
-        # Y que el "max" es efectivamente >= que el "min" en todo momento.
-        assert (prepared["rev_max_12"] >= prepared["rev_min_12"]).all()
+        # Y que el "max" es efectivamente >= que el "min" en todo momento
+        # (excepto donde ambos son NaN, como la primera fila tras shift(1)).
+        mask_valid = prepared["rev_max_12"].notna() & prepared["rev_min_12"].notna()
+        assert (prepared.loc[mask_valid, "rev_max_12"] >= prepared.loc[mask_valid, "rev_min_12"]).all()
 
     def test_no_hay_features_con_nombre_engañoso_ni_codigo_muerto(self) -> None:
         from scripts.sales_forecast.data import prepare_features
@@ -245,6 +254,75 @@ class TestNombresDeFeatures:
         # Todas las features declaradas existen realmente en el dataframe.
         missing = [f for f in FEATURES if f not in prepared.columns]
         assert not missing, f"Features declaradas inexistentes: {missing}"
+
+
+class TestCausalidadAntiFugaRodantes:
+    """Verifica que las features rodantes no incluyen el mes t (causalidad).
+
+    Auditoría: las rolling() de rev_ma_3, rev_min_12, rev_max_12, rev_std_12
+    DEBEN aplicarse sobre revenue_usd.shift(1) para excluir revenue_usd[t]
+    del cómputo. Este test fuerza esa invariante.
+    """
+
+    @pytest.fixture(scope="class")
+    def prepared(self):
+        from scripts.sales_forecast.data import prepare_features
+        return prepare_features(load_sales(DATA_CSV)).sort_values("month").reset_index(drop=True)
+
+    def test_rev_ma_3_no_incluye_mes_t(self, prepared) -> None:
+        """rev_ma_3[t] no debe usar revenue_usd[t] en su media.
+
+        En la fila t, rev_ma_3 debe = mean(revenue[t-1], rev[t-2], rev[t-3]).
+        Lo verificamos a mano para 5 meses arbitrarios.
+        """
+        for idx in range(3, len(prepared)):
+            expected = prepared["revenue_usd"].iloc[idx - 3:idx].mean()
+            actual = prepared["rev_ma_3"].iloc[idx]
+            if pd.isna(expected):
+                assert pd.isna(actual), f"rev_ma_3[{idx}] debería ser NaN"
+            else:
+                assert abs(actual - expected) < 1e-6, (
+                    f"rev_ma_3[{idx}] = {actual}, esperado {expected} "
+                    f"(incluye revenue_usd[t]?). revenue[t]={prepared['revenue_usd'].iloc[idx]}"
+                )
+
+    def test_rev_min_12_no_incluye_mes_t(self, prepared) -> None:
+        """rev_min_12[t] debe ser el mínimo de revenue[t-12:t] (excluye t)."""
+        for idx in range(12, len(prepared)):
+            expected = prepared["revenue_usd"].iloc[idx - 12:idx].min()
+            actual = prepared["rev_min_12"].iloc[idx]
+            assert abs(actual - expected) < 1e-6, (
+                f"rev_min_12[{idx}] = {actual}, esperado {expected}"
+            )
+
+    def test_rev_max_12_no_incluye_mes_t(self, prepared) -> None:
+        """rev_max_12[t] debe ser el máximo de revenue[t-12:t] (excluye t)."""
+        for idx in range(12, len(prepared)):
+            expected = prepared["revenue_usd"].iloc[idx - 12:idx].max()
+            actual = prepared["rev_max_12"].iloc[idx]
+            assert abs(actual - expected) < 1e-6, (
+                f"rev_max_12[{idx}] = {actual}, esperado {expected}"
+            )
+
+    def test_rev_std_12_no_incluye_mes_t(self, prepared) -> None:
+        """rev_std_12[t] debe ser std de revenue[t-12:t] (excluye t)."""
+        for idx in range(12, len(prepared)):
+            expected = prepared["revenue_usd"].iloc[idx - 12:idx].std(ddof=1)
+            actual = prepared["rev_std_12"].iloc[idx]
+            if pd.isna(expected):
+                assert pd.isna(actual), f"rev_std_12[{idx}] debería ser NaN"
+            else:
+                assert abs(actual - expected) < 1e-6, (
+                    f"rev_std_12[{idx}] = {actual}, esperado {expected}"
+                )
+
+    def test_rev_ma_3_primera_fila_es_nan(self, prepared) -> None:
+        """Con shift(1), rev_ma_3 debe ser NaN en la primera fila (no hay pasado)."""
+        # Tras shift(1), la primera fila es NaN; rolling(3) con min_periods=1
+        # usará solo NaN → resultado NaN.
+        assert pd.isna(prepared["rev_ma_3"].iloc[0]), (
+            "rev_ma_3[0] debería ser NaN tras shift(1)"
+        )
 
 
 class TestEntrenamientoYPrediccion:

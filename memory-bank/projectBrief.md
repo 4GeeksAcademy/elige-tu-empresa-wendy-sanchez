@@ -8,7 +8,7 @@ El proyecto combina múltiples frentes:
 - Hito Next.js (Talent Pipeline Tracker): interfaz para gestionar candidaturas de RR. HH. conectada a API.
 - Hito Backend (Directorio de Proveedores): API FastAPI + TinyDB + Pydantic y su interfaz en el backoffice, solicitada por Diane Foster y Claire Whitfield.
 - Cola de Tareas Asíncronas (Redis + Celery): sistema de cola para desacoplar operaciones pesadas de la API, con reintentos automáticos, Dead Letter Queue en TinyDB, y monitoreo con Flower. Convierte `POST /api/incidents/analyze` a asíncrono (HTTP 202 Accepted).
-- Modelo de Pronóstico de Ventas (Regresión con XGBoost): modelo de predicción de ingresos mensuales con split temporal 8 años/2 años, métricas honestas sobre el conjunto de prueba (MSE, PSI, Gini, K2) y banda de variabilidad calibrada con errores fuera de muestra.
+- Modelo de Pronóstico de Ventas (Regresión con XGBoost): modelo de predicción de ingresos mensuales con split temporal 8 años/2 años, métricas honestas sobre el conjunto de prueba (MSE, PSI, Gini, K2) y banda de variabilidad calibrada con errores fuera de muestra. Auditoría completa con corrección de fuga de datos en rolling features, descomposición aditiva del target, justificación de features y evidencia visual comparativa.
 
 ## Descripcion del negocio
 HealthCore opera 12 clínicas ambulatorias y busca digitalizar procesos críticos. El problema inicial abordado en este repo es la falta de presencia digital creíble y la captura no estructurada de consultas de pacientes, que impacta conversión, experiencia del paciente y carga operativa en recepción.

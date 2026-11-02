@@ -145,7 +145,10 @@ def _add_causal_features(df: pd.DataFrame) -> pd.DataFrame:
     - ``rev_lag_12``: mismo mes del año pasado (captura la estacionalidad
       anual directamente).
     - ``rev_ma_3`` (media móvil 3m), ``rev_min_12``/``rev_max_12`` y
-      ``rev_std_12`` (rango del último año).
+      ``rev_std_12`` (rango del último año). **Importante**: todas las
+      estadísticas rodantes aplican ``shift(1)`` antes del ``rolling()`` para
+      excluir ``revenue_usd[t]`` del cómputo (anti-fuga). Sin ese ``shift``,
+      la media/varianza del mes t incluiría el target del mes — fuga de datos.
     - ``month`` (numerico) y ``season`` derivada de la estacionalidad descrita
       en CONTEXT.md §4 (Q4 alta por gripe/fin de año; julio-agosto baja por
       vacaciones; resto moderado).
@@ -159,11 +162,17 @@ def _add_causal_features(df: pd.DataFrame) -> pd.DataFrame:
     df["rev_lag_2"] = df["revenue_usd"].shift(2)
     df["rev_lag_12"] = df["revenue_usd"].shift(12)
 
-    # --- estadísticas rodantes (solo historia) -----------------------------
-    df["rev_ma_3"] = df["revenue_usd"].rolling(3, min_periods=1).mean()
-    df["rev_min_12"] = df["revenue_usd"].rolling(12, min_periods=1).min()
-    df["rev_max_12"] = df["revenue_usd"].rolling(12, min_periods=1).max()
-    df["rev_std_12"] = df["revenue_usd"].rolling(12, min_periods=1).std()
+    # --- estadísticas rodantes (solo historia, NUNCA incluyen el mes t) ----
+    # CORRECCIÓN ANTI-FUGA: shift(1) antes de rolling() para excluir
+    # revenue_usd[t] del cómputo de la ventana. Sin shift(1), rev_ma_3[t]
+    # incluiría revenue_usd[t] — el target del mes — como parte de su media,
+    # lo que constituye fuga de datos (el modelo "vería" el target en
+    # la feature). Auditado en hito de revisión.
+    rev_shifted = df["revenue_usd"].shift(1)
+    df["rev_ma_3"] = rev_shifted.rolling(3, min_periods=1).mean()
+    df["rev_min_12"] = rev_shifted.rolling(12, min_periods=1).min()
+    df["rev_max_12"] = rev_shifted.rolling(12, min_periods=1).max()
+    df["rev_std_12"] = rev_shifted.rolling(12, min_periods=1).std()
 
     # --- calendario / estacionalidad --------------------------------------
     df["month_num"] = df["month"].dt.month
