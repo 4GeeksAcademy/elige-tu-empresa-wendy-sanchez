@@ -1,5 +1,18 @@
 # Active Context
 
+## Modelo de pronóstico de ventas — Regresión con XGBoost (2026-10-31)
+- **Entregable**: pronóstico honesto de ingresos mensuales de HealthCore, con split temporal 8 años/2 años, 4 métricas exigidas (MSE, PSI, Gini, K2) + MAPE, y visualización con banda de variabilidad. Documentado íntegro en `predic-ventas-model-regresion.md`.
+- **Entorno**: `uv 0.13.5` (`uv init --bare --name healthcore-sales-forecast`), Python 3.14, pandas 3.1, scikit-learn 1.9.1, xgboost 3.4.1, matplotlib 3.11.2, pytest 9.2.0. Nunca `pip install` ni `pipenv`.
+- **Datos**: `data/raw/healthcore_sales.csv` (provisto, no simulado), serie `consolidated`, 120 meses 2016-01..2025-12.
+- **Split sin fuga**: entreno 2016-01..2023-12 (96 meses − 12 de warm-up = 84), prueba 2024-01..2025-12 (24). `StandardScaler` ajustado SOLO con train. Features causales (lags/rodantes mirando solo atrás).
+- **Modelo**: XGBoost regularizado (max_depth=4, lr=0.03, gamma=0.5, L1=0.5, L2=2.0). Justificación vs Random Forest: pocos datos, boosting capta estacionalidad; explicabilidad equivalente; RF sería candidato con más volumen y menos estacionalidad.
+- **Resultados (test 2024-2025, post-corrección anti-fuga)**: RMSE $154.910 (5,52 % del ingreso medio), MAPE 3,47 % (máx 8,85 %), Gini 0,8188, K2/R² 0,8104, PSI nivel 6,03 (alto por crecimiento estructural), PSI crecimiento ajustado 0,2718. Walk-forward RMSE 2024=$134.459, 2025=$136.268 → σ=$135.363, banda ±$265.312, cobertura 21/24 (87,5 %).
+- **Paquete**: `scripts/sales_forecast/{data,metrics,model,visualize,compare_before_after}.py` + entrypoint `scripts/train_sales_forecast.py`. Artefactos: `reports/sales_forecast/metrics.json`, `forecast_vs_real.png`, `decomposition.png`, `forecast_comparison_before_after.png`.
+- **Tests**: `tests/pipelines/test_sales_forecast_split.py` — **19/19 en verde** (split 8/2, anti-fuga de lags/escalado, blindaje de nombres de features, +5 tests de causalidad anti-fuga rodantes).
+- **Auditoría (2026-10-31)**: 7/7 acceptance criteria verificados en ejecución con recálculo independiente. Hallazgos corregidos: (a) `test_escalado_...` era tautológico → reemplazado por reconstrucción exacta `(x−μ_train)/σ_train` y **validado con mutation test** (inyectar `fit(train+test)` hace fallar el test); (b) `rev_ma_12` (máximo rodante con nombre de "moving average") → `rev_max_12`, `rev_mi_12` → `rev_min_12`; (c) docstring decía "~107 filas" → corregido a 84; (d) `year_num` código muerto eliminado. Métricas idénticas bit a bit tras el refactor.
+- **Auditoría extendida (2026-11-02, fuga de datos en rolling features)**: detectado que `rev_ma_3`, `rev_min_12`, `rev_max_12` y `rev_std_12` usaban `rolling()` sin `shift(1)`, incluyendo `revenue_usd[t]` (el target). Corregido en `_add_causal_features()`. Añadidos 5 tests de causalidad en `TestCausalidadAntiFugaRodantes`. RMSE mejoró −1,54 % (de $157.336 a $154.910) pese a que el modelo no dependía de la fuga. Añadida descomposición aditiva del target (tendencia 55,0 %, estacional 39,5 %, residual 2,9 %). Añadido análisis de justificación de features (visits_count 48,9 %, avg_revenue_per_visit 0,9 %). Generada gráfica comparativa `forecast_comparison_before_after.png`. Nueva documentación §11 en `predic-ventas-model-regresion.md`.
+- **Branch**: `feature/sales-forecast-model`. CONTEXT.md NO modificado (ruta protegida).
+
 ## Cola de Tareas Asíncronas — Redis + Celery (2026-10-24)
 - **Entregable**: Sistema de cola de tareas asíncronas para desacoplar operaciones pesadas de la API, utilizando **Redis como broker** y **Celery como framework de tareas**.
 - **Arquitectura**: FastAPI (Productor) → Redis (Broker) → Celery Worker (Consumidor) → TinyDB (DLQ). Flower como monitor en tiempo real.
