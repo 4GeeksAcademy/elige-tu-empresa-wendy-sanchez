@@ -46,6 +46,20 @@
 - **Humo completo Supabase (2026-10-22)**: corrida real con `--skip-pipeline --target-date 2026-10-10` → `completed`, 12 filas en `data/raw/telemetry_2026-10-10.csv`, fila en `job_runs` (`exported_rows=12`); 2ª corrida → `noop_export`. Se validó por primera vez la rama Postgres contra Postgres real. Hallazgo menor: `schema_migrations` count 0 en Postgres (ver `background-processes.md` §11.6).
 - Branch `2do-plano` activo. **NO commitear** (usuario sigue iterando).
 
+## Evaluación técnica del modelo de pronóstico — sesgo/varianza (2026-11-08)
+
+- **Propósito**: Evaluación formal bias/varianza del modelo XGBoost de HealthCore según ticket técnico que exige: (1) diagnóstico underfitting/overfitting, (2) estabilidad a través de splits, (3) acción correctiva específica. **No se acepta "el modelo funciona bien" sin evidencia.**
+- **Diagnóstico**: **OVERFITTING** confirmado por dos fuentes independientes (CV + curva de aprendizaje), con brecha train/val RMSE de $131,147 (ratio 28.7x).
+- **Validación cruzada temporal**: `TimeSeriesSplit` de scikit-learn con 5 folds (12 meses de validación cada uno). Verificado sin shuffle y sin fuga de features entre folds mediante `assert_chronological_folds()` y `assert_features_causal()`.
+- **Curva de aprendizaje**: ventana expansiva 24→72 meses, bloque fijo de validación (2023). Train RMSE consistentemente bajo (~$4,727), Val RMSE alto y estable (~$135,875). **Las curvas NO convergen** — overfitting confirmado.
+- **Métricas**: RMSE (principal, justificado por contexto de negocio — penaliza errores grandes cuadráticamente, sobreestimar es más costoso que subestimar para HealthCore) y MAE (complemento interpretable).
+- **Acción correctiva** (3 pasos priorizados): (1) eliminar `visits_count` y `avg_revenue_per_visit_usd` (componentes directos del target, ~50% importancia), (2) aumentar `reg_alpha` de 0.5 a 2.0, (3) reducir `max_depth` de 4 a 3. **No se recomienda aumentar datos** — la curva muestra que el error de validación no mejora de 24 a 72 meses.
+- **Veredicto**: ❌ **NO APROBADO para staging** sin las correcciones de §5.3.
+- **Archivos nuevos**: `scripts/run_model_evaluation.py` (entrypoint de evaluación), `data/eval/evaluation_report.md` (reporte técnico completo), `data/eval/learning_curve_{rmse,mae}.png` (curvas de aprendizaje), `tests/pipelines/test_temporal_cv.py` (7 tests de validación cruzada temporal).
+- **Tests**: **64/64 en verde** — `test_temporal_cv.py` (7), `test_sales_forecast_split.py` (19), `test_pipeline.py` (38). Comando CI: `uv run python -m pytest tests/pipelines/ -v`.
+- **Fix de test**: `test_no_overlap_between_consecutive_folds` corregido — validaba incorrectamente que entrenamiento de folds consecutivos no se solapara (imposible en ventana expansiva). Corregido para verificar: (a) train_max < val_min dentro de cada fold, (b) val_i_max < val_{i+1}_min entre folds.
+- **Branch**: `feature/regression-model-eval`.
+
 ## Entregables activos en el repositorio
 
 ### Telemetría: Fase 5 — Autenticación funcional para backoffice (2026-10-11)

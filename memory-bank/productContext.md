@@ -119,6 +119,7 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Pronóstico de ventas**: el conjunto de prueba (2024-2025) es intocable durante el entrenamiento y el ajuste de hiperparámetros. Cualquier métrica reportada como rendimiento del modelo debe calcularse sobre ese conjunto, nunca sobre el de entrenamiento.
 - **Pronóstico de ventas**: el escalado (`StandardScaler`) se ajusta únicamente con datos de entrenamiento; ajustarlo con todo el histórico introduciría información del futuro en el modelo.
 - **Pronóstico de ventas**: un PSI de nivel alto no invalida el modelo por sí solo — en una serie con crecimiento estructural mide el crecimiento, no la rotura del supuesto. Se reporta siempre junto al PSI de crecimiento ajustado.
+- **Evaluación técnica del modelo**: el diagnóstico de overfitting/underfitting debe basarse en la brecha train/val de la CV y el patrón de convergencia de la curva de aprendizaje, no en una opinión. La acción correctiva debe ser específica y coherente con el diagnóstico.
 
 ## Criterios de experiencia de usuario
 - Sin recargas completas para filtrar/buscar en tracker.

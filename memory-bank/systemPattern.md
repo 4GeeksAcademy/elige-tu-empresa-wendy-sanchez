@@ -48,6 +48,14 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 
 ### 7) Modelos de entrada y salida separados
 - SupplierCreate / SupplierReplace para lo que envía el cliente.
+
+### 8) Evaluación técnica de modelos — pipeline auditado
+
+- **Script de evaluación**: `scripts/run_model_evaluation.py` — entrypoint único que orquesta: carga de datos → validación cruzada temporal (TimeSeriesSplit, 5 folds) → curva de aprendizaje (ventana expansiva 24→72 meses) → diagnóstico consolidado (CV + curva de aprendizaje) → justificación de métricas → generación de reporte markdown → staging decision.
+- **Módulo de evaluación**: `scripts/sales_forecast/evaluation.py` — funciones puras: `temporal_cv_splits()`, `assert_chronological_folds()` (4 invariantes), `assert_features_causal()` (verifica que features no cambian al truncar datos futuros), `temporal_cross_validation()` (pipeline completo por fold), `learning_curve()`, `plot_learning_curve()`.
+- **Tests de validación cruzada**: `tests/pipelines/test_temporal_cv.py` — 7 tests que verifican: número de folds, orden cronológico, detección de shuffle, anti-fuga de features, inmutabilidad de features pasadas, no solapamiento entre folds consecutivos, integración con datos reales.
+- **Patrón de verificación anti-fuga en CV**: las features se recalculan por fold truncando la serie en el último mes de validación (`assert_features_causal()`). El `StandardScaler` se ajusta por fold con los datos de entrenamiento de ese fold.
+- **Reporte auto-generado**: `_build_report()` en `run_model_evaluation.py` produce un markdown con 8 secciones estándar, incluyendo tabla de resultados por fold, media ± desviación estándar, curva de aprendizaje con interpretación, justificación de métrica principal vs complementaria, y veredicto de staging.
 - Supplier para la respuesta, con los campos que genera el sistema (id, updated_at, archived_at).
 - Los campos generados por el sistema se ignoran si el cliente los envía.
 

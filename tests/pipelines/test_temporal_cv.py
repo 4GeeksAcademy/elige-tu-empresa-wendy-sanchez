@@ -78,3 +78,80 @@ def test_future_values_do_not_change_past_features() -> None:
     base = prepare_features(df).loc[:59, FEATURES].to_numpy(dtype=float)
     changed = prepare_features(perturbed).loc[:59, FEATURES].to_numpy(dtype=float)
     assert np.allclose(base, changed, equal_nan=True)
+
+
+def test_no_overlap_between_consecutive_folds() -> None:
+    """Verifica que los conjuntos de validación de folds consecutivos son
+    estrictamente cronológicos y no se solapan.
+
+    En TimeSeriesSplit con ventana expansiva, el entrenamiento del fold i+1
+    SIEMPRE contiene los datos del fold i (por eso el test combina train+val
+    no aplica). Lo que SÍ debe cumplirse es que los validation sets sean
+    disjuntos y en orden cronológico: la validación del fold i+1 empieza
+    después de que termina la validación del fold i.
+
+    Esto complementa test_cv_folds_preserve_chronological_order verificando
+    que además ningún fold individualmente tiene train que se solape con su
+    propia validación.
+    """
+    folds = temporal_cv_splits(N_USABLE)
+
+    # Cada fold individual: train < validation (sin solape)
+    for i, (train_idx, val_idx) in enumerate(folds):
+        assert train_idx.max() < val_idx.min(), (
+            f"Fold {i+1}: train (0..{train_idx.max()}) se solapa con "
+            f"validation ({val_idx.min()}..{val_idx.max()})"
+        )
+
+    # Validation sets de folds consecutivos: no se solapan
+    for i in range(len(folds) - 1):
+        val_i_max = folds[i][1].max()
+        val_next_min = folds[i + 1][1].min()
+        assert val_i_max < val_next_min, (
+            f"Validation del fold {i+1} termina en {val_i_max} pero "
+            f"validation del fold {i+2} empieza en {val_next_min} — "
+            "los validation sets se solapan."
+        )
+
+
+def test_temporal_cv_on_real_data_preserves_order() -> None:
+    """Prueba que la validación cruzada temporal ejecutada sobre los datos
+    reales de HealthCore preserva el orden cronológico en cada fold y recalcula
+    features sin fuga entre folds.
+
+    Integración: usa temporal_cross_validation del módulo evaluation, que
+    ejecuta el pipeline completo (prepare_features + TimeSeriesSplit + escalado).
+    """
+    from scripts.sales_forecast.data import load_sales
+    from scripts.sales_forecast.evaluation import temporal_cross_validation
+
+    DATA_CSV = _PROJECT_ROOT / "data" / "raw" / "healthcore_sales.csv"
+    if not DATA_CSV.exists():
+        pytest.skip("Archivo de datos no disponible")
+    df = load_sales(str(DATA_CSV))
+    cv_result = temporal_cross_validation(df)
+
+    # Cada fold debe tener entrenamiento antes que validación
+    for _, row in cv_result.folds.iterrows():
+        assert pd.Timestamp(row["train_start"]) <= pd.Timestamp(row["train_end"])
+        assert pd.Timestamp(row["val_start"]) <= pd.Timestamp(row["val_end"])
+        assert pd.Timestamp(row["train_end"]) < pd.Timestamp(row["val_start"]), (
+            f"Fold {int(row['fold'])}: entrenamiento termina {row['train_end']} "
+            f"pero validación empieza {row['val_start']}"
+        )
+
+    # El fold i+1 debe empezar su validación después del fold i
+    fold_starts = cv_result.folds["val_start"].apply(pd.Timestamp).values
+    for i in range(len(fold_starts) - 1):
+        assert fold_starts[i] < fold_starts[i + 1], (
+            f"Fold {i+1} valida desde {fold_starts[i]} pero fold {i+2} valida "
+            f"desde {fold_starts[i+1]}, violando el orden cronológico"
+        )
+
+    # Al menos 5 folds
+    assert len(cv_result.folds) >= 5
+
+    # Métricas dentro de rango razonable (errores positivos)
+    for _, row in cv_result.folds.iterrows():
+        assert row["train_rmse"] > 0
+        assert row["val_rmse"] > 0
