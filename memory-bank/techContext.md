@@ -39,6 +39,20 @@
 - Ruta de TinyDB de usuarios/auth: services/api/db.json (creado automáticamente).
 - Variables de entorno requeridas: JWT_SECRET_KEY, y opcionalmente RESEND_API_KEY, SUPABASE_URL, SUPABASE_KEY, HEALTHCORE_DB_PATH, RATE_LIMIT_MAX_REQUESTS, ACCESS_TOKEN_EXPIRE_MINUTES, etc.
 
+### Evaluación técnica del modelo de pronóstico (raíz del repo)
+- **Python 3.14**, gestionado con `uv` (pyproject.toml raíz, `.venv` raíz). Prohibido `pip install` / `pipenv`.
+- **Dependencias**: `pandas>=3.1.0`, `scikit-learn>=1.9.1`, `xgboost>=3.4.1`, `matplotlib>=3.11.2`, `pytest>=9.2.0`.
+- **Comando de tests**: `uv run python -m pytest tests/pipelines/ -v` (64 tests en 3 archivos).
+- **Script de evaluación**: `uv run python scripts/run_model_evaluation.py`.
+- **TimeSeriesSplit**: de scikit-learn, `n_splits=5`, `test_size=12` (12 meses de validación por fold). Ventana expansiva (no train_size fijo).
+- **XGBoost params**: `max_depth=4`, `learning_rate=0.03`, `gamma=0.5`, `reg_alpha=0.5`, `reg_lambda=2.0`, `random_state=42`.
+- **Features** (12): `rev_lag_1`, `rev_lag_2`, `rev_lag_12`, `rev_ma_3`, `rev_min_12`, `rev_max_12`, `rev_std_12`, `month_num`, `season`, `trend_index`, `visits_count`, `avg_revenue_per_visit_usd`.
+- **Escalado**: `StandardScaler` sobre `["visits_count", "avg_revenue_per_visit_usd"]`, ajustado por fold en CV.
+- **Warm-up**: 12 filas descartadas al inicio porque sus lags apuntan a meses previos al arranque de la serie.
+- **Datos**: `data/raw/healthcore_sales.csv` (10 años, 120 filas mensuales, determinista con `random_state=42`).
+- **Métricas reportadas**: RMSE (principal), MAE (complementaria), más MSE (% ingreso medio), MAPE, Gini predictivo, K² (R²).
+- **Branch activo**: `feature/regression-model-eval`.
+
 ### API de Incidencias (services/incidents-api)
 - FastAPI independiente, puerto 8010.
 - TinyDB como almacenamiento.
