@@ -246,40 +246,43 @@ class TestRetrieve:
         mock_resp = MagicMock()
         mock_resp.points = [fake_hit]
 
-        with patch("data.pipelines.rag._get_qdrant_client") as mock_get:
+        with patch("data.pipelines.rag._get_qdrant_client") as mock_get, \
+             patch("data.process.rag.embed", return_value=[0.1] * 1024):
             mock_client = MagicMock()
             mock_client.query_points.return_value = mock_resp
             mock_get.return_value = mock_client
 
-            result = retrieve([0.1] * 1024, top_k=3)
+            result = retrieve("What insurance do you accept?", k=3)
             assert isinstance(result, list)
             assert len(result) == 1
             assert "_score" in result[0]
             assert result[0]["source_document"] == "insurance-coverage"
 
     def test_retrieve_respects_threshold(self):
-        """retrieve() should exclude results below score_threshold."""
+        """retrieve() should exclude results below min_score."""
         from data.pipelines.rag import retrieve
 
-        with patch("data.pipelines.rag._get_qdrant_client") as mock_get:
+        with patch("data.pipelines.rag._get_qdrant_client") as mock_get, \
+             patch("data.process.rag.embed", return_value=[0.1] * 1024):
             mock_client = MagicMock()
             mock_client.query_points.return_value.points = []
             mock_get.return_value = mock_client
 
-            result = retrieve([0.1] * 1024, top_k=3, score_threshold=0.9)
+            result = retrieve("Some question", k=3, min_score=0.9)
             assert result == []
 
     def test_retrieve_api_error(self):
         """retrieve() should raise RuntimeError when Qdrant is unreachable."""
         from data.pipelines.rag import retrieve
 
-        with patch("data.pipelines.rag._get_qdrant_client") as mock_get:
+        with patch("data.pipelines.rag._get_qdrant_client") as mock_get, \
+             patch("data.process.rag.embed", return_value=[0.1] * 1024):
             mock_client = MagicMock()
             mock_client.query_points.side_effect = Exception("Connection refused")
             mock_get.return_value = mock_client
 
             with pytest.raises(RuntimeError, match="Qdrant search failed"):
-                retrieve([0.1] * 1024)
+                retrieve("Some question")
 
 
 # ── Test: query() ────────────────────────────────────────────────────
@@ -288,11 +291,11 @@ class TestRetrieve:
 class TestQuery:
     """Tests for the end-to-end query() function.
 
-    query() returns a plain string — never a dict with metadata.
+    query() returns a plain string (the generated answer).
     """
 
     def test_query_returns_string(self, sample_chunks):
-        """query() should return a plain string."""
+        """query() should return a plain string answer."""
         with patch("data.process.rag.embed", return_value=[0.1] * 1024), \
              patch("data.pipelines.rag.retrieve", return_value=sample_chunks), \
              patch("data.pipelines.rag._generate", return_value="Blue Cross Blue Shield is accepted."):
@@ -304,7 +307,7 @@ class TestQuery:
             assert result == "Blue Cross Blue Shield is accepted."
 
     def test_query_no_chunks_returns_no_info_message(self):
-        """query() should return a 'no info' message when no chunks found."""
+        """query() should return the no-info message when no chunks found."""
         with patch("data.process.rag.embed", return_value=[0.1] * 1024), \
              patch("data.pipelines.rag.retrieve", return_value=[]):
 
@@ -336,14 +339,15 @@ class TestQuery:
             "Embedding and generation models must be different."
         )
 
-    def test_query_returns_str_not_dict(self):
-        """query() should NOT return a dict with sources/metadata."""
+    def test_query_returns_string_not_sources_dict(self):
+        """query() should return a plain string, not a dict or dataclass."""
         from inspect import signature
         from data.pipelines.rag import query
 
         sig = signature(query)
-        assert sig.return_annotation is str or sig.return_annotation == "str", (
-            f"query() return annotation should be str, got {sig.return_annotation}"
+        ann = sig.return_annotation
+        assert ann is str or str(ann) == "str", (
+            f"query() return annotation should be str, got {ann}"
         )
 
 
@@ -545,8 +549,8 @@ class TestRagRouter:
 
         req = QueryRequest(question="What insurance do you accept?")
         assert req.question == "What insurance do you accept?"
-        assert req.top_k == 3
-        assert req.score_threshold == 0.5
+        assert req.k == 5
+        assert req.min_score == 0.5
 
 
 if __name__ == "__main__":

@@ -49,6 +49,12 @@ export default function BackofficeHeader() {
             </Link>
             <Link
               className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
+              href="/knowledge"
+            >
+              Knowledge Base
+            </Link>
+            <Link
+              className="rounded px-2 py-1 hover:bg-slate-800 hover:text-white"
               href="/suppliers"
             >
               Supplier Directory

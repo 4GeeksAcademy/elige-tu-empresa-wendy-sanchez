@@ -30,6 +30,11 @@ const nextConfig: NextConfig = {
         source: "/api/inventory/:path*",
         destination: `${process.env.SUPPLIERS_API_URL ?? "http://backend:8000"}/inventory/:path*`,
       },
+      // Proxy /api/knowledge/query → HealthCore API (nombre Docker: backend)
+      {
+        source: "/api/knowledge/:path*",
+        destination: `${process.env.SUPPLIERS_API_URL ?? "http://backend:8000"}/knowledge/:path*`,
+      },
     ];
   },
 };

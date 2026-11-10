@@ -9,32 +9,36 @@
                        │
                        ▼
 ┌───────────────────────────────────────────────────────┐
-│              query(question: str) → str               │
+│              query(question: str, *, k=5,             │
+│                         min_score=0.5) → str          │
 │  ┌───────────────┐          ┌──────────────────────┐  │
-│  │embed(question)│          │   retrieve(vector)   │  │
-│  │ → vector      │          │ → chunks[ ]          │  │
-│  └──────┬────────┘          └────────┬─────────────┘  │
+│  │embed(question)│          │  retrieve(query:     │  │
+│  │ → vector      │          │   str, *, k,         │  │
+│  └──────┬────────┘          │   min_score)         │  │
+│         │                   │ → list[dict]         │  │
+│         │                   └────────┬─────────────┘  │
 │         │          ┌─────────────────▼────┐           │
-│         └─────────►  LLM Generation       │           │
-│                    │ (prompt = context +  │           │
-│                    │  question)           │           │
+│         └─────────►  generate_answer(     │           │
+│                    │   question, context) │           │
+│                    │   → str              │           │
 │                    └──────────────────────┘           │
 └───────────────────────────────────────────────────────┘
                        │
                        ▼
 ┌──────────────────────────────────────────────────────┐
-│                 Natural response                     │
+│                 Natural response (str)               │
 └──────────────────────────────────────────────────────┘
 ```
 
-**Four core functions, each with a single responsibility:**
+**Five core functions, each with a single responsibility:**
 
 | Function | Module | Responsibility |
 |---|---|---|
 | `setup()` | `data/process/rag.py` | Read source docs, chunk, embed, index into Qdrant |
 | `embed(text)` | `data/process/rag.py` | Convert text → vector using dedicated embedding model |
-| `retrieve(vector, top_k)` | `data/pipelines/rag.py` | Vector search in Qdrant, return top-k chunks |
-| `query(question)` | `data/pipelines/rag.py` | Orchestrate embed + retrieve + LLM generate |
+| `retrieve(query, *, k, min_score)` | `data/pipelines/rag.py` | Embed *query* internally, vector search in Qdrant, return top-k payload dicts |
+| `generate_answer(question, context)` | `data/pipelines/rag.py` | Build prompt from chunks + question, call LLM, return plain str |
+| `query(question, *, k, min_score)` | `data/pipelines/rag.py` | Orchestrate retrieve + generate_answer, return plain str |
 
 ## 2. Models
 
@@ -99,13 +103,13 @@ are documented as the production upgrade path.
 
 ## 5. Retrieval Parameters
 
-| Parameter | Value | Rationale |
+| Parameter | Default | Rationale |
 |---|---|---|
-| `top_k` | 3 | Recall@3 ≥ 80% target |
-| `score_threshold` | 0.5 | Cosine similarity floor; avoids noise. Chosen by observing score distribution on test queries. |
+| `k` | 5 | Recall@5 ≥ 90% target; higher than v1's top_k=3 for broader coverage. |
+| `min_score` | 0.5 | Cosine similarity floor; avoids noise. Chosen by observing score distribution on test queries. |
 | `rerank` | No (v1) | Can be added later as a stateless step between retrieve and generate. |
 
-**Low-score behaviour:** If no chunk exceeds `score_threshold`, `retrieve()` returns
+**Low-score behaviour:** If no chunk exceeds `min_score`, `retrieve()` returns
 empty list and `query()` responds: *"No tengo información suficiente en la base de conocimiento para responder esta pregunta."*
 
 ## 6. Generation Prompt Template
@@ -139,7 +143,7 @@ File: `data/eval/test-queries.json`
 
 | KPI | Target | Method |
 |---|---|---|
-| Recall@3 | ≥ 80% | Manual evaluation against test-queries.json |
+| Recall@5 | ≥ 90% | Manual evaluation against test-queries.json |
 | Faithfulness | 100% | Each response verified against source chunks |
 | Threshold coverage | 100% | All queries below threshold return the "no info" answer |
 

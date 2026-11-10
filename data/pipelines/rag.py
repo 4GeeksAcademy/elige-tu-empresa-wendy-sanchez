@@ -2,12 +2,12 @@
 data/pipelines/rag.py — Retrieval & generation pipeline.
 
 Responsibilities:
-  retrieve()        — Given a query vector, return top-k relevant chunks from
-                      Qdrant.
+  retrieve()        — Given a question string, embed it, search Qdrant, and
+                      return top-k relevant chunk payloads.
   generate_answer() — Build prompt from chunks + question and call the
                       generation LLM.
-  query()           — End-to-end: embed user question, retrieve context,
-                      generate final answer via LLM.  Returns a plain string.
+  query()           — End-to-end: retrieve context, generate final answer via
+                      LLM.  Returns a plain string.
 
 These three functions are separated so:
   - retrieve() and generate_answer() can be used independently by future
@@ -41,9 +41,9 @@ LLM_HOST: str | None = os.getenv("HOST")
 # Qdrant collection name (must match data/process/rag.py).
 QDRANT_COLLECTION: str = "healthcore_knowledge"
 
-# Retrieval parameters.
-DEFAULT_TOP_K: int = 3
-DEFAULT_SCORE_THRESHOLD: float = 0.5
+# Retrieval defaults.
+DEFAULT_K: int = 5
+DEFAULT_MIN_SCORE: float = 0.5
 
 # ── OpenAI client (dedicated for generation — NEVER used for embeddings) ──
 _gen_client: OpenAI | None = None
@@ -85,39 +85,47 @@ def _get_qdrant_client() -> Any:
     return _qdrant_client
 
 
-# ── retrieve() — single responsibility: vector search ────────────────
+# ── retrieve() — embed + vector search ───────────────────────────────
 
 
 def retrieve(
-    vector: list[float],
-    top_k: int = DEFAULT_TOP_K,
-    score_threshold: float | None = DEFAULT_SCORE_THRESHOLD,
+    query: str,
+    *,
+    k: int = DEFAULT_K,
+    min_score: float = DEFAULT_MIN_SCORE,
 ) -> list[dict[str, Any]]:
-    """Search Qdrant for the *top_k* most similar chunks to *vector*.
+    """Embed *query*, then search Qdrant for the *k* most similar chunks.
+
+    Points below *min_score* cosine similarity are excluded.  Returns
+    plain payload dicts (not raw Qdrant SDK objects).
 
     Args:
-        vector: Query embedding vector (1024-dim).
-        top_k: Number of results to return.
-        score_threshold: Minimum cosine similarity; results below this are
-            excluded.  Set to ``None`` to disable.
+        query: Natural language question (embedded internally).
+        k: Number of nearest neighbours to retrieve.
+        min_score: Minimum cosine similarity threshold; results below
+            this are discarded.  Set to 0.0 to disable.
 
     Returns:
         A list of payload dicts, each containing at minimum:
-        ``source_document``, ``section``, ``text``, ``chunk_index``, ``language``.
+        ``source_document``, ``section``, ``text``, ``chunk_index``,
+        ``language``, ``company``, and ``_score``.
 
-        Ordered by descending similarity.  Empty list if no results meet the
-        threshold.
+        Ordered by descending similarity.  Empty list if no results
+        meet the threshold.
 
     Raises:
-        RuntimeError: If Qdrant is unreachable.
+        RuntimeError: If Qdrant or the embedding API is unreachable.
     """
+    from data.process.rag import embed
+
+    vector = embed(query)
     client = _get_qdrant_client()
     try:
         resp = client.query_points(
             collection_name=QDRANT_COLLECTION,
             query=vector,
-            limit=top_k,
-            score_threshold=score_threshold,
+            limit=k,
+            score_threshold=min_score if min_score > 0.0 else None,
             with_payload=True,
         )
     except Exception as exc:
@@ -129,7 +137,7 @@ def retrieve(
         payload["_score"] = round(hit.score, 4)
         chunks.append(payload)
 
-    logger.info("Retrieved %d chunks (threshold=%.2f).", len(chunks), score_threshold or 0)
+    logger.info("Retrieved %d chunks (k=%d, min_score=%.2f).", len(chunks), k, min_score)
     return chunks
 
 
@@ -227,7 +235,7 @@ def _generate(
 # ── generate_answer() — public, separate generation step ─────────────
 
 
-def generate_answer(question: str, context: list[dict]) -> str:
+def generate_answer(question: str, context: list[dict[str, Any]]) -> str:
     """Generate a final answer from *question* and retrieved *context* chunks.
 
     This is a **public** function so future agents (e.g. LangGraph) can call
@@ -254,53 +262,38 @@ def generate_answer(question: str, context: list[dict]) -> str:
 
 # ── query() — end-to-end orchestrator ────────────────────────────────
 
+# NOTE: This is the ONLY function that external consumers (endpoints, agents)
+# should call.  It composes retrieve() + generate_answer().
+
 
 def query(
     question: str,
-    top_k: int = DEFAULT_TOP_K,
-    score_threshold: float | None = DEFAULT_SCORE_THRESHOLD,
-    system_prompt: str | None = None,
+    *,
+    k: int = DEFAULT_K,
+    min_score: float = DEFAULT_MIN_SCORE,
 ) -> str:
     """Answer a *question* using the RAG pipeline.
 
+    This is the **only** function that external consumers should call.
+    It composes ``retrieve()`` + ``generate_answer()``, ensuring the
+    orchestration logic lives in one place.
+
     Steps:
-        1. Embed the question (calls ``embed()`` from the process module).
-        2. Retrieve relevant chunks from Qdrant.
-        3. Generate a final answer via LLM using the chunks as context.
+        1. Retrieve relevant chunks from Qdrant (embeds internally).
+        2. Generate a final answer via LLM using the chunks as context.
 
     The response **never** returns raw chunks to the user — it always goes
     through the LLM.
 
     Args:
         question: Natural language question from a coordinator.
-        top_k: Number of chunks to retrieve.
-        score_threshold: Minimum similarity threshold.
-        system_prompt: Optional custom system prompt override.
+        k: Number of chunks to retrieve.
+        min_score: Minimum similarity threshold (cosine).
 
     Returns:
         The generated answer as a plain string.
     """
-    from data.process.rag import embed
-
     logger.info("Query: '%s'", question[:100])
 
-    query_vector = embed(question)
-
-    chunks = retrieve(
-        vector=query_vector,
-        top_k=top_k,
-        score_threshold=score_threshold,
-    )
-
-    # Delegate to the public generate_answer() — this is the only orchestrator.
-    # If system_prompt is provided, we rebuild context and call _generate
-    # directly to respect the override.
-    if system_prompt is not None:
-        context_str = _build_context(chunks)
-        return _generate(
-            question=question,
-            context=context_str,
-            system_prompt=system_prompt,
-        )
-
+    chunks = retrieve(question, k=k, min_score=min_score)
     return generate_answer(question=question, context=chunks)
