@@ -18,6 +18,7 @@ from models import AnalysisPercentages, AnalysisResponse, AnalysisSummary, RootR
 from routes.auth import router as auth_router
 from routes.inventory import router as inventory_router
 from routes.profiles import router as profiles_router
+from routes.rag import router as rag_router
 from routes.suppliers import router as suppliers_router
 from routes.tasks import router as tasks_router
 from routes.telemetry import router as telemetry_router
@@ -100,6 +101,7 @@ app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
 app.include_router(inventory_router)
+app.include_router(rag_router)
 app.include_router(telemetry_router)
 
 
