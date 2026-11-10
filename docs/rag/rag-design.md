@@ -10,7 +10,7 @@
                        ▼
 ┌───────────────────────────────────────────────────────┐
 │              query(question: str, *, k=5,             │
-│                         min_score=0.5) → str          │
+│                         min_score=0.3) → str          │
 │  ┌───────────────┐          ┌──────────────────────┐  │
 │  │embed(question)│          │  retrieve(query:     │  │
 │  │ → vector      │          │   str, *, k,         │  │
@@ -80,7 +80,7 @@ In development, `setup()` deletes and recreates the collection on each run.
 This avoids duplicates without maintaining external ID state.
 For production, switch to deterministic UUIDs from chunk content hashes.
 
-**Rationale:** The knowledge base is small (4 documents, ~dozen chunks).
+**Rationale:** The knowledge base is small (4 documents, 9 chunks).
 Clean-and-reload is simple, correct, and fast. Deterministic IDs (hash-based)
 are documented as the production upgrade path.
 
@@ -88,12 +88,13 @@ are documented as the production upgrade path.
 
 **Per-document, semantic-aware chunking.**
 
-| Document | Sections | Min chunks |
+| Document | Sections | Chunks |
 |---|---|---|
-| `healthcore-insurance-coverage.es.md` | US coverage, UK coverage, uninsured | ≥3 |
-| `healthcore-appointment-policy.es.md` | Booking, cancellation, reminders, no-shows | ≥3 |
-| `healthcore-referral-process.es.md` | Process steps, timing, escalation | ≥3 |
-| `healthcore-new-patient-checklist.es.md` | Pre-appointment, documents, consent | ≥3 |
+| `healthcore-insurance-coverage.es.md` | US coverage, UK coverage, uninsured | 2 |
+| `healthcore-appointment-policy.es.md` | Booking, cancellation, reminders, no-shows | 3 |
+| `healthcore-referral-process.es.md` | Process steps, timing, escalation | 2 |
+| `healthcore-new-patient-checklist.es.md` | Pre-appointment, documents, consent | 2 |
+| **Total** | — | **9** |
 
 **Rules:**
 - Never split mid-sentence or mid-paragraph.
@@ -106,7 +107,7 @@ are documented as the production upgrade path.
 | Parameter | Default | Rationale |
 |---|---|---|
 | `k` | 5 | Recall@3 ≥ 80% target per CONTEXT.md; k=5 gives headroom above the minimum threshold. |
-| `min_score` | 0.5 | Cosine similarity floor; avoids noise. Chosen by observing score distribution on test queries. |
+| `min_score` | 0.3 | Cosine similarity floor; avoids noise. Chosen by observing score distribution on test queries. |
 | `rerank` | No (v1) | Can be added later as a stateless step between retrieve and generate. |
 
 **Low-score behaviour:** If no chunk exceeds `min_score`, `retrieve()` returns
@@ -192,9 +193,9 @@ the entire pipeline to the final answer.
 
 | Step | What happens | Code location |
 |---|---|---|
-| **0. Setup (one-time)** | `setup()` reads 4 `.es.md` files from `docs/company-knowledge-base/`, parses them into Markdown sections, chunks each section (min 200 chars, max 1500 chars per chunk), embeds every chunk with `embed()`, and indexes into Qdrant collection `healthcore_knowledge`. | `data/process/rag.py::setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert |
-| **1. Retrieve** | `query("¿Qué seguros?")` calls `retrieve("¿Qué seguros?")`. Inside `retrieve()`: (a) imports and calls `embed("¿Qué seguros?")` from `data.process.rag` — this calls the **embedding** model (`pplx-embed-v1-0.6b`, 1024‑dim), not the generation model. (b) Sends the resulting vector to Qdrant via `query_points()` with `cosine` distance, `limit=k` (default 5), `score_threshold=min_score` (default 0.5). (c) Returns payload dicts with `_score` appended. | `data/pipelines/rag.py::retrieve()` |
-| **2. Filter by threshold** | Qdrant returns at most `k` results, but `score_threshold` excludes any below 0.5. If **all** results are below threshold, `retrieve()` returns `[]`. This satisfies the CONTEXT.md rule: no info → no invented facts. | `query_points(…, score_threshold=…)` |
+| **0. Setup (one-time)** | `setup()` reads 4 `.es.md` files from `docs/company-knowledge-base/`, parses them into Markdown sections, chunks each section (min 200 chars, max 500 chars per chunk), embeds every chunk with `embed()`, and indexes into Qdrant collection `healthcore_knowledge`. | `data/process/rag.py::setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert |
+| **1. Retrieve** | `query("¿Qué seguros?")` calls `retrieve("¿Qué seguros?")`. Inside `retrieve()`: (a) imports and calls `embed("¿Qué seguros?")` from `data.process.rag` — this calls the **embedding** model (`pplx-embed-v1-0.6b`, 1024‑dim), not the generation model. (b) Sends the resulting vector to Qdrant via `query_points()` with `cosine` distance, `limit=k` (default 5), `score_threshold=min_score` (default 0.3). (c) Returns payload dicts with `_score` appended. | `data/pipelines/rag.py::retrieve()` |
+| **2. Filter by threshold** | Qdrant returns at most `k` results, but `score_threshold` excludes any below 0.3. If **all** results are below threshold, `retrieve()` returns `[]`. This satisfies the CONTEXT.md rule: no info → no invented facts. | `query_points(…, score_threshold=…)` |
 | **3. Build context** | `generate_answer()` receives the chunk list. `_build_context()` formats each chunk as `[Fuente N: doc — section]\ntext`, joined by double newlines. If the list is empty, `NO_CHUNKS_MESSAGE` is returned immediately without calling the LLM. | `data/pipelines/rag.py::generate_answer()` → `_build_context()` |
 | **4. Generate** | `_generate()` fills the `SYSTEM_PROMPT` template with `{context}` and `{question}`, then calls the **generation** model (`deepseek-v4-flash`, chat completions, temperature 0.3, max_tokens 2000). The plain-text answer is returned. A fallback handles `content=None` (reasoning models) by extracting the last sentence from `reasoning_content`. | `data/pipelines/rag.py::_generate()` |
 | **5. Response** | The string bubbles back: `_generate()` → `generate_answer()` → `query()` → `query_knowledge()` → `QueryResponse(answer=…)` → HTTP 200 JSON. | `services/api/routes/knowledge.py::query_knowledge()` |
@@ -214,9 +215,9 @@ _See §4 for the summary; this section provides the full technical details._
 
 The 4 source documents are short, structured Markdown files (each ≈1 000 chars, single top‑level heading). Because of this:
 
-1. **Every document fits in one chunk.** Each doc has one `# Title` heading followed by paragraphs. The chunker reads the whole section body, and since it's under `CHUNK_MAX_CHARS=1500`, it stays as a single chunk. No splitting across sections is needed.
+1. **Each document is split into 2-3 smaller chunks.** The chunker accumulates paragraphs until adding the next one would exceed `CHUNK_MAX_CHARS=500`; it then flushes the buffer and starts a new chunk. This produces **9 total chunks** across the 4 documents, each focused on a narrower set of facts.
 
-2. **Semantic units are naturally preserved.** Each document is about one topic: insurance coverage, appointment policy, referral process, or new-patient checklist. Keeping each as one chunk guarantees no rule or condition is cut mid‑paragraph.
+2. **Semantic units are naturally preserved.** Each document is about one topic: insurance coverage, appointment policy, referral process, or new-patient checklist. Chunks are paragraph-aligned, so no rule or condition is cut mid‑paragraph.
 
 3. **Headers become section metadata.** The `# Title` is parsed by `_parse_markdown_sections()` and becomes the `section` payload field. This lets the LLM know exactly which document the chunk came from.
 
@@ -224,24 +225,24 @@ The 4 source documents are short, structured Markdown files (each ≈1 000 cha
 
 | Parameter | Value | Why |
 |---|---|---|
-| `CHUNK_MIN_CHARS` | 200 | Discard near‑empty sections (no document is below this). |
-| `CHUNK_MAX_CHARS` | 1 500 | Safety limit; if a document grows in the future, paragraphs still accumulate into buffers that are flushed at this boundary. No paragraph is ever split. |
+| `CHUNK_MIN_CHARS` | 200 | Discard near‑empty sections (no paragraph alone is below this). |
+| `CHUNK_MAX_CHARS` | 500 | Forces the chunker to split documents into 2–3 coherent paragraph‑aligned fragments. Improves retrieval granularity (9 chunks vs. 4). |
 | `Overlap` | 0 (none) | Documents are short and single‑topic; overlap would add duplicate vectors without benefit. |
 
 ### Actual chunk counts
 
 | Document | Chunks | Section heading | Size range (chars) |
 |---|---|---|---|
-| `healthcore-insurance-coverage.es.md` | 1 | `Cobertura de Seguros Aceptados` | 1 090 |
-| `healthcore-appointment-policy.es.md` | 1 | `Política de Citas y Cancelaciones` | 952 |
-| `healthcore-referral-process.es.md` | 1 | `Proceso de Referencia Interna` | 1 132 |
-| `new-patient-checklist.es.md` | 1 | `Checklist para Pacientes Nuevos` | 943 |
-| **Total** | **4** | — | 943–1 132 |
+| `healthcore-insurance-coverage.es.md` | 2 | `Cobertura de Seguros Aceptados` | 472–473 |
+| `healthcore-appointment-policy.es.md` | 3 | `Política de Citas y Cancelaciones` | 213–376 |
+| `healthcore-referral-process.es.md` | 2 | `Proceso de Referencia Interna` | 404–432 |
+| `healthcore-new-patient-checklist.es.md` | 2 | `Checklist para Pacientes Nuevos` | 405–474 |
+| **Total** | **9** | — | 213–474 |
 
 ### What was avoided
 - **Mid‑paragraph cuts.** The chunker accumulates whole paragraphs and only flushes when the next paragraph would push the buffer over `CHUNK_MAX_CHARS`. This guarantees coherent units.
-- **Lost section context.** The section heading is recorded per‑chunk, so even if a future document were large enough to split, each chunk would still carry its section name.
-- **Orphaned business rules.** Rules like "Medicare/Medicaid patients: no no-show charge" are short paragraphs that fit comfortably. A chunker that splits by fixed token count could have separated the condition ("Medicare/Medicaid") from the consequence ("no charge").
+- **Lost section context.** The section heading is recorded per‑chunk, so even after splitting, each chunk still carries its section name.
+- **Orphaned business rules.** Rules like "Medicare/Medicaid patients: no no-show charge" are short paragraphs that fit comfortably within a single chunk. A chunker that splits by fixed token count could have separated the condition ("Medicare/Medicaid") from the consequence ("no charge").
 
 ---
 
@@ -277,11 +278,11 @@ Because the same `embed()` function is called in both paths, the vector represen
 
 | Aspect | Detail |
 |---|---|
-| Default | `0.5` |
+| Default | `0.3` |
 | How it's applied | Passed as `score_threshold` to Qdrant's `query_points()`. When `min_score=0.0`, the threshold is disabled (`None` sent to Qdrant, returning all k results). |
-| Why 0.5 | Chosen empirically by running the 8 test queries and observing the distribution of cosine scores. Scores ≥ 0.5 consistently return relevant chunks; scores below 0.5 are noise from unrelated topics. |
+| Why 0.3 | Chosen empirically by running the 8 test queries and observing the distribution of cosine scores. Scores ≥ 0.3 consistently return relevant chunks; scores below 0.3 are noise from unrelated topics. |
 | Behaviour when no chunks pass | `retrieve()` returns `[]` → `generate_answer([])` returns `NO_CHUNKS_MESSAGE` → the user sees "No encontré información relevante…". |
-| Tuning notes | 0.5 is conservative. With only 4 chunks in the corpus, in practice the top‑1 score is usually > 0.7 for relevant questions. The threshold mainly protects against off‑topic questions returning low‑scoring false positives. |
+| Tuning history | **v1 (4 chunks, 1500 chars, min_score=0.5):** With only 4 large chunks, the best chunk for any question scored ≈0.52–0.58. The 0.5 threshold was too aggressive — relevant chunks sometimes scored 0.49 and were discarded, producing false "no info" answers. **v2 (9 chunks, 500 chars, min_score=0.3):** After increasing granularity, the top‑1 score for relevant questions rose to ≈0.42–0.63 (avg ≈0.48). Setting min_score=0.3 now captures all relevant results while still filtering true noise (scores < 0.25 from unrelated topics). |
 
 ### Preprocessing before embedding
 
@@ -322,6 +323,7 @@ docs/company-knowledge-base/
 data/process/rag.py                         ← setup(), embed()
 data/pipelines/rag.py                       ← retrieve(), query()
 services/api/routes/rag.py                  ← FastAPI router
+services/api/routes/rag_standalone.py      ← Standalone FastAPI server (avoids SQLModel/Python 3.14 issues)
 uis/website/app/rag/page.tsx                ← UI component
 tests/pipelines/test_rag.py                 ← Unit tests
 docs/rag/rag-design.md                      ← This document

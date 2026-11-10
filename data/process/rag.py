@@ -44,7 +44,7 @@ QDRANT_COLLECTION: str = "healthcore_knowledge"
 
 # Chunks are smaller than raw docs to fit in context windows.
 CHUNK_MIN_CHARS: int = 200
-CHUNK_MAX_CHARS: int = 1500
+CHUNK_MAX_CHARS: int = 500
 
 # Path to the knowledge base folder.
 CORPUS_DIR: Path = (

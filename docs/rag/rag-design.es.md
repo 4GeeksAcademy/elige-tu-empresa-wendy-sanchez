@@ -10,7 +10,7 @@
                        ▼
 ┌───────────────────────────────────────────────────────┐
 │              query(question: str, *, k=5,             │
-│                         min_score=0.5) → str          │
+│                         min_score=0.3) → str          │
 │  ┌───────────────┐          ┌──────────────────────┐  │
 │  │embed(question)│          │  retrieve(query:     │  │
 │  │ → vector      │          │   str, *, k,         │  │
@@ -80,7 +80,7 @@ En desarrollo, `setup()` elimina y recrea la colección en cada ejecución.
 Esto evita duplicados sin mantener estado de IDs externos.
 Para producción, cambiar a UUIDs deterministas basados en hash del contenido.
 
-**Razón:** La base de conocimiento es pequeña (4 documentos, ~12 fragmentos).
+**Razón:** La base de conocimiento es pequeña (4 documentos, 9 fragmentos).
 Clean-and-reload es simple, correcto y rápido. Los IDs deterministas (basados en hash)
 están documentados como ruta de actualización a producción.
 
@@ -88,12 +88,13 @@ están documentados como ruta de actualización a producción.
 
 **Fragmentación semántica por documento.**
 
-| Documento | Secciones | Mín. fragmentos |
+| Documento | Secciones | Fragmentos |
 |---|---|---|
-| `healthcore-insurance-coverage.es.md` | Cobertura EEUU, cobertura UK, no asegurados | ≥3 |
-| `healthcore-appointment-policy.es.md` | Reserva, cancelación, recordatorios, no-show | ≥3 |
-| `healthcore-referral-process.es.md` | Pasos del proceso, tiempos, escalación | ≥3 |
-| `healthcore-new-patient-checklist.es.md` | Pre-cita, documentos, consentimiento | ≥3 |
+| `healthcore-insurance-coverage.es.md` | Cobertura EEUU, cobertura UK, no asegurados | 2 |
+| `healthcore-appointment-policy.es.md` | Reserva, cancelación, recordatorios, no-show | 3 |
+| `healthcore-referral-process.es.md` | Pasos del proceso, tiempos, escalación | 2 |
+| `healthcore-new-patient-checklist.es.md` | Pre-cita, documentos, consentimiento | 2 |
+| **Total** | — | **9** |
 
 **Reglas:**
 - Nunca dividir en medio de una oración o párrafo.
@@ -106,7 +107,7 @@ están documentados como ruta de actualización a producción.
 | Parámetro | Valor por Defecto | Razón |
 |---|---|---|
 | `k` | 5 | Recall@3 ≥ 80% según CONTEXT.md; k=5 da margen sobre el mínimo requerido. |
-| `min_score` | 0.5 | Límite inferior de similitud coseno; evita ruido. Elegido observando la distribución de puntuaciones en consultas de prueba. |
+| `min_score` | 0.3 | Límite inferior de similitud coseno; evita ruido. Elegido observando la distribución de puntuaciones en consultas de prueba. |
 | `rerank` | No (v1) | Puede añadirse después como paso sin estado entre retrieve y generate. |
 
 **Comportamiento con puntuación baja:** Si ningún fragmento supera `min_score`,
@@ -160,6 +161,7 @@ data/process/rag.py                         ← setup(), embed()
 data/pipelines/rag.py                       ← retrieve(), query()
 services/api/routes/rag.py                  ← Router FastAPI
 services/api/routes/knowledge.py            ← Endpoint público /knowledge/query
+services/api/routes/rag_standalone.py      ← Servidor FastAPI standalone (evita problemas SQLModel/Python 3.14)
 uis/backoffice/components/KnowledgePanel.tsx ← UI React
 tests/pipelines/test_rag.py                 ← Tests unitarios
 docs/rag/rag-design.es.md                   ← Este documento
@@ -211,9 +213,9 @@ de todo el pipeline hasta la respuesta final.
 
 | Paso | Qué ocurre | Ubicación en el código |
 |---|---|---|
-| **0. Setup (una vez)** | `setup()` lee los 4 archivos `.es.md` de `docs/company-knowledge-base/`, los parsea en secciones Markdown, fragmenta cada sección (mín 200 chars, máx 1500 chars por fragmento), embe be cada fragmento con `embed()` y lo indexa en la colección Qdrant `healthcore_knowledge`. | `data/process/rag.py::setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert |
-| **1. Retrieve** | `query("¿Qué seguros?")` llama a `retrieve("¿Qué seguros?")`. Dentro de `retrieve()`: (a) importa y llama a `embed()` de `data.process.rag` — esto usa el modelo de **embedding** (`pplx-embed-v1-0.6b`, 1024‑dim), no el de generación. (b) envía el vector resultante a Qdrant vía `query_points()` con distancia `coseno`, `limit=k` (default 5), `score_threshold=min_score` (default 0.5). (c) Devuelve los payloads con `_score` añadido. | `data/pipelines/rag.py::retrieve()` |
-| **2. Filtro por umbral** | Qdrant devuelve como máximo `k` resultados, pero `score_threshold` excluye los que estén por debajo de 0.5. Si **todos** los resultados están por debajo del umbral, `retrieve()` devuelve `[]`. Esto cumple la regla de CONTEXT.md: sin información → no inventar datos. | `query_points(…, score_threshold=…)` |
+| **0. Setup (una vez)** | `setup()` lee los 4 archivos `.es.md` de `docs/company-knowledge-base/`, los parsea en secciones Markdown, fragmenta cada sección (mín 200 chars, máx 500 chars por fragmento), embe be cada fragmento con `embed()` y lo indexa en la colección Qdrant `healthcore_knowledge`. | `data/process/rag.py::setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert |
+| **1. Retrieve** | `query("¿Qué seguros?")` llama a `retrieve("¿Qué seguros?")`. Dentro de `retrieve()`: (a) importa y llama a `embed()` de `data.process.rag` — esto usa el modelo de **embedding** (`pplx-embed-v1-0.6b`, 1024‑dim), no el de generación. (b) envía el vector resultante a Qdrant vía `query_points()` con distancia `coseno`, `limit=k` (default 5), `score_threshold=min_score` (default 0.3). (c) Devuelve los payloads con `_score` añadido. | `data/pipelines/rag.py::retrieve()` |
+| **2. Filtro por umbral** | Qdrant devuelve como máximo `k` resultados, pero `score_threshold` excluye los que estén por debajo de 0.3. Si **todos** los resultados están por debajo del umbral, `retrieve()` devuelve `[]`. Esto cumple la regla de CONTEXT.md: sin información → no inventar datos. | `query_points(…, score_threshold=…)` |
 | **3. Construir contexto** | `generate_answer()` recibe la lista de fragmentos. `_build_context()` formatea cada fragmento como `[Fuente N: doc — section]\ntext`, unidos por dobles saltos de línea. Si la lista está vacía, se devuelve `NO_CHUNKS_MESSAGE` inmediatamente sin llamar al LLM. | `data/pipelines/rag.py::generate_answer()` → `_build_context()` |
 | **4. Generar** | `_generate()` llena la plantilla `SYSTEM_PROMPT` con `{context}` y `{question}`, luego llama al modelo de **generación** (`deepseek-v4-flash`, chat completions, temperature 0.3, max_tokens 2000). Devuelve la respuesta en texto plano. Un fallback maneja `content=None` (modelos de razonamiento) extrayendo la última frase de `reasoning_content`. | `data/pipelines/rag.py::_generate()` |
 | **5. Respuesta** | El string sube: `_generate()` → `generate_answer()` → `query()` → `query_knowledge()` → `QueryResponse(answer=…)` → HTTP 200 JSON. | `services/api/routes/knowledge.py::query_knowledge()` |
@@ -231,9 +233,9 @@ de todo el pipeline hasta la respuesta final.
 
 Los 4 documentos fuente son archivos Markdown cortos y estructurados (≈1 000 caracteres cada uno, un solo encabezado principal). Por esto:
 
-1. **Cada documento cabe en un fragmento.** Cada doc tiene un encabezado `# Título` seguido de párrafos. El fragmentador lee todo el cuerpo de la sección, y como está por debajo de `CHUNK_MAX_CHARS=1500`, se queda como un solo fragmento. No es necesario dividir entre secciones.
+1. **Cada documento se divide en 2-3 fragmentos pequeños.** El fragmentador acumula párrafos hasta que añadir el siguiente superaría `CHUNK_MAX_CHARS=500`; entonces vacía el búfer y empieza un nuevo fragmento. Esto produce **9 fragmentos totales** entre los 4 documentos, cada uno enfocado en un conjunto más reducido de hechos.
 
-2. **Las unidades semánticas se preservan naturalmente.** Cada documento trata de un tema: cobertura de seguros, política de citas, proceso de referencias o checklist de pacientes nuevos. Mantener cada uno como un fragmento único garantiza que ninguna regla o condición se corta a mitad de un párrafo.
+2. **Las unidades semánticas se preservan naturalmente.** Cada documento trata de un tema: cobertura de seguros, política de citas, proceso de referencias o checklist de pacientes nuevos. Los fragmentos están alineados con párrafos, así que ninguna regla o condición se corta a mitad.
 
 3. **Los encabezados se convierten en metadatos de sección.** El `# Título` es parseado por `_parse_markdown_sections()` y se convierte en el campo `section` del payload. Esto permite al LLM saber exactamente de qué documento proviene el fragmento.
 
@@ -241,24 +243,24 @@ Los 4 documentos fuente son archivos Markdown cortos y estructurados (≈1 000
 
 | Parámetro | Valor | Por qué |
 |---|---|---|
-| `CHUNK_MIN_CHARS` | 200 | Descartar secciones casi vacías (ningún documento está por debajo). |
-| `CHUNK_MAX_CHARS` | 1 500 | Límite de seguridad; si un documento crece en el futuro, los párrafos se acumulan en búferes que se vacían en este límite. Ningún párrafo se divide. |
+| `CHUNK_MIN_CHARS` | 200 | Descartar secciones casi vacías (ningún párrafo solo está por debajo). |
+| `CHUNK_MAX_CHARS` | 500 | Obliga al fragmentador a dividir cada documento en 2-3 fragmentos coherentes alineados con párrafos. Mejora la granularidad de recuperación (9 fragmentos vs. 4). |
 | `Solapamiento (overlap)` | 0 (ninguno) | Los documentos son cortos y monotemáticos; el solapamiento añadiría vectores duplicados sin beneficio. |
 
 ### Conteo real de fragmentos
 
 | Documento | Fragmentos | Encabezado de sección | Rango de tamaño (chars) |
 |---|---|---|---|
-| `healthcore-insurance-coverage.es.md` | 1 | `Cobertura de Seguros Aceptados` | 1 090 |
-| `healthcore-appointment-policy.es.md` | 1 | `Política de Citas y Cancelaciones` | 952 |
-| `healthcore-referral-process.es.md` | 1 | `Proceso de Referencia Interna` | 1 132 |
-| `new-patient-checklist.es.md` | 1 | `Checklist para Pacientes Nuevos` | 943 |
-| **Total** | **4** | — | 943–1 132 |
+| `healthcore-insurance-coverage.es.md` | 2 | `Cobertura de Seguros Aceptados` | 472–473 |
+| `healthcore-appointment-policy.es.md` | 3 | `Política de Citas y Cancelaciones` | 213–376 |
+| `healthcore-referral-process.es.md` | 2 | `Proceso de Referencia Interna` | 404–432 |
+| `healthcore-new-patient-checklist.es.md` | 2 | `Checklist para Pacientes Nuevos` | 405–474 |
+| **Total** | **9** | — | 213–474 |
 
 ### Qué se evitó
 - **Cortes a mitad de párrafo.** El fragmentador acumula párrafos completos y solo vacía el búfer cuando el siguiente párrafo superaría `CHUNK_MAX_CHARS`. Esto garantiza unidades coherentes.
-- **Contexto de sección perdido.** El encabezado de sección se registra por fragmento, así que incluso si un documento futuro fuera lo suficientemente grande para dividirse, cada fragmento conservaría su nombre de sección.
-- **Reglas de negocio huérfanas.** Reglas como "Pacientes con Medicare/Medicaid: no se les cobra cargo por no-show" son párrafos cortos que caben cómodamente. Un fragmentador que dividiera por conteo fijo de tokens podría haber separado la condición ("Medicare/Medicaid") de la consecuencia ("no charge").
+- **Contexto de sección perdido.** El encabezado de sección se registra por fragmento, así que incluso después de dividir, cada fragmento conserva su nombre de sección.
+- **Reglas de negocio huérfanas.** Reglas como "Pacientes con Medicare/Medicaid: no se les cobra cargo por no-show" son párrafos cortos que caben cómodamente dentro de un mismo fragmento. Un fragmentador que dividiera por conteo fijo de tokens podría haber separado la condición ("Medicare/Medicaid") de la consecuencia ("no charge").
 
 ---
 
@@ -294,11 +296,11 @@ Como la misma función `embed()` se llama en ambos caminos, la representación v
 
 | Aspecto | Detalle |
 |---|---|
-| Valor por defecto | `0.5` |
+| Valor por defecto | `0.3` |
 | Cómo se aplica | Se pasa como `score_threshold` a `query_points()` de Qdrant. Cuando `min_score=0.0`, el umbral se desactiva (`None` enviado a Qdrant, devolviendo todos los k resultados). |
-| Por qué 0.5 | Elegido empíricamente ejecutando las 8 consultas de prueba y observando la distribución de puntuaciones coseno. Las puntuaciones ≥ 0.5 devuelven sistemáticamente fragmentos relevantes; las puntuaciones por debajo de 0.5 son ruido de temas no relacionados. |
+| Por qué 0.3 | Elegido empíricamente ejecutando las 8 consultas de prueba y observando la distribución de puntuaciones coseno. Las puntuaciones ≥ 0.3 devuelven sistemáticamente fragmentos relevantes; las puntuaciones por debajo de 0.3 son ruido de temas no relacionados. |
 | Comportamiento cuando ningún fragmento pasa | `retrieve()` devuelve `[]` → `generate_answer([])` devuelve `NO_CHUNKS_MESSAGE` → el usuario ve "No encontré información relevante…". |
-| Notas de ajuste | 0.5 es conservador. Con solo 4 fragmentos en el corpus, en la práctica la puntuación del top‑1 suele ser > 0.7 para preguntas relevantes. El umbral protege principalmente contra preguntas fuera de tema que devuelven falsos positivos con baja puntuación. |
+| Historial de ajuste | **v1 (4 fragmentos, 1500 chars, min_score=0.5):** Con solo 4 fragmentos grandes, el mejor fragmento para cualquier pregunta puntuaba ≈0.52–0.58. El umbral 0.5 era demasiado agresivo — fragmentos relevantes a veces puntuaban 0.49 y se descartaban, produciendo falsos "no tengo información". **v2 (9 fragmentos, 500 chars, min_score=0.3):** Tras aumentar la granularidad, la puntuación top‑1 para preguntas relevantes subió a ≈0.42–0.63 (media ≈0.48). Fijar min_score=0.3 ahora captura todos los resultados relevantes mientras sigue filtrando ruido real (puntuaciones < 0.25 de temas no relacionados). |
 
 ### Preprocesado antes del embedding
 

@@ -550,7 +550,7 @@ class TestRagRouter:
         req = QueryRequest(question="What insurance do you accept?")
         assert req.question == "What insurance do you accept?"
         assert req.k == 5
-        assert req.min_score == 0.5
+        assert req.min_score == 0.3
 
 
 if __name__ == "__main__":

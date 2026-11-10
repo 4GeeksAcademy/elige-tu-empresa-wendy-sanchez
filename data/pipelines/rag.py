@@ -43,7 +43,7 @@ QDRANT_COLLECTION: str = "healthcore_knowledge"
 
 # Retrieval defaults.
 DEFAULT_K: int = 5
-DEFAULT_MIN_SCORE: float = 0.5
+DEFAULT_MIN_SCORE: float = 0.3
 
 # ── OpenAI client (dedicated for generation — NEVER used for embeddings) ──
 _gen_client: OpenAI | None = None

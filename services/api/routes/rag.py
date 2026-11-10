@@ -41,7 +41,7 @@ class QueryRequest(BaseModel):
         description="Número de fragmentos a recuperar.",
     )
     min_score: float = Field(
-        default=0.5,
+        default=0.3,
         ge=0.0,
         le=1.0,
         description="Umbral mínimo de similitud (coseno).",
