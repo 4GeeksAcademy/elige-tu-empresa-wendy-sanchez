@@ -43,8 +43,8 @@ EMBEDDING_HOST: str | None = os.getenv("EMBEDDING_HOST") or LLM_HOST
 QDRANT_COLLECTION: str = "healthcore_knowledge"
 
 # Chunks are smaller than raw docs to fit in context windows.
-CHUNK_MIN_CHARS: int = 200
-CHUNK_MAX_CHARS: int = 500
+CHUNK_MIN_CHARS: int = 140
+CHUNK_MAX_CHARS: int = 450
 
 # Path to the knowledge base folder.
 CORPUS_DIR: Path = (

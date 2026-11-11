@@ -77,9 +77,13 @@
   - **Embedding**: `madrid-spain/openrouter/perplexity/pplx-embed-v1-0.6b` (1024-dim).
   - **Generación**: `madrid-spain/openrouter/deepseek/deepseek-v4-flash` (modelo de razonamiento, puede devolver `content=None` — fallback extrae la última frase de `reasoning_content`).
 
-- **Afinación de chunking**: `CHUNK_MAX_CHARS=500` (de 1500), `CHUNK_MIN_CHARS=200`. Produce **9 chunks** (de 4) de 213–474 caracteres cada uno, 2-3 chunks por documento.
+- **Afinación de chunking (auditada 2026-11-11)**: `CHUNK_MAX_CHARS=450` (de 500), `CHUNK_MIN_CHARS=140` (de 200). Produce **12 chunks** (de 9) — los 4 documentos tienen exactamente 3 chunks cada uno, cumpliendo CONTEXT.md §5 ("al menos 3 chunks por documento"). Cambio necesario porque 3 documentos tenían solo 2 chunks (insurance-coverage, referral-process, new-patient-checklist): el último párrafo de cada uno era demasiado corto (< 200 chars) para ser chunk independiente. Solución: reducir CHUNK_MAX_CHARS a 450 fuerza división de párrafos largos (US/UK en insurance-coverage), y CHUNK_MIN_CHARS a 140 captura los párrafos de cierre.
 
 - **Afinación de recuperación**: `DEFAULT_MIN_SCORE=0.3` (de 0.5), `DEFAULT_K=5`. Scores top-1 para preguntas relevantes: ≈0.42–0.63 (media ≈0.48). El umbral 0.3 captura todos los resultados relevantes mientras filtra ruido (< 0.25).
+
+- **Recall@3 audit (2026-11-11)**: Evaluación post-auditoría con `scripts/eval_rag_recall.py` corriendo las 8 queries de `data/eval/test-queries.json` contra Qdrant en vivo. Resultado: **8/8 = 100% ≥ 80% ✅ APROBADO**. Documentado en `docs/rag/rag-design.md` §8.1 con tabla detallada de aciertos.
+
+- **Fix de import en page.tsx**: La línea `import RagChat from "./RagChat"` no resolvía porque RagChat.tsx está en `uis/website/components/`, no en `uis/website/app/rag/`. Corregido a `import RagChat from "@/components/RagChat"` usando el path alias `@/*` definido en `tsconfig.json`.
 
 - **Problema resuelto (SQLModel)**: La API principal (`services/api/`) no arranca por incompatibilidad SQLModel 0.0.48 + Python 3.14. Solución: `rag_standalone.py` — servidor FastAPI autónomo que no importa `models.py`. Corre con `QDRANT_URL=http://localhost:6333 uv run python services/api/routes/rag_standalone.py` desde la raíz.
 

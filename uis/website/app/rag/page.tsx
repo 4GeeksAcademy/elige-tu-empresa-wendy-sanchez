@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import RagChat from "./RagChat";
+import RagChat from "@/components/RagChat";
 
 export const metadata: Metadata = {
   title: "HealthCore | RAG — Asistente para Coordinadores",

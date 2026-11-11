@@ -80,7 +80,7 @@ In development, `setup()` deletes and recreates the collection on each run.
 This avoids duplicates without maintaining external ID state.
 For production, switch to deterministic UUIDs from chunk content hashes.
 
-**Rationale:** The knowledge base is small (4 documents, 9 chunks).
+**Rationale:** The knowledge base is small (4 documents, 12 chunks).
 Clean-and-reload is simple, correct, and fast. Deterministic IDs (hash-based)
 are documented as the production upgrade path.
 
@@ -90,11 +90,11 @@ are documented as the production upgrade path.
 
 | Document | Sections | Chunks |
 |---|---|---|
-| `healthcore-insurance-coverage.es.md` | US coverage, UK coverage, uninsured | 2 |
+| `healthcore-insurance-coverage.es.md` | US coverage, UK coverage, uninsured | 3 |
 | `healthcore-appointment-policy.es.md` | Booking, cancellation, reminders, no-shows | 3 |
-| `healthcore-referral-process.es.md` | Process steps, timing, escalation | 2 |
-| `healthcore-new-patient-checklist.es.md` | Pre-appointment, documents, consent | 2 |
-| **Total** | — | **9** |
+| `healthcore-referral-process.es.md` | Process steps, timing, escalation | 3 |
+| `healthcore-new-patient-checklist.es.md` | Pre-appointment, documents, consent | 3 |
+| **Total** | — | **12** |
 
 **Rules:**
 - Never split mid-sentence or mid-paragraph.
@@ -142,11 +142,28 @@ File: `data/eval/test-queries.json`
 
 ## 8. KPI Targets
 
-| KPI | Target | Method |
-|---|---|---|
-| Recall@3 | ≥ 80% | Manual evaluation against test-queries.json (CONTEXT.md requirement) |
-| Faithfulness | 100% | Each response verified against source chunks |
-| Threshold coverage | 100% | All queries below threshold return the "no info" answer |
+| KPI | Target | Actual | Method |
+|---|---|---|---|
+| Recall@3 | ≥ 80% | **100%** (8/8) | Evaluated against 8 queries in `data/eval/test-queries.json` |
+| Faithfulness | 100% | ✓ | Each response verified against source chunks |
+| Threshold coverage | 100% | ✓ | All queries below threshold return the "no info" answer |
+
+### 8.1 Recall@3 — Detailed Results
+
+Evaluated on 2026-11-11 with `k=3`, `min_score=0.3`, `CHUNK_MAX_CHARS=450`.
+
+| # | Query | Expected doc | Top-3 retrieved | Match? |
+|---|---|---|---|---|
+| q-001 | ¿Cobran cargo por cancelación si cancelo con 12 horas de anticipación? | appointment-policy | [appointment-policy] | ✅ |
+| q-002 | ¿Qué documentos necesito llevar a mi primera cita en HealthCore? | new-patient-checklist | [new-patient-checklist, new-patient-checklist, insurance-coverage] | ✅ |
+| q-003 | ¿Aceptan seguros Blue Cross Blue Shield en las clínicas de Texas? | insurance-coverage | [insurance-coverage, insurance-coverage] | ✅ |
+| q-004 | ¿Cuánto tiempo tarda una referencia interna a un especialista? | referral-process | [referral-process, referral-process, referral-process] | ✅ |
+| q-005 | ¿Cobran cargo por no-show a pacientes de Medicare? | appointment-policy | [appointment-policy, appointment-policy, insurance-coverage] | ✅ |
+| q-006 | ¿Qué seguros aceptan en las clínicas del Reino Unido? | insurance-coverage | [insurance-coverage, insurance-coverage, new-patient-checklist] | ✅ |
+| q-007 | Un paciente nuevo no ha llenado el formulario de historial médico antes de la cita. ¿Puede atenderse igual? | new-patient-checklist | [new-patient-checklist, new-patient-checklist, referral-process] | ✅ |
+| q-008 | ¿Qué hago si un paciente no ha recibido opciones de cita después de 5 días hábiles de creada la referencia? | referral-process | [referral-process, appointment-policy, referral-process] | ✅ |
+
+**Recall@3 = 8/8 = 100% ≥ 80% ✅ APROBADO**
 
 ## 9. End-to-End RAG Flow
 
@@ -193,7 +210,7 @@ the entire pipeline to the final answer.
 
 | Step | What happens | Code location |
 |---|---|---|
-| **0. Setup (one-time)** | `setup()` reads 4 `.es.md` files from `docs/company-knowledge-base/`, parses them into Markdown sections, chunks each section (min 200 chars, max 500 chars per chunk), embeds every chunk with `embed()`, and indexes into Qdrant collection `healthcore_knowledge`. | `data/process/rag.py::setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert |
+| **0. Setup (one-time)** | `setup()` reads 4 `.es.md` files from `docs/company-knowledge-base/`, parses them into Markdown sections, chunks each section (min 140 chars, max 450 chars per chunk), embeds every chunk with `embed()`, and indexes into Qdrant collection `healthcore_knowledge`. | `data/process/rag.py::setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert |
 | **1. Retrieve** | `query("¿Qué seguros?")` calls `retrieve("¿Qué seguros?")`. Inside `retrieve()`: (a) imports and calls `embed("¿Qué seguros?")` from `data.process.rag` — this calls the **embedding** model (`pplx-embed-v1-0.6b`, 1024‑dim), not the generation model. (b) Sends the resulting vector to Qdrant via `query_points()` with `cosine` distance, `limit=k` (default 5), `score_threshold=min_score` (default 0.3). (c) Returns payload dicts with `_score` appended. | `data/pipelines/rag.py::retrieve()` |
 | **2. Filter by threshold** | Qdrant returns at most `k` results, but `score_threshold` excludes any below 0.3. If **all** results are below threshold, `retrieve()` returns `[]`. This satisfies the CONTEXT.md rule: no info → no invented facts. | `query_points(…, score_threshold=…)` |
 | **3. Build context** | `generate_answer()` receives the chunk list. `_build_context()` formats each chunk as `[Fuente N: doc — section]\ntext`, joined by double newlines. If the list is empty, `NO_CHUNKS_MESSAGE` is returned immediately without calling the LLM. | `data/pipelines/rag.py::generate_answer()` → `_build_context()` |
@@ -215,7 +232,7 @@ _See §4 for the summary; this section provides the full technical details._
 
 The 4 source documents are short, structured Markdown files (each ≈1 000 chars, single top‑level heading). Because of this:
 
-1. **Each document is split into 2-3 smaller chunks.** The chunker accumulates paragraphs until adding the next one would exceed `CHUNK_MAX_CHARS=500`; it then flushes the buffer and starts a new chunk. This produces **9 total chunks** across the 4 documents, each focused on a narrower set of facts.
+1. **Each document is split into exactly 3 smaller chunks.** The chunker accumulates paragraphs until adding the next one would exceed `CHUNK_MAX_CHARS=450`; it then flushes the buffer and starts a new chunk. The `CHUNK_MIN_CHARS=140` catch clause was lowered from 200 to 140 to ensure all 4 documents reach the minimum of 3 chunks required by CONTEXT.md §5. This produces **12 total chunks** across the 4 documents (3 per document).
 
 2. **Semantic units are naturally preserved.** Each document is about one topic: insurance coverage, appointment policy, referral process, or new-patient checklist. Chunks are paragraph-aligned, so no rule or condition is cut mid‑paragraph.
 
@@ -225,19 +242,19 @@ The 4 source documents are short, structured Markdown files (each ≈1 000 cha
 
 | Parameter | Value | Why |
 |---|---|---|
-| `CHUNK_MIN_CHARS` | 200 | Discard near‑empty sections (no paragraph alone is below this). |
-| `CHUNK_MAX_CHARS` | 500 | Forces the chunker to split documents into 2–3 coherent paragraph‑aligned fragments. Improves retrieval granularity (9 chunks vs. 4). |
+| `CHUNK_MIN_CHARS` | 140 | Discard near‑empty sections. Lowered from 200 to ensure all 4 documents produce ≥3 chunks. The smallest meaningful paragraph (141 chars in insurance-coverage) sets this floor. |
+| `CHUNK_MAX_CHARS` | 450 | Forces the chunker to split each document into 3 coherent paragraph‑aligned fragments. Improves retrieval granularity (12 chunks vs. 4). Lowered from 500 to get the insurance-coverage document to split the US/UK paragraphs into separate chunks. |
 | `Overlap` | 0 (none) | Documents are short and single‑topic; overlap would add duplicate vectors without benefit. |
 
 ### Actual chunk counts
 
 | Document | Chunks | Section heading | Size range (chars) |
 |---|---|---|---|
-| `healthcore-insurance-coverage.es.md` | 2 | `Cobertura de Seguros Aceptados` | 472–473 |
+| `healthcore-insurance-coverage.es.md` | 3 | `Cobertura de Seguros Aceptados` | 141–472 |
 | `healthcore-appointment-policy.es.md` | 3 | `Política de Citas y Cancelaciones` | 213–376 |
-| `healthcore-referral-process.es.md` | 2 | `Proceso de Referencia Interna` | 404–432 |
-| `healthcore-new-patient-checklist.es.md` | 2 | `Checklist para Pacientes Nuevos` | 405–474 |
-| **Total** | **9** | — | 213–474 |
+| `healthcore-referral-process.es.md` | 3 | `Proceso de Referencia Interna` | 160–432 |
+| `healthcore-new-patient-checklist.es.md` | 3 | `Checklist para Pacientes Nuevos` | 235–405 |
+| **Total** | **12** | — | 141–472 |
 
 ### What was avoided
 - **Mid‑paragraph cuts.** The chunker accumulates whole paragraphs and only flushes when the next paragraph would push the buffer over `CHUNK_MAX_CHARS`. This guarantees coherent units.

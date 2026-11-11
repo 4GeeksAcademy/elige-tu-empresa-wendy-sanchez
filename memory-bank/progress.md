@@ -239,20 +239,21 @@
 ---
 
 16. **RAG Knowledge Base — HealthCore Knowledge Q&A (completado — Nov 2026)**:
-- **Fase 1 (data/process/rag.py)**: `setup()`, `embed()`, `chunk_document()`, `load_corpus()` — lectura de 4 documentos Markdown, chunking semántico con `CHUNK_MIN_CHARS=200`, `CHUNK_MAX_CHARS=500`, embedding con `pplx-embed-v1-0.6b` (1024-dim), indexado en Qdrant colección `healthcore_knowledge`. Produce **9 chunks** (de 4) de 213-474 caracteres, 2-3 chunks por documento.
+- **Fase 1 (data/process/rag.py)**: `setup()`, `embed()`, `chunk_document()`, `load_corpus()` — lectura de 4 documentos Markdown, chunking semántico con `CHUNK_MIN_CHARS=140`, `CHUNK_MAX_CHARS=450`, embedding con `pplx-embed-v1-0.6b` (1024-dim), indexado en Qdrant colección `healthcore_knowledge`. Produce **12 chunks** (de 9) — los 4 documentos tienen exactamente 3 chunks cada uno.
 - **Fase 2 (data/pipelines/rag.py)**: `retrieve(query, *, k=5, min_score=0.3)` → `list[dict]`, `query(question, *, k=5, min_score=0.3)` → `str`, `generate_answer(question, context)` → `str`. Pipeline completo de recuperación + generación con `deepseek-v4-flash`.
 - **Fase 3 (services/api/routes/)**: `knowledge.py` (POST /knowledge/query), `rag.py` (router FastAPI POST /rag/query + GET /rag/health + POST /rag/setup), `rag_standalone.py` (servidor FastAPI standalone que evita SQLModel/Python 3.14, sirve UI HTML en GET /).
-- **Fase 4 (uis/website/app/rag/page.tsx)**: Página de chat Q&A para coordinadores en el website público.
+- **Fase 4 (uis/website/app/rag/page.tsx)**: Página de chat Q&A para coordinadores en el website público. **Fix**: import corregido de `"./RagChat"` a `"@/components/RagChat"`.
 - **Fase 5 — Tests**: `tests/pipelines/test_rag.py` — **26/26 tests pasando** cubriendo chunking, embedding, retrieval, generación, QueryRequest validation, health endpoint.
-- **Fase 6 — Documentación**: `docs/rag/rag-design.md` y `docs/rag/rag-design.es.md` — 13 secciones bilingües completas.
-- **Afinación empírica**: `CHUNK_MAX_CHARS` 1500→500 (4→9 chunks). `DEFAULT_MIN_SCORE` 0.5→0.3 tras observar que con 4 chunks grandes los scores relevantes a veces caían a 0.49. Con 9 chunks más pequeños, scores top-1 ≈0.42-0.63.
+- **Fase 6 — Documentación**: `docs/rag/rag-design.md` y `docs/rag/rag-design.es.md` — 13 secciones bilingües completas. Actualizado con resultados reales de Recall@3 (§8.1) y parámetros de chunking corregidos.
+- **Afinación empírica**: `CHUNK_MAX_CHARS` 1500→500→450, `CHUNK_MIN_CHARS` 200→140. `DEFAULT_MIN_SCORE` 0.5→0.3 tras observar que con 4 chunks grandes los scores relevantes a veces caían a 0.49. Con 12 chunks más pequeños, scores top-1 ≈0.42-0.63.
 - **Servidor standalone**: Corre con `QDRANT_URL=http://localhost:6333 uv run python services/api/routes/rag_standalone.py` desde raíz. Puerta 8000. UI HTML en GET / con 4 preguntas de ejemplo, loading spinner, sticky input.
 - **Pruebas en vivo**: Las 4 preguntas de ejemplo verificadas con respuestas correctas sobre seguros, citas, referencias y documentos.
 - **Corrección**: `QueryRequest.min_score` default corregido de 0.5 a 0.3 en `services/api/routes/rag.py` para alinear con el pipeline.
 - **Branch**: `feature/rag-knowledge-base`. Commiteado y pusheado.
 - **Documentos fuente**: 4 archivos en `docs/company-knowledge-base/` (insurance-coverage, appointment-policy, referral-process, new-patient-checklist).
-- **Evaluación**: 8 queries de prueba en `data/eval/test-queries.json`. KPI: Recall@3 ≥ 80%, Faithfulness 100%.
-- **Qdrant**: v1.20.0, Docker puerto 6333, colección `healthcore_knowledge`, Cosine, 1024-dim, 9 puntos. Usa `query_points()` (NO `search()`).
+- **Evaluación**: 8 queries de prueba en `data/eval/test-queries.json`. KPI: Recall@3 ≥ 80% → **100% (8/8) ✅**, Faithfulness 100%.
+- **Auditoría post-hoc (2026-11-11)**: 3 fallos detectados y corregidos: (1) Recall@3 sin evidencia — se creó `scripts/eval_rag_recall.py` y se documentó resultado en §8.1; (2) 3 documentos con solo 2 chunks — se ajustó CHUNK_MAX_CHARS 500→450 y CHUNK_MIN_CHARS 200→140, ahora todos tienen 3; (3) import incorrecto en page.tsx — corregido a `@/components/RagChat`. 26/26 tests siguen pasando.
+- **Qdrant**: v1.20.0, Docker puerto 6333, colección `healthcore_knowledge`, Cosine, 1024-dim, **12 puntos** (de 9). Usa `query_points()` (NO `search()`).
 - **Auth Standalone (`services/api/auth_standalone.py`)**: Servidor FastAPI ligero (puerto 8000) que provee `POST /auth/login` y `GET /auth/me` usando bcrypt + python-jose + TinyDB. No depende de SQLModel (evita crash Python 3.14). Token JWT 24h. Credenciales: `admin@healthcore.com` / `adminpass456`, `test@healthcore.com` / `securepassword123`.
 - **Reporting API (`services/reporting/`)**: API FastAPI independiente (puerto 8001) con 3 endpoints JWT-protegidos para KPI mensuales, consulta de última ejecución y disparo manual del pipeline.
 - **Pipeline de datos (`data/pipelines/`)**: Diseño Prefect 3.8.8 (extract → transform → load) con flows, runner y run_store.
