@@ -258,6 +258,38 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - **`task_success`**: registra nombre de la tarea al completarse correctamente.
 - **`task_failure`**: registra `task_id`, mensaje de error y traceback (primeros 500 caracteres).
 - **`task_retry`**: registra `task_id`, número de intento (`attempt={_retries}/{_max}`), razón del fallo y traceback. Usa preformateo para evitar que Celery reinterprete placeholders.
+
+## Patrones del sistema RAG
+
+### 42) Patrón: Arquitectura de 3 capas — procesamiento + pipeline + API
+- **Capa 1 — Procesamiento (`data/process/rag.py`)**: funciones para chunking semántico (`chunk_document()`), embedding (`embed()`), setup completo (`setup()` → `load_corpus()` → `chunk_document()` → `embed()` → Qdrant upsert). Esta capa solo se ejecuta en setup o reindexación.
+- **Capa 2 — Pipeline (`data/pipelines/rag.py`)**: funciones de inferencia — `retrieve()` (embed query internamente → vector search en Qdrant → top-k payload dicts), `generate_answer()` (build prompt → LLM call → str), `query()` (orquestación retrieve + generate_answer). Esta capa se ejecuta en cada pregunta del usuario.
+- **Capa 3 — API (`services/api/routes/`)**: routers FastAPI que exponen `knowledge.py` (endpoint público POST /knowledge/query), `rag.py` (POST /rag/query + GET /rag/health + POST /rag/setup), `rag_standalone.py` (servidor standalone que evita SQLModel, sirve HTML UI en GET /).
+
+### 43) Patrón: Chunking semántico por párrafos con límite de caracteres
+- **`_parse_markdown_sections()`**: lee archivos Markdown y extrae secciones basadas en `# Title`. Cada sección tiene heading y body.
+- **`chunk_document()`**: acumula párrafos (separados por `\n\n`) hasta que añadir el siguiente superaría `CHUNK_MAX_CHARS`. Entonces vacía el buffer y empieza un nuevo chunk.
+- **`CHUNK_MAX_CHARS=500`**: produce chunks de 213-474 caracteres (9 chunks totales de 4 documentos), cada chunk enfocado en 1-2 párrafos.
+- **`CHUNK_MIN_CHARS=200`**: descarta secciones o fragmentos residuales que no alcanzan este mínimo (ningún documento tiene párrafos tan cortos).
+- **Sin overlap**: los documentos son cortos y monotemáticos; overlap añadiría vectores duplicados sin beneficio.
+- **Headers como metadata**: el `# Title` se parsea y almacena como `section` en el payload de Qdrant.
+
+### 44) Patrón: Retrieval con umbral de similitud dinámico
+- **`retrieve(query, *, k=5, min_score=0.3)`**: embed query → Qdrant `query_points()` con `score_threshold=min_score` y `limit=k`.
+- **Score threshold**: Qdrant devuelve ≤k resultados, excluyendo los que no superan `min_score`. Si `min_score=0.0`, se pasa `None` a Qdrant (sin filtro).
+- **Afinación empírica**: `min_score=0.5` original era demasiado alto con 4 chunks grandes (scores relevantes caían a 0.49). Reducido a `0.3` tras aumentar granularidad a 9 chunks (top-1 scores ≈0.42-0.63).
+- **Comportamiento sin resultados**: si ningún chunk supera el umbral, `retrieve()` devuelve `[]` y `query()` responde con el mensaje "No tengo información suficiente...".
+
+### 45) Patrón: Fallback para modelos de razonamiento (content=None)
+- `deepseek-v4-flash` es un modelo de razonamiento que puede devolver `response.content = None` cuando todos los tokens de salida se consumen en `reasoning_content`.
+- **Solución**: en `_generate()`, si `response.choices[0].message.content` es `None`, se extrae el contenido de `reasoning_content`, se toman las últimas 3 oraciones (o el texto completo si es más corto), y se devuelve como respuesta.
+- Esto se probó con consultas reales y funciona correctamente para todas las preguntas de ejemplo.
+
+### 46) Patrón: Servidor standalone para evitar SQLModel crash
+- `rag_standalone.py` es un servidor FastAPI completo que **no importa** `services/api/models.py` (evita `TypeError: issubclass()` de SQLModel 0.0.48 en Python 3.14).
+- Contiene: (1) imports y config directamente en el archivo, (2) ambos routers (`knowledge_router` y `rag_router`) montados, (3) rutas estáticas para servir UI HTML en GET /, (4) CORS habilitado.
+- Se ejecuta con `uv run python services/api/routes/rag_standalone.py` desde la raíz del proyecto.
+- Configura `sys.path` para resolver imports de `data/process/rag.py` y `data/pipelines/rag.py`.
 - **`task_revoked`**: registra `task_id` y fecha de expiración.
 - **`on_after_configure`**: registra broker URL, backend URL y colas configuradas al iniciar el worker.
 

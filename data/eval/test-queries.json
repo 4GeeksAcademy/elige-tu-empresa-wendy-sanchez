@@ -1,0 +1,51 @@
+[
+  {
+    "id": "q-001",
+    "question": "¿Cobran cargo por cancelación si cancelo con 12 horas de anticipación?",
+    "expected_source_document": "appointment-policy",
+    "expected_section_contains": "cancelación"
+  },
+  {
+    "id": "q-002",
+    "question": "¿Qué documentos necesito llevar a mi primera cita en HealthCore?",
+    "expected_source_document": "new-patient-checklist",
+    "expected_section_contains": "paciente"
+  },
+  {
+    "id": "q-003",
+    "question": "¿Aceptan seguros Blue Cross Blue Shield en las clínicas de Texas?",
+    "expected_source_document": "insurance-coverage",
+    "expected_section_contains": "Estados Unidos"
+  },
+  {
+    "id": "q-004",
+    "question": "¿Cuánto tiempo tarda una referencia interna a un especialista?",
+    "expected_source_document": "referral-process",
+    "expected_section_contains": "tiempo"
+  },
+  {
+    "id": "q-005",
+    "question": "¿Cobran cargo por no-show a pacientes de Medicare?",
+    "expected_source_document": "appointment-policy",
+    "expected_section_contains": "cancelación",
+    "expected_behaviour": "medicare_no_charge"
+  },
+  {
+    "id": "q-006",
+    "question": "¿Qué seguros aceptan en las clínicas del Reino Unido?",
+    "expected_source_document": "insurance-coverage",
+    "expected_section_contains": "Reino Unido"
+  },
+  {
+    "id": "q-007",
+    "question": "Un paciente nuevo no ha llenado el formulario de historial médico antes de la cita. ¿Puede atenderse igual?",
+    "expected_source_document": "new-patient-checklist",
+    "expected_section_contains": "paciente"
+  },
+  {
+    "id": "q-008",
+    "question": "¿Qué hago si un paciente no ha recibido opciones de cita después de 5 días hábiles de creada la referencia?",
+    "expected_source_document": "referral-process",
+    "expected_section_contains": "tiempo"
+  }
+]

@@ -17,7 +17,9 @@ from incidents_analysis import analyze_csv_text, report_to_csv_text
 from models import AnalysisPercentages, AnalysisResponse, AnalysisSummary, RootResponse
 from routes.auth import router as auth_router
 from routes.inventory import router as inventory_router
+from routes.knowledge import router as knowledge_router
 from routes.profiles import router as profiles_router
+from routes.rag import router as rag_router
 from routes.suppliers import router as suppliers_router
 from routes.tasks import router as tasks_router
 from routes.telemetry import router as telemetry_router
@@ -100,6 +102,8 @@ app.include_router(users_router)
 app.include_router(profiles_router)
 app.include_router(auth_router)
 app.include_router(inventory_router)
+app.include_router(knowledge_router)
+app.include_router(rag_router)
 app.include_router(telemetry_router)
 
 

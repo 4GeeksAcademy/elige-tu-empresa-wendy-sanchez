@@ -177,6 +177,20 @@ services:
       --without-mingle
       --without-heartbeat
       -E
+# ── Qdrant (Vector Database) ────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: healthcore-qdrant
+    hostname: qdrant
+    ports:
+      - "${QDRANT_PORT:-6333}:6333"   # HTTP API
+      - "${QDRANT_GRPC_PORT:-6334}:6334"  # gRPC API
+    volumes:
+      - qdrant-data:/qdrant/storage
+    networks:
+      - healthcore-net
+    restart: unless-stopped
+
 networks:
   healthcore-net:
     name: healthcore-net
@@ -184,4 +198,6 @@ networks:
 
 volumes:
   redis-data:
+    driver: local
+  qdrant-data:
     driver: local

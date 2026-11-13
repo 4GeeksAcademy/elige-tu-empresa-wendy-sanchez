@@ -60,6 +60,62 @@
 - **Fix de test**: `test_no_overlap_between_consecutive_folds` corregido — validaba incorrectamente que entrenamiento de folds consecutivos no se solapara (imposible en ventana expansiva). Corregido para verificar: (a) train_max < val_min dentro de cada fold, (b) val_i_max < val_{i+1}_min entre folds.
 - **Branch**: `feature/regression-model-eval`.
 
+## RAG Knowledge Base — HealthCore Knowledge Q&A (2026-11-09/10)
+
+- **Entregable**: Sistema completo de Retrieval-Augmented Generation (RAG) que permite al equipo de HealthCore hacer preguntas en lenguaje natural sobre las políticas de la clínica (cobertura de seguros, política de citas, proceso de referencias, checklist de pacientes nuevos). Responde con información extraída de los documentos oficiales, no con conocimiento alucinado del LLM.
+
+- **Arquitectura**: 3 fases + documentación + tests:
+  - **Fase 1 (data/process/rag.py)**: `setup()`, `embed()`, `chunk_document()`, `load_corpus()` — lectura de 4 documentos Markdown, chunking semántico por párrafos, embedding con `pplx-embed-v1-0.6b` (1024-dim), indexado en Qdrant.
+  - **Fase 2 (data/pipelines/rag.py)**: `retrieve()`, `query()`, `generate_answer()` — pipeline de recuperación + generación con `deepseek-v4-flash`.
+  - **Fase 3 (services/api/routes/)**: `knowledge.py` (endpoint público POST /knowledge/query), `rag.py` (router FastAPI POST /rag/query + GET /rag/health + POST /rag/setup), `rag_standalone.py` (servidor FastAPI standalone que evita SQLModel/Python 3.14).
+  - **Fase 4 (uis/website/app/rag/page.tsx)**: Página de chat Q&A para coordinadores en el website público (HealthCore Q&A).
+  - **Fases 5-6**: Tests (26 tests, todos pasando) + Documentación bilingüe EN/ES.
+
+- **Stack técnico**: Python 3.14, `uv 0.13.5`, `qdrant-client 1.20.0` (usa `query_points()`, NO `search()`), `openai 3.49.0`, `fastapi 0.162.4`. Qdrant Docker (`qdrant/qdrant:v1.20.0`, puerto 6333, colección `healthcore_knowledge`, 9 puntos, Cosine, 1024-dim).
+
+- **Modelos de IA**: Ambos vía 4Geeks AI API (`LLM_HOST` + `API_KEY` via OpenRouter):
+  - **Embedding**: `madrid-spain/openrouter/perplexity/pplx-embed-v1-0.6b` (1024-dim).
+  - **Generación**: `madrid-spain/openrouter/deepseek/deepseek-v4-flash` (modelo de razonamiento, puede devolver `content=None` — fallback extrae la última frase de `reasoning_content`).
+
+- **Afinación de chunking (auditada 2026-11-11)**: `CHUNK_MAX_CHARS=450` (de 500), `CHUNK_MIN_CHARS=140` (de 200). Produce **12 chunks** (de 9) — los 4 documentos tienen exactamente 3 chunks cada uno, cumpliendo CONTEXT.md §5 ("al menos 3 chunks por documento"). Cambio necesario porque 3 documentos tenían solo 2 chunks (insurance-coverage, referral-process, new-patient-checklist): el último párrafo de cada uno era demasiado corto (< 200 chars) para ser chunk independiente. Solución: reducir CHUNK_MAX_CHARS a 450 fuerza división de párrafos largos (US/UK en insurance-coverage), y CHUNK_MIN_CHARS a 140 captura los párrafos de cierre.
+
+- **Afinación de recuperación**: `DEFAULT_MIN_SCORE=0.3` (de 0.5), `DEFAULT_K=5`. Scores top-1 para preguntas relevantes: ≈0.42–0.63 (media ≈0.48). El umbral 0.3 captura todos los resultados relevantes mientras filtra ruido (< 0.25).
+
+- **Recall@3 audit (2026-11-11)**: Evaluación post-auditoría con `scripts/eval_rag_recall.py` corriendo las 8 queries de `data/eval/test-queries.json` contra Qdrant en vivo. Resultado: **8/8 = 100% ≥ 80% ✅ APROBADO**. Documentado en `docs/rag/rag-design.md` §8.1 con tabla detallada de aciertos.
+
+- **Fix de import en page.tsx**: La línea `import RagChat from "./RagChat"` no resolvía porque RagChat.tsx está en `uis/website/components/`, no en `uis/website/app/rag/`. Corregido a `import RagChat from "@/components/RagChat"` usando el path alias `@/*` definido en `tsconfig.json`.
+
+- **Problema resuelto (SQLModel)**: La API principal (`services/api/`) no arranca por incompatibilidad SQLModel 0.0.48 + Python 3.14. Solución: `rag_standalone.py` — servidor FastAPI autónomo que no importa `models.py`. Corre con `QDRANT_URL=http://localhost:6333 uv run python services/api/routes/rag_standalone.py` desde la raíz.
+
+- **Servidor standalone**: Corre en puerto 8000 con:
+  - `GET /` — UI HTML completa con 4 preguntas de ejemplo, loading spinner, sticky input, errores visibles.
+  - `POST /knowledge/query` — endpoint público.
+  - `POST /rag/query`, `GET /rag/health`, `POST /rag/setup` — endpoints del router RAG.
+  - CORS habilitado para desarrollo.
+
+- **Pruebas en vivo**: Las 4 preguntas de ejemplo devuelven respuestas correctas:
+  1. "¿Qué seguros médicos aceptan?" → lista de seguros.
+  2. "¿Cómo puedo agendar una cita?" → pasos del proceso.
+  3. "¿Cómo funciona el proceso de referencias internas?" → explicación del proceso.
+  4. "¿Qué documentos necesito llevar a mi primera cita?" → checklist.
+
+- **Tests**: 26/26 pasando (`uv run pytest tests/pipelines/test_rag.py -q`).
+
+- **Documentación**: `docs/rag/rag-design.md` y `docs/rag/rag-design.es.md` — 13 secciones bilingües completas con: overview arquitectónico, modelos, colleción Qdrant, chunking strategy (9 chunks, 500 chars), retrieval params (k=5, min_score=0.3), prompt template, test queries, KPI targets (Recall@3 ≥ 80%), end-to-end flow, chunking detallado con tabla real, embedding practices (model separation, threshold tuning history v1→v2, preprocessing, API config), files layout, production upgrade path.
+
+- **Archivos clave**:
+  - `data/process/rag.py` — chunking, embedding, setup.
+  - `data/pipelines/rag.py` — retrieve, query, generate_answer.
+  - `services/api/routes/rag.py` — FastAPI router.
+  - `services/api/routes/rag_standalone.py` — servidor standalone + HTML UI.
+  - `services/api/routes/knowledge.py` — endpoint público.
+  - `uis/website/app/rag/page.tsx` — UI de chat.
+  - `tests/pipelines/test_rag.py` — 26 tests.
+  - `data/eval/test-queries.json` — 8 queries de evaluación.
+  - `docs/rag/rag-design.md` + `docs/rag/rag-design.es.md` — documentación bilingüe.
+
+- **Branch**: `feature/rag-knowledge-base`. Commiteado y pusheado.
+
 ## Entregables activos en el repositorio
 
 ### Telemetría: Fase 5 — Autenticación funcional para backoffice (2026-10-11)

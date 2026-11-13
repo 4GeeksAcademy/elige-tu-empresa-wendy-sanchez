@@ -26,6 +26,7 @@ En paralelo, se trabaja en digitalización interna para People/HR con un tracker
 7. Implementar una cola de tareas asíncronas (Redis + Celery) para desacoplar operaciones pesadas (análisis de CSV) de la API, con reintentos automáticos, Dead Letter Queue y monitoreo Flower.
 8. Producir un pronóstico de ventas defendible ante Finanzas: split temporal estricto 8/2 sin fuga de datos, métricas de error explicables (MSE, PSI, Gini, K2 + MAPE) calculadas solo sobre el conjunto de prueba, y una visualización con rango de variabilidad en lugar de un único número optimista.
 9. **Evaluar formalmente el modelo de pronóstico** con diagnóstico de sesgo/varianza (underfitting/overfitting) respaldado por validación cruzada temporal y curvas de aprendizaje, no por opinión. La acción correctiva debe ser específica y coherente con el diagnóstico.
+10. **Implementar un sistema RAG (Retrieval-Augmented Generation)** que permita al equipo de HealthCore consultar en lenguaje natural las políticas documentadas de la clínica (seguros, citas, referencias, pacientes nuevos), respondiendo exclusivamente con información extraída de los documentos oficiales, sin alucinaciones del LLM.
 
 ## Problema que resuelve
 - Externo (pacientes): corrige una presencia digital insuficiente y permite intake estructurado de consultas.
@@ -37,3 +38,4 @@ En paralelo, se trabaja en digitalización interna para People/HR con un tracker
 - Reporting mensual: pipeline ETL (Prefect 3.8.8) y API independiente (puerto 8001) para KPIs de desempeño de suministros por clínica, con dashboard protegido por JWT en el backoffice y mapeo de nombres reales de clínica.
 - Pronóstico de ventas: sustituye la proyección a ojo de ingresos por un modelo entrenado solo con el pasado, evaluado con un horizonte de 2 años que el modelo nunca vio, y con una banda de incertidumbre derivada de errores reales fuera de muestra (no de la varianza de entrenamiento).
 - Evaluación técnica del modelo: responde las preguntas del ticket (1) ¿underfitting/overfitting? (2) ¿estabilidad a través de splits? (3) ¿acción correctiva? con evidencia cuantitativa, no opinión. El reporte generado sirve como artefacto de decisión para pasar o no a staging.
+- RAG Knowledge Base: permite a coordinadores y personal de HealthCore obtener respuestas precisas sobre políticas de la clínica sin tener que buscar manualmente en documentos. Reduce el tiempo de consulta y estandariza las respuestas. Elimina el riesgo de información desactualizada o incorrecta al limitar las respuestas al corpus documentado.

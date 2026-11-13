@@ -258,6 +258,72 @@ La API principal (`services/api/main.py`) no arranca en Python 3.14 por incompat
 - **Variables de entorno**: via `env_file: .env`.
 - **Comunicación**: por nombre de servicio Docker (`http://backend:8000`, `http://incidents-backend:8010`, `redis://redis:6379/0`).
 
+## RAG Knowledge Base — Stack y configuración
+
+### Stack principal
+- **Python 3.14**, gestionado con `uv 0.13.5` (pyproject.toml raíz). Prohibido `pip install` / `pipenv`.
+- **Dependencias clave**: `qdrant-client>=1.20.0` (NO `search()`, usa `query_points()`), `openai>=3.49.0` (cliente compatible con OpenAI para embeddings y chat), `fastapi>=0.162.4`, `pydantic>=2.14.3`, `pytest>=9.2.0`.
+- **Comando de tests**: `uv run pytest tests/pipelines/test_rag.py -q` (26 tests, todos pasando).
+
+### Qdrant (Vector Database)
+- **Servidor**: `qdrant/qdrant:v1.20.0` en Docker, puerto 6333.
+- **Colección**: `healthcore_knowledge` con `VectorParams(size=1024, distance=Distance.COSINE)`.
+- **Payload indexado**: `source_document` (keyword), `language` (keyword).
+- **Payload schema**: `company`, `source_document`, `section`, `language`, `chunk_index`, `text`.
+- **Cliente Python**: `QdrantClient(host="localhost", port=6333)`.
+- **Método de búsqueda**: `client.query_points(collection_name, query=vector, limit=k, score_threshold=min_score)` → `QueryResponse.points`. **NO** existe `search()` en v1.20.0.
+- **Puntos**: 9 chunks actualmente indexados.
+
+### Modelos de IA (vía 4Geeks AI / OpenRouter)
+- **Embedding**: `madrid-spain/openrouter/perplexity/pplx-embed-v1-0.6b` — 1024 dimensiones, usado en `data/process/rag.py::embed()`.
+- **Generación**: `madrid-spain/openrouter/deepseek/deepseek-v4-flash` — modelo de razonamiento, usado en `data/pipelines/rag.py::_generate()`.
+- **API**: OpenAI-compatible (`LLM_HOST` + `API_KEY`). Embeddings: `client.embeddings.create(model=..., input=[text])`. Chat: `client.chat.completions.create(model=..., messages=[...])`.
+- **Fallback content=None**: deepseek-v4-flash puede devolver `content=None` cuando todo el output se consume en `reasoning_content`. Solución: extraer las últimas 3 oraciones de `reasoning_content` como respuesta.
+
+### Configuración de chunking (data/process/rag.py)
+- `CHUNK_MIN_CHARS = 200`
+- `CHUNK_MAX_CHARS = 500`
+- `Overlap = 0` (ninguno)
+- **Función**: `chunk_document(doc_text)` → `list[dict]` con `text`, `section`, `source_document`, `chunk_index`.
+- **Parseo**: `_parse_markdown_sections()` extrae secciones por `# Title`.
+- **Corpus**: 4 archivos `.es.md` en `docs/company-knowledge-base/`.
+
+### Pipeline de recuperación (data/pipelines/rag.py)
+- `DEFAULT_K = 5`
+- `DEFAULT_MIN_SCORE = 0.3`
+- **Signatures**:
+  - `retrieve(query: str, *, k: int = 5, min_score: float = 0.3) -> list[dict]`
+  - `query(question: str, *, k: int = 5, min_score: float = 0.3) -> str`
+  - `generate_answer(question: str, context: list[dict]) -> str`
+- **Temperatura de generación**: 0.3
+- **Max tokens**: 2000
+- **Respuesta sin contexto**: `"No tengo información suficiente en la base de conocimiento para responder esta pregunta."`
+
+### Servidor standalone RAG (services/api/routes/rag_standalone.py)
+- **Ejecución**: `QDRANT_URL=http://localhost:6333 uv run python services/api/routes/rag_standalone.py` desde raíz.
+- **Puerto**: 8000.
+- **Rutas**:
+  - `GET /` → HTML UI con 4 preguntas de ejemplo, loading spinner, sticky input.
+  - `POST /knowledge/query` → endpoint público RAG.
+  - `POST /rag/query` → endpoint RAG router.
+  - `GET /rag/health` → `{"status":"ok","collection":"healthcore_knowledge","points_count":9}`.
+  - `POST /rag/setup` → reindexación.
+- **CORS**: habilitado para `*`.
+- **sys.path**: modificado para resolver imports desde raíz del proyecto.
+
+### Documentación RAG
+- `docs/rag/rag-design.md` — 13 secciones en inglés.
+- `docs/rag/rag-design.es.md` — 13 secciones en español (traducción completa).
+- **Evaluación**: `data/eval/test-queries.json` — 8 queries cubriendo los 4 documentos.
+- **KPI targets**: Recall@3 ≥ 80%, Faithfulness 100%, Threshold coverage 100%.
+
+### UI RAG (uis/website/app/rag/page.tsx)
+- Página de chat Q&A para coordinadores de HealthCore.
+- Protegida por AuthGuard.
+- Input de texto + botón de envío.
+- Respuestas del LLM con fuentes referenciadas.
+- Loading spinner durante la generación.
+
 ### uis/Dockerfile
 - **Imagen base**: `node:22-alpine`.
 - **3 etapas**: base, deps-website, deps-backoffice, runner.

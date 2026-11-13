@@ -129,3 +129,15 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Rendimiento de carga inicial**: la página principal debe cargar rápido incluso con bundles grandes. Los componentes pesados (AnalysisResultsPanel, IncidentFormPanel) se cargan bajo demanda (lazy loading) para no penalizar la primera impresión.
 - **Consistencia de datos**: los valores derivados (denial rates, no-show costs) se calculan una sola vez por render (useMemo) y no cambian durante la vida de la página, incluso si hay re-renders parciales.
 - **Frescura de datos en dashboards**: el resumen de incidencias y la lista de productos pueden tener hasta 30-60 segundos de desfase (caché). Esto es aceptable para dashboards operativos donde la inmediatez no es crítica.
+
+11. **RAG Knowledge Base — HealthCore Knowledge Q&A (Nov 2026)**
+- **Sistema de preguntas y respuestas** basado en Retrieval-Augmented Generation (RAG) que permite al equipo de HealthCore consultar en lenguaje natural las políticas documentadas de la clínica.
+- **Documentos fuente**: 4 archivos Markdown en `docs/company-knowledge-base/` (cobertura de seguros, política de citas, proceso de referencias internas, checklist de pacientes nuevos), todos en español.
+- **Arquitectura**: chunking semántico por párrafos → embedding con `pplx-embed-v1-0.6b` → indexado en Qdrant (vector DB) → recuperación por similitud coseno → generación de respuesta con `deepseek-v4-flash`.
+- **Pipeline de chunking**: `CHUNK_MAX_CHARS=500` con solapamiento 0. Produce 9 chunks (de 4 originales) de 213-474 caracteres, 2-3 chunks por documento. Esto mejora la granularidad de recuperación.
+- **Pipeline de recuperación**: `k=5`, `min_score=0.3`. Scores top-1 para preguntas relevantes ≈0.42-0.63. El umbral protege contra preguntas fuera de tema.
+- **Afinación empírica**: se redujo `min_score` de 0.5 a 0.3 tras observar que con 4 chunks grandes los scores relevantes a veces caían a 0.49. Con 9 chunks más pequeños, los scores subieron y 0.3 captura todo lo relevante.
+- **Servidor standalone**: Evita SQLModel (incompatible Python 3.14). Sirve UI HTML de chat en `GET /`, endpoints REST en `POST /knowledge/query`, `POST /rag/query`, y health check en `GET /rag/health`.
+- **Interfaz de usuario**: Página de chat Q&A en el website público (`uis/website/app/rag/page.tsx`) para coordinadores de HealthCore. También UI HTML embebida en el propio servidor standalone.
+- **Evaluación**: 8 queries de prueba en `data/eval/test-queries.json` cubriendo los 4 documentos. KPI: Recall@3 ≥ 80%, Faithfulness 100%, Threshold coverage 100%.
+- **Tests**: 26 tests unitarios en `tests/pipelines/test_rag.py` cubriendo chunking, embedding, retrieval, generación y validación de modelos.
