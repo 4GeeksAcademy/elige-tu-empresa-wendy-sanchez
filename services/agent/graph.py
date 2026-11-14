@@ -126,7 +126,7 @@ def persist_trace(state: AgentState, run_id: str) -> Path:
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
     trace_path = _TRACE_DIR / f"{run_id}.json"
-    trace_path.write_text(json.dumps(trace, indent=2, ensure_ascii=False))
+    trace_path.write_text(json.dumps(trace, indent=2, ensure_ascii=False), encoding="utf-8")
     logger.info("Trace persisted → %s", trace_path)
     return trace_path
 

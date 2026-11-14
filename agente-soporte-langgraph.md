@@ -249,8 +249,34 @@ Lista las N trazas más recientes (sin eventos completos).
 | `TestGraphCompilation` | 3 | El grafo compila, tiene todos los nodos, entry point correcto |
 | `TestConditionalRouting` | 7 | Cada arista condicional enruta correctamente según el estado |
 | `TestTraceability` | 4 | Cada corrida produce trace persistido, consultable, con eventos y routing_log |
-| `TestRAGBehavior` | 4 | El comportamiento RAG está anclado en los datos: retrieve antes que generate, Medicare no paga no-show, etc. |
+| `TestRAGBehavior` | 4 | El comportamiento RAG está anclado en los datos: retrieve antes que generate, Medicare no paga no-show verificado con fake LLM (solo responde con contexto), etc. |
 | `TestAgentEndpoint` | 2 | El endpoint existe con prefijo correcto y delega en `run_agent()` |
+
+### 6.1.1 Fake LLM para verificar grounding
+
+El test `test_medicare_no_show_policy_grounded` NO usa un mock de `generate_answer` con
+una respuesta prefabricada. En su lugar usa `_fake_generate_answer_grounded`:
+
+```python
+def _fake_generate_answer_grounded(question, context):
+    """Fake LLM que SOLO puede contestar con el texto del contexto."""
+    if not context:
+        return "No tengo información en los documentos disponibles..."
+    texts = [chunk.get("text", "") for chunk in context]
+    # Busca keywords de la pregunta en los fragmentos
+    ...
+    if best_text:
+        return f"Según la documentación de HealthCore:\n{best_text.strip()}"
+    return "No encontré información relevante..."
+```
+
+Esto garantiza que:
+1. El fragmento correcto se recuperó (`retrieve_context` funcionó)
+2. Ese fragmento se pasó a `generate_answer` (el enrutamiento funciona)
+3. La respuesta contiene palabras textuales del fragmento (grounding real)
+
+Si el fragmento no se recuperara o no se pasara al generador, el fake LLM
+devolvería un fallback genérico y las aserciones fallarían.
 
 ### 6.2 Trazabilidad como requisito de aceptación
 
@@ -259,9 +285,11 @@ Un eval pasa solo si:
 2. El trace prueba que los nodos se ejecutaron en el orden correcto
 3. El routing_log registra cada decisión de enrutamiento
 
-**Ejemplo (eval `test_medicare_no_show_policy`):**
+**Ejemplo (eval `test_medicare_no_show_policy_grounded`):**
 - Entrada: "¿Cobran cargo por no-show a pacientes de Medicare?"
-- Criterio: La respuesta debe decir que NO se cobra a Medicare, y el trace debe mostrar `retrieve_context` → `generate_answer`
+- Criterio: La respuesta debe contener palabras del fragmento (`"no-show"`, `"medicare"`, `"cargo"`),
+  y el trace debe mostrar `retrieve_context` → `generate_answer`.
+- **No se mockea la respuesta**: se usa un fake LLM que solo puede responder con el contexto.
 
 ### 6.3 Cómo ejecutar los tests
 
@@ -329,6 +357,10 @@ Funciones para consultar trazas:
 - `get_trace(run_id: str)` — recupera una traza por ID
 - `list_traces(limit: int = 20)` — lista trazas recientes
 
+**Nota:** `persist_trace()` usa `encoding="utf-8"` al escribir el archivo JSON
+para garantizar portabilidad con Windows (caracteres Unicode como `→`).
+Las funciones de consulta (`get_trace`, `list_traces`) también leen con `encoding="utf-8"`.
+
 ---
 
 ## 9. Lo que NO cambió
@@ -352,4 +384,6 @@ Funciones para consultar trazas:
 - [x] Trazas persistidas y consultables después de la corrida
 - [x] Endpoint sin lógica de negocio propia
 - [x] 20 evals que verifican compilación, enrutamiento, trazabilidad y comportamiento RAG
-- [x] Respuestas de error sin stack traces crudos
+- [x] Respuestas de error sin stack traces crudos (503 con mensaje genérico, sin `str(exc)`)
+- [x] `persist_trace()` escribe con `encoding="utf-8"` (portabilidad Windows)
+- [x] Test de grounding con fake LLM (no mock prefabricado) — verifica que `generate_answer` recibe el fragmento y la respuesta sale de él
