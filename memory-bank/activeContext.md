@@ -1,25 +1,32 @@
 # Active Context
 
-## Agente de Soporte LangGraph — HealthCore (2026-11-14)
-- **Entregable**: Migración del agente de soporte RAG de HealthCore desde un flujo lineal (retrieve → generate) a un **grafo de LangGraph** con estado explícito, nodos de responsabilidad única, aristas condicionales, checkpointing, tracing y evals.
-- **Stack**: `langgraph v1.2.22` con `langgraph-checkpoint v4.3.2` (`MemorySaver`), Python 3.14, `uv 0.13.5`. La lógica RAG (`retrieve()`, `generate_answer()`) se **reutiliza** desde `data/pipelines/rag.py` sin modificar.
-- **Grafo** (`services/agent/graph.py`): `StateGraph(AgentState)` con 5 nodos + 3 routers condicionales:
-  - `receive_question` — valida longitud de pregunta
-  - `retrieve_context` — llama a `retrieve()` de Qdrant
-  - `generate_answer` — llama a `generate_answer()` con chunks ya recuperados
-  - `respond_no_info` — respuesta honesta sin contexto
-  - `handle_error` — mensaje amigable sin stack trace
-- **Routers**: `route_after_receive` (2 destinos), `route_after_retrieve` (3 destinos), `route_after_generate` (2 destinos). Todos con condiciones reales (`if`), no secuencia fija.
-- **Compilación**: `_compile_graph()` se ejecuta al importar el módulo (`try/except` con `logger.critical` + `raise`). Errores estructurales detienen el servidor en tiempo de build.
-- **Checkpointing**: `MemorySaver` pasado como `checkpointer=` en `workflow.compile()`. Cada invocación usa `thread_id` para trazabilidad por transición.
-- **Tracing**: `persist_trace()` escribe JSON en `services/agent/traces/{run_id}.json` con `encoding="utf-8"` (portabilidad Windows). Consultable con `get_trace(run_id)` y `list_traces(limit=20)`.
-- **Endpoint** (`services/agent/routes.py`): `POST /agent/query` — capa delgada que llama a `run_agent()`, maneja `ValueError→422`, `RuntimeError→503` con mensaje genérico (sin exponer `str(exc)`), error sin answer→503 genérico. `GET /agent/trace/{run_id}` y `GET /agent/traces` para consultar trazas.
-- **Tests** (`tests/pipelines/test_agent_graph.py`): **20 evals** en 5 clases — compilación (3), enrutamiento condicional (7), trazabilidad (4), comportamiento RAG con fake LLM que verifica grounding real (4), endpoint (2). **Todos pasan**.
-- **Tests RAG existentes**: 26 tests de `test_rag.py` siguen pasando intactos (46 total entre agente + RAG).
-- **Auditoría (2026-11-14)**: **11/11 acceptance criteria cumplidos** — verificado contra código fuente + ejecución de tests. La lógica RAG existente no se duplica ni modifica (identity check `is`). Ningún nodo re-envuelve `query()` monolítico. El estado `AgentState` no incluye historial de conversación.
-- **Correcciones (2026-11-14)**: (1) Test de Medicare reemplazado por fake LLM `_fake_generate_answer_grounded` que solo responde con contexto — verifica grounding real. (2) 503 usa mensaje genérico, no `str(exc)`. (3) `persist_trace()` añade `encoding="utf-8"` para portabilidad Windows.
-- **Documentación**: `agente-soporte-langgraph.md` completa con arquitectura, nodos, aristas, compilación, checkpointing, trazabilidad y evals.
-- **Branch**: `feature/langgraph-agent-base`. `data/pipelines/rag.py` NO modificado.
+## Agente de Soporte LangGraph — HealthCore — Part 2: External Tools (2026-11-15)
+- **Entregable**: Extensión del agente de soporte LangGraph con **tools externas** que consultan datos operativos en tiempo real (gestor de incidentes + gestor de inventario). El agente decide automáticamente si necesita RAG, tool(s) o ambos, sin que el usuario lo especifique.
+- **Stack**: `langgraph v1.2.22`, `langgraph-checkpoint v4.3.2`, Python 3.14, `uv 0.13.5`, `httpx 0.28.1`. La lógica RAG existente se reutiliza sin modificar.
+- **Tools** (`services/agent/tools/`):
+  - `incidents.py` — `query_incident_by_id(ticket_id: int) → dict`, `query_incidents_list(status, category, origin, branch) → list[dict]`. Consulta `http://incidents-backend:8010/api/incidents`. Sin auth. Timeout 5s.
+  - `inventory.py` — `query_product_by_id(product_id: int) → dict`, `query_products_list(category, name_search) → list[dict]`. Consulta `http://backend:8000/inventory/products`. Auth: JWT Bearer desde `AGENT_JWT_TOKEN`. Timeout 5s.
+  - `__init__.py` — helper compartido `_get_service_url(env_var, default)`.
+  - Ambas tools son **solo GET** (lectura). Toda escritura está explícitamente prohibida.
+  - Fallback verificable: TimeoutException, RequestError, 404, 401, non-200 → siempre devuelven `{"error": "..."}`.
+- **Grafo ampliado** (`services/agent/graph.py`): Ahora **10 nodos**:
+  - **Nuevos**: `classify_query` (routing por patrones regex), `query_incident`, `query_inventory`, `synthesize_tool_answer`.
+  - **Nuevas aristas**: `route_after_classify`, `route_after_tool`, `route_after_retrieve_v2` (considera tools), `route_after_generate` (extendida para tools).
+  - **Compatibilidad**: `route_after_retrieve = route_after_retrieve_v2` para no romper imports de tests de la Parte 1.
+- **Clasificación** (`node_classify_query`): 5 familias de patrones regex:
+  - Incidentes: ticket, incidencia, estado, #ID, seguimiento, etc.
+  - Inventario: stock, inventario, producto, suministro, SKU, etc.
+  - RAG: política, procedimiento, cobertura, seguro, cita, HealthCore, etc.
+  - Produce 5 decisiones: `"rag"`, `"incident"`, `"inventory"`, `"rag+incident"`, `"rag+inventory"`.
+  - Sin señales → default RAG.
+- **Flujo del grafo**: receive → classify → (RAG / incident / inventory) → si combinado: tool → RAG → generate → synthesize; si tool-only: tool → synthesize.
+- **Tests** (`tests/pipelines/test_agent_graph.py`): **30 tests** (20 originales + 10 nuevos).
+  - **TestExternalToolRouting** (5): routing a incident, policy→rag, stock→inventory, combinado, default→rag.
+  - **TestToolFallbackBehavior** (5): timeout, 404, synthesize con todas fallidas, extracción de ticket ID, trace_events con decisión.
+  - **30/30 pasan**. Tests RAG (26) siguen intactos. Suite total: 56 tests agente + RAG.
+- **Documentación**: `agente-soporte-langgraph.md` actualizada con §Parte 2 completa (~200 líneas): resumen, estructura, contrato, diagrama, estado, clasificación, timeout, fallback, trazabilidad, evaluación, auth, checklist.
+- **Auditoría (2026-11-15)**: **9/9 acceptance criteria cumplidos** — verificado contra código fuente + tests. Incluye: contratos tipados + gestor real + auth, solo GET, timeout 5s, fallback sin inventar, routing automático, única responsabilidad por nodo, trace con fuentes/orden, 5 evals de routing, tool de inventario sigue mismas reglas.
+- **Branch**: `feature/langgraph-external-tools`. Pusheado y completado.
 
 ## Modelo de pronóstico de ventas — Regresión con XGBoost (Oct–Nov 2026)
 - **Entregable**: pronóstico honesto de ingresos mensuales de HealthCore, con split temporal 8 años/2 años, 4 métricas exigidas (MSE, PSI, Gini, K2) + MAPE, y visualización con banda de variabilidad. Documentado íntegro en `predic-ventas-model-regresion.md`.

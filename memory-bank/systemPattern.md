@@ -59,31 +59,47 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - Supplier para la respuesta, con los campos que genera el sistema (id, updated_at, archived_at).
 - Los campos generados por el sistema se ignoran si el cliente los envía.
 
-### 8) LangGraph Agent Pattern — Grafo de decisión con estado explícito
+### 10) LangGraph Agent Pattern (Parte 2 — Tools externas) — Grafo de decisión con consultas a servicios reales
 
-**Ubicación**: `services/agent/graph.py`, `services/agent/routes.py`
+**UbicaciÃ³n**: `services/agent/graph.py`, `services/agent/tools/`, `services/agent/routes.py`
 
-**Propósito**: Migrar el flujo RAG lineal a un grafo de decisión LangGraph trazable, evaluable y auditable.
+**Propósito**: Extender el agente con la capacidad de consultar datos operativos en tiempo real (incidentes, inventario) además de la base de conocimiento RAG. El agente decide automáticamente qué fuente(s) necesita.
 
-**Componentes**:
-- `AgentState` (TypedDict): estado mínimo que fluye entre nodos. 7 campos: `question`, `retrieved_chunks`, `answer`, `error`, `trace_events`, `routing_log`, `question_valid`. Usa `Annotated[list, _accumulate_list]` para acumular eventos y logs (no historial de conversación).
-- **Nodos** (funciones puras que reciben `state` y devuelven `dict` parcial):
-  - `node_receive_question`: validación de entrada
-  - `node_retrieve_context`: recuperación de Qdrant via `retrieve()`
-  - `node_generate_answer`: generación vía `generate_answer()` con chunks ya recuperados
-  - `node_respond_no_info`: fallback honesto sin contexto
-  - `node_handle_error`: respuesta amigable sin stack trace
-- **Routers condicionales** (`add_conditional_edges`): `route_after_receive`, `route_after_retrieve`, `route_after_generate`. Cada uno evalúa condiciones reales del estado (if/else).
-- **Compilación en build**: `_compile_graph()` se ejecuta al importar el módulo. `try/except/raise` convierte errores estructurales en fallos de arranque.
-- **Checkpointing**: `MemorySaver` como checkpointer en `compile()`, cada invocación con `thread_id`.
-- **Trazabilidad**: `persist_trace()` escribe JSON por corrida. `get_trace()`, `list_traces()` consultan.
-- **Endpoint**: router FastAPI que solo invoca `run_agent()`, sin lógica RAG directa. Manejo de errores diferenciado (422, 503).
+**Componentes nuevos**:
+- `services/agent/tools/` — Paquete de tools externas:
+  - `incidents.py`: `query_incident_by_id(ticket_id: int) → dict`, `query_incidents_list(...) → list[dict]`. GET a incidents-backend:8010. Sin auth.
+  - `inventory.py`: `query_product_by_id(product_id: int) → dict`, `query_products_list(...) → list[dict]`. GET a backend:8000/inventory. JWT Bearer.
+  - `__init__.py`: `_get_service_url(env_var, default)` — resuelve URL desde entorno.
+- Ambos módulos comparten: timeout 5s constante, fallback por TimeoutException/RequestError/404/401/non-200, normalización de respuesta, solo GET.
 
-**Principios**:
-1. El grafo no duplica lógica RAG — importa `retrieve` y `generate_answer` desde `data/pipelines/rag.py` (identity check verificado).
-2. Ningún nodo re-envuelve `query()` monolítico — retrieve y generate viven en nodos separados.
-3. El estado no arrastra historial de conversación — eso vive en el checkpoint.
-4. Los tests del agente extienden los tests RAG existentes (26 siguen pasando).
+**Nodos nuevos en el grafo (4)**:
+- `node_classify_query`: Clasifica la pregunta con 5 familias de patrones regex (incident/inventory/rag/rag+incident/rag+inventory). Sin LLM.
+- `node_query_incident`: Extrae ticket ID o infiere filtros, llama a query_incident_by_id() o query_incidents_list(). Registra error si falla.
+- `node_query_inventory`: Extrae product ID, nombre o categoría, llama a query_product_by_id() o query_products_list(). Registra error si falla.
+- `node_synthesize_tool_answer`: Formatea tool_results en texto legible. Si todas fallan, responde honestamente sin inventar.
+
+**Routers nuevos (4)**:
+- `route_after_classify`: Mapea routing_decision a nodo destino (rag→retrieve_context, incident→query_incident, etc.).
+- `route_after_tool`: Si decisión era combinada → retrieve_context; si tool-only → synthesize_tool_answer.
+- `route_after_retrieve_v2`: Versión extendida que considera tool_results. Si hay tools → synthesize; si no → comportamiento original.
+- `route_after_generate`: Extendido para enrutar a synthesize_tool_answer si hay tool_results pendientes.
+
+**Flujo completo**:
+1. receive_question → valida
+2. classify_query → decide: RAG, tool, o ambos
+3. Si tool → query_incident/query_inventory → si es combinado → retrieve_context → generate_answer → synthesize_tool_answer
+4. Si tool-only → query_incident/query_inventory → synthesize_tool_answer
+5. Si RAG → retrieve_context → generate_answer → END
+
+**Estado nuevo en AgentState**: `routing_decision: str`, `tool_results: list[dict]`, `tool_errors: list[str]`.
+
+**Principios extendidos**:
+1. Las tools son solo GET — ninguna escribe en los sistemas.
+2. Timeout de 5s en todas las llamadas HTTP — el grafo no se cuelga.
+3. Fallback verificable: si un servicio no responde, el error se registra y el grafo responde honestamente.
+4. Routing automático: el usuario no necesita especificar si pregunta sobre incidentes, inventario o política.
+5. Compatibilidad hacia atrás: `route_after_retrieve = route_after_retrieve_v2`.
+6. Cada tool tiene única responsabilidad — no hay solapamiento entre incidentes e inventario.
 
 ### 9) Trazabilidad temporal
 - updated_at sella exclusivamente los cambios de tarifa (auditorías de coste).

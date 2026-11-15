@@ -2,25 +2,24 @@
 
 ## Estado actual del desarrollo
 
-### Agente de Soporte LangGraph — HealthCore (2026-11-14)
-- **Completado**: Migración del agente de soporte RAG de HealthCore desde un flujo lineal (retrieve → generate) a un grafo de LangGraph con estado explícito, nodos de responsabilidad única, aristas condicionales, checkpointing y trazabilidad completa.
-- **Completado**: `services/agent/graph.py` — `StateGraph(AgentState)` con 7 campos de estado mínimo (`question`, `retrieved_chunks`, `answer`, `error`, `trace_events`, `routing_log`, `question_valid`). Sin historial de conversación. Reducers acumulables via `Annotated[list, _accumulate_list]`.
-- **Completado**: 5 nodos con responsabilidad única — `receive_question` (validación), `retrieve_context` (recuperación Qdrant), `generate_answer` (generación con chunks ya recuperados), `respond_no_info` (fallback honesto), `handle_error` (mensaje amigable sin stack trace).
-- **Completado**: 3 aristas condicionales — `route_after_receive` (2 destinos), `route_after_retrieve` (3 destinos), `route_after_generate` (2 destinos). Cada router evalúa condiciones reales del estado (`if`). No hay secuencia fija (`add_edge`) entre nodos activos — solo `respond_no_info→END` y `handle_error→END`.
-- **Completado**: Compilación explícita en tiempo de importación — `_compile_graph()` dentro de `try/except` con `logger.critical` + `raise`. Errores estructurales detectados en build, no en producción.
-- **Completado**: Checkpointing con `MemorySaver` pasado como `checkpointer=` en `workflow.compile()`. Cada invocación usa `thread_id` para trazabilidad por transición.
-- **Completado**: Tracing persistido — `persist_trace()` escribe `services/agent/traces/{run_id}.json` con eventos de nodos, decisiones de enrutamiento, metadatos. Consultable con `get_trace(run_id)` y `list_traces(limit=20)`.
-- **Completado**: Endpoint delgado — `POST /agent/query` en `services/agent/routes.py`. Llama a `run_agent()` (no a retrieve/generate_answer). Maneja `ValueError→422`, `RuntimeError→503`, error sin answer→503 genérico. `GET /agent/trace/{run_id}` y `GET /agent/traces` para auditoría.
-- **Completado**: 20 evals en `tests/pipelines/test_agent_graph.py` — 5 clases: `TestGraphCompilation` (3), `TestConditionalRouting` (7), `TestTraceability` (4), `TestRAGBehavior` (4), `TestAgentEndpoint` (2). `test_medicare_no_show_policy_grounded` verifica respuesta anclada en CONTEXT.md usando `_fake_generate_answer_grounded` (fake LLM que solo responde con contexto). **20/20 pasan**.
-- **Completado**: Corrección de seguridad — `RuntimeError→503` usa mensaje genérico, no expone `str(exc)` interno (#sec-fix).
-- **Completado**: `persist_trace()` escribe con `encoding="utf-8"` — portabilidad Windows para caracteres Unicode como `→`.
-- **Completado**: Tests RAG existentes (26 en `test_rag.py`) siguen pasando intactos. Suite completa: 46 tests agente + RAG.
-- **Completado**: Reutilización de RAG existente — `retrieve` y `generate_answer` importadas de `data.pipelines.rag` (identity check `is`). No se reescribe `query()`, `embed()` ni ninguna función RAG. `data/pipelines/rag.py` NO modificado.
-- **Completado**: Ningún nodo re-envuelve `query()` monolítico — `node_retrieve_context` solo llama a `retrieve()`, `node_generate_answer` solo llama a `generate_answer()` con chunks ya recuperados.
-- **Completado**: Documentación completa en `agente-soporte-langgraph.md` — arquitectura, nodos, aristas, compilación, checkpointing, trazabilidad, evals.
-- **Completado**: Instalación de dependencias con `uv add langgraph` y `uv add langgraph-checkpoint`.
-- **Completado**: Auditoría (2026-11-14) — **11/11 acceptance criteria cumplidos** verificados contra código fuente + ejecución de tests + identity checks.
-- **Branch**: `feature/langgraph-agent-base`.
+### Agente de Soporte LangGraph — HealthCore (2026-11-15) — Part 2: External Tools
+- **Completado**: Extensión del agente LangGraph con 2 tools externas que consultan sistemas operativos reales (incidentes e inventario).
+- **Completado**: `services/agent/tools/__init__.py` — helper `_get_service_url(env_var, default)` para resolver URLs desde entorno con fallback.
+- **Completado**: `services/agent/tools/incidents.py` — `query_incident_by_id(id)` (GET /api/incidents/{id}) y `query_incidents_list(status, category, origin, branch)` (GET /api/incidents). Sin auth. Timeout 5s. Normalización con `_normalize_incident()`. Fallback para TimeoutException, RequestError, 404, non-200.
+- **Completado**: `services/agent/tools/inventory.py` — `query_product_by_id(id)` (GET /inventory/products/{id}) y `query_products_list(category, name_search)` (GET /inventory/products). Auth JWT Bearer desde `AGENT_JWT_TOKEN`. Timeout 5s. Normalización con `_normalize_product()`. Fallback para TimeoutException, RequestError, 401, 404, non-200.
+- **Completado**: Nuevo estado en `AgentState` — `routing_decision`, `tool_results`, `tool_errors`. Reducers acumulables.
+- **Completado**: `node_classify_query` — clasificación léxica con 5 familias de patrones regex. Decisiones: rag, incident, inventory, rag+incident, rag+inventory. Default RAG.
+- **Completado**: `node_query_incident` — extrae ticket ID de la pregunta o infiere filtros, llama a la tool correspondiente, maneja errores.
+- **Completado**: `node_query_inventory` — extrae product ID o nombre, infiere categoría, llama a la tool, maneja errores.
+- **Completado**: `node_synthesize_tool_answer` — formatea resultados de tools en respuesta legible. Si todas fallan, responde honestamente sin inventar.
+- **Completado**: Nuevos routers — `route_after_classify`, `route_after_tool`, `route_after_retrieve_v2`, `route_after_generate` (extendido).
+- **Completado**: Grafo compilado con 10 nodos. Aristas: classify → (retrieve_context / query_incident / query_inventory); después de tool → (retrieve_context / synthesize); retrieve_v2 considera tools; generate → synthesize si hay tools.
+- **Completado**: Compatibilidad hacia atrás — `route_after_retrieve = route_after_retrieve_v2`.
+- **Completado**: 10 nuevos tests en `TestExternalToolRouting` (5) y `TestToolFallbackBehavior` (5). 30/30 total.
+- **Completado**: Documentación en `agente-soporte-langgraph.md` §Parte 2 completa.
+- **Completado**: Auditoría 9/9 acceptance criteria cumplidos.
+- **Completado**: Git push a `feature/langgraph-external-tools`.
+- **Branch**: `feature/langgraph-external-tools`.
 
 ### Modelo de pronóstico de ventas — Regresión con XGBoost (2026-10-31 → 2026-11-02)
 - **Completado**: pipeline completo de pronóstico de ingresos mensuales en `scripts/sales_forecast/{data,metrics,model,visualize,compare_before_after}.py` con entrypoint `scripts/train_sales_forecast.py` (9 pasos: carga → validación → features → split → entrenamiento → métricas → gráfico → descomposición → justificación features).

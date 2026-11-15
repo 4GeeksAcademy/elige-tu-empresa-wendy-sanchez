@@ -39,21 +39,26 @@
 - Ruta de TinyDB de usuarios/auth: services/api/db.json (creado automáticamente).
 - Variables de entorno requeridas: JWT_SECRET_KEY, y opcionalmente RESEND_API_KEY, SUPABASE_URL, SUPABASE_KEY, HEALTHCORE_DB_PATH, RATE_LIMIT_MAX_REQUESTS, ACCESS_TOKEN_EXPIRE_MINUTES, etc.
 
-### Agente de Soporte LangGraph (services/agent)
+### Agente de Soporte LangGraph — Part 2: External Tools (services/agent)
 - **Python 3.14**, gestionado con `uv` (pyproject.toml raíz, `.venv` raíz).
-- **Dependencias**: `langgraph>=1.2.22`, `langgraph-checkpoint>=4.3.2`.
-- **Comando de tests**: `uv run python -m pytest tests/pipelines/test_agent_graph.py -v` (20 tests).
-- **Tests completos**: `uv run python -m pytest tests/pipelines/ -v` (110 tests en total: agente + RAG + sales_forecast + temporal_cv).
+- **Dependencias**: `langgraph>=1.2.22`, `langgraph-checkpoint>=4.3.2`, `httpx>=0.28.1`.
+- **Comando de tests**: `uv run python -m pytest tests/pipelines/test_agent_graph.py -v` (30 tests).
+- **Tests completos**: `uv run python -m pytest tests/pipelines/ -v` (120+ tests en total).
 - **Estructura**:
-  - `services/agent/graph.py` — núcleo del grafo (AgentState, 5 nodos, 3 routers, compilación, tracing)
+  - `services/agent/graph.py` — núcleo del grafo (AgentState, 10 nodos, 7 routers condicionales, compilación, tracing)
+  - `services/agent/tools/__init__.py` — helper `_get_service_url()`
+  - `services/agent/tools/incidents.py` — tool de incidentes (2 funciones, timeout 5s, sin auth)
+  - `services/agent/tools/inventory.py` — tool de inventario (2 funciones, timeout 5s, JWT Bearer)
   - `services/agent/routes.py` — FastAPI router (POST /agent/query, GET /agent/trace/{id}, GET /agent/traces)
   - `services/agent/traces/` — directorio de trazas persistidas en JSON
-  - `tests/pipelines/test_agent_graph.py` — 20 evals en 5 clases
-  - `agente-soporte-langgraph.md` — documentación completa
-- **Modelo de estado**: `AgentState` (TypedDict) con 7 campos. Reducers acumulables via `Annotated[list, _accumulate_list]`.
+  - `tests/pipelines/test_agent_graph.py` — 30 evals en 8 clases
+  - `agente-soporte-langgraph.md` — documentación completa con Parte 1 + Parte 2
+- **Modelo de estado**: `AgentState` (TypedDict) con 10 campos: 7 originales + `routing_decision`, `tool_results`, `tool_errors`. Reducers acumulables via `Annotated[list, _accumulate_list]`.
+- **Clasificación**: `node_classify_query` — routing por patrones regex (5 decisiones). Sin LLM.
+- **Tools**: consultan servicios reales via httpx. Incidentes: puerto 8010, sin auth. Inventario: puerto 8000, JWT Bearer desde `AGENT_JWT_TOKEN`.
 - **Checkpointer**: `MemorySaver` de `langgraph.checkpoint.memory`.
 - **Funciones RAG reutilizadas**: `retrieve` y `generate_answer` importadas de `data.pipelines.rag` (same-functions, no rewrite).
-- **Branch**: `feature/langgraph-agent-base`.
+- **Branch activo**: `feature/langgraph-external-tools`.
 - **Integración**: El router se monta en `services/api/main.py` vía `app.include_router(agent_router)`.
 
 ### Evaluación técnica del modelo de pronóstico (raíz del repo)

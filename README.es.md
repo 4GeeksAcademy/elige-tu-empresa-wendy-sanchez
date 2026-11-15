@@ -1,111 +1,208 @@
-# Proyecto de Compañía - Ingeniería de IA — Plantilla para estudiantes
+# HealthCore — Proyecto de Ingeniería IA
 
-[![4Geeks Academy](https://img.shields.io/badge/4Geeks-Academy-blue)](https://4geeksacademy.com)
-[![AI Engineering](https://img.shields.io/badge/track-AI%20Engineering-green)](https://4geeksacademy.com/es/programas-de-carrera/ingenieria-ia)
+![AI Engineering](https://img.shields.io/badge/track-AI%20Engineering-green)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1.2.22-purple)](https://langchain-ai.github.io/langgraph/)
+[![Python](https://img.shields.io/badge/Python-3.14-yellow)](https://python.org)
 
-_Plantilla base para proyectos transversales del Programa de Carrera en Ingeniería de IA — 4Geeks Academy._
+> _English instructions in [README.md](./README.md)._
 
-_Las instrucciones están [disponibles en inglés](./README.md)._
+**HealthCore** es una red de atención ambulatoria que opera 12 clínicas en Estados Unidos y Reino Unido. Este repositorio implementa los sistemas digitales, herramientas y agentes de IA construidos por su unidad interna **HealthCore Digital** para modernizar las operaciones, mejorar la experiencia del paciente y habilitar decisiones basadas en datos.
 
----
-
-## Propósito
-
-Este repositorio es la **plantilla de inicio** para los proyectos transversales. Trabajarás con escenarios de empresas reales (Brasaland, TrackFlow, Nexova) construyendo entregables que se corresponden con los hitos del curso (Web, Programación, Backend, Telemetría, RAG, Agentes, Workflows, Tiempo real).
-
-- Crea una plantilla a partir de este repositorio.
-- Reemplaza el `CONTEXT.md` placeholder por el contexto de tu empresa asignada.
-- Usa `skills/` y los `README.md` por carpeta como guía de trabajo.
+📄 La descripción completa de la empresa está en [`CONTEXT.md`](./CONTEXT.md).
 
 ---
 
-## Estado actual de la plantilla
+## 📦 Entregables
 
-Actualmente el repositorio ofrece una **estructura base de carpetas y documentación**, pero todavía no incluye aplicaciones ejecutables ni scripts globales en la raíz.
-
-- `CONTEXT.md` es un placeholder y debe sustituirse por el contexto de la empresa asignada.
-- No existe todavía un `AGENTS.md` en la raíz.
-- Existe metadata del paquete compartido en `packages/shared/package.json` (`@repo/shared-types`), pero aún no hay runner de workspace en raíz.
+| # | Entregable | Stack | Estado |
+|---|------------|-------|--------|
+| 1 | **Sitio Web Corporativo** — Landing page bilingüe (EN/ES) con marcado Schema.org y formulario de consulta | HTML, Tailwind CSS, vanilla JS | ✅ Completado |
+| 2 | **Talent Pipeline Tracker** — Gestión de candidatos con filtros, vista detalle, actualización de estado y notas | Next.js 19, React 19, TypeScript | ✅ Completado |
+| 3 | **Directorio de Proveedores** — Registro centralizado con tarifas, cambios de estado y baja con auditoría | FastAPI, Pydantic v2, TinyDB | ✅ Completado |
+| 4 | **Autenticación y Usuarios** — Login JWT, registro, recuperación de contraseña completa, roles USER/ADMIN | FastAPI, python-jose, bcrypt, Resend | ✅ Completado |
+| 5 | **Sistema de Incidencias** — API independiente para incidencias de pacientes con análisis CSV legacy y frontend | FastAPI (puerto 8010), TinyDB, Next.js | ✅ Completado |
+| 6 | **Inventario de Suministros Médicos** — 6 endpoints REST, stock calculado como neto de entradas menos salidas, 4 páginas frontend | FastAPI, SQLModel, Supabase PostgreSQL | ✅ Completado |
+| 7 | **Cola de Tareas Asíncronas** — Redis + Celery con backoff exponencial, Dead Letter Queue en TinyDB, monitorización Flower | Redis 7, Celery, Docker Compose | ✅ Completado |
+| 8 | **Pipeline de Telemetría y Dashboard** — 5 métricas pandas, servidor auth standalone, dashboard de 5 paneles | FastAPI, pandas, Supabase, Next.js | ✅ Completado |
+| 9 | **Reporting Mensual** — Pipeline ETL (Prefect 3), API de KPIs (puerto 8001), dashboard de rendimiento por clínica | Prefect, FastAPI, Supabase PostgreSQL | ✅ Completado |
+| 10 | **Modelo de Pronóstico de Ventas** — Regresión XGBoost con split temporal estricto 8/2, 12 features causales, auditoría anti-fuga, evaluación sesgo/varianza | XGBoost, scikit-learn, pandas, matplotlib | ✅ Completado |
+| 11 | **Base de Conocimiento RAG** — Generación Aumentada por Recuperación sobre documentos de políticas de HealthCore | Qdrant, pplx-embed-v1, DeepSeek-v4, FastAPI | ✅ Completado |
+| 12 | **Agente de Soporte LangGraph** — Grafo de decisión que envuelve el pipeline RAG con estado explícito, checkpointing, trazabilidad y endpoint HTTP | LangGraph 1.2.22, MemorySaver, httpx | ✅ Completado |
+| 13 | **Agente LangGraph — Tools Externas** — Añadidas herramientas de consulta en tiempo real a incidencias e inventario. Enrutamiento automático entre RAG, tools o ambos mediante clasificación regex (sin LLM). Timeout 5s, fallback honesto. 30 tests. | LangGraph, httpx, regex | ✅ Completado |
 
 ---
 
-## Estructura del repositorio
+## 🏗️ Arquitectura General
 
 ```text
-ai-engineering-company-project-monorepo/
-├── README.md
-├── README.es.md
-├── CONTEXT.md                # Placeholder a reemplazar con el contexto asignado
-├── agents/                   # Patrones/plantillas de agentes y documentación de tools
-├── data/                     # raw, process, pipelines, eval
-├── docs/                     # Documentación de proyecto y arquitectura
-├── infra/                    # Docker, Terraform, configuraciones de despliegue
-├── internal/                 # CLIs, scripts de migración empaquetados, utilidades internas
-├── mcps/                     # Servidores Model Context Protocol (MCP)
-├── packages/
-│   └── shared/               # Paquete compartido (@repo/shared-types)
-├── scripts/                  # Convenciones/documentación de scripts
-├── services/                 # APIs y workers en segundo plano
-├── shared/                   # Recursos/convenciones compartidas a nivel repo
-├── skills/                   # Skills reutilizables para agentes
-├── uis/                      # Interfaces de usuario (React, Next.js, Streamlit, HTML)
-└── workflows/                # Documentación de automatizaciones/orquestación
+uis/                        # Interfaces de usuario
+├── website/                #   Sitio público (Next.js) + página Q&A RAG
+├── backoffice/             #   Panel admin (Next.js): proveedores, inventario, incidencias, telemetría, reporting
+└── talent-pipeline-tracker/#   Seguimiento de candidatos (Next.js)
+
+services/                   # Servicios backend
+├── api/                    #   FastAPI principal (puerto 8000) — auth, proveedores, inventario, endpoint agente
+├── incidents-api/          #   FastAPI incidencias (puerto 8010) — standalone
+├── reporting/              #   FastAPI reporting (puerto 8001) — KPIs mensuales
+├── telemetry/              #   Análisis de telemetría + servidor auth standalone
+├── agent/                  #   Agente LangGraph — grafo, tools, rutas
+├── celery_app.py           #   App Celery — definiciones de tareas asíncronas
+├── nightly/                #   Job nocturno de exportación — proceso en segundo plano
+└── job_runner.py           #   Máquina de estados para orquestación de trabajos
+
+data/                       # Capa de datos
+├── raw/                    #   Datos crudos (CSV)
+├── process/                #   Datos procesados, bases TinyDB
+├── pipelines/              #   Pipeline RAG, pipeline ETL
+├── eval/                   #   Consultas de prueba, informes de evaluación
+└── migrations/             #   Migraciones SQL
+
+agents/                     # Plantillas de agentes y documentación de herramientas
+docs/                       # Arquitectura, diseño RAG, plan de telemetría
+scripts/                    # Herramientas CLI: pronóstico ventas, evaluación modelo, exportación nocturna, seed
+tests/                      # Suites de tests: pipelines, nightly, agente, RAG, evaluación
 ```
+
+**Arquitectura backend:** La mayoría de las APIs usan TinyDB para auth y datos operativos. Inventario y reporting usan Supabase PostgreSQL. Un servidor auth standalone evita la incompatibilidad SQLModel/Python 3.14.
+
+**Docker:** Los servicios se comunican mediante Docker Compose bajo la red `healthcore-net`. Ver [`docker-compose.yml`](./docker-compose.yml).
 
 ---
 
-## Cómo empezar
-
-1. **Usa este repositorio como plantilla** y crea tu propio repo de proyecto.
-2. **Clona** tu repositorio (o ábrelo en Codespaces).
-3. **Reemplaza** `CONTEXT.md` con el contexto completo de tu empresa asignada.
-4. **Revisa** los `README.md` de cada carpeta raíz para entender responsabilidades (`uis/`, `services/`, `data/`, `skills/`, etc.).
-5. **Empieza a implementar** entregables por hito en `uis/` y `services/`, reutilizando `packages/shared/` y `data/` según corresponda.
-
-## Ejecutar localmente en Codespaces (npx)
-
-Para previsualizar las landing pages estáticas desde la raíz del repositorio:
+## 🔧 Inicio Rápido
 
 ```bash
-npx --yes serve . --listen 4173 --no-clipboard
+# Requisitos: Python 3.14, Node 22, uv 0.13+, Docker (opcional)
+uv sync                      # Instalar dependencias Python
+cd uis/backoffice && npm install  # Instalar dependencias frontend
+cd uis/website && npm install
 ```
 
-Luego abre el puerto `4173` y visita:
+### Ejecutar APIs
 
-- `http://localhost:4173/index.html` (inglés)
-- `http://localhost:4173/index.es.html` (español)
+```bash
+# API principal (puerto 8000) — auth, proveedores, inventario
+uv run uvicorn services.api.main:app --reload --port 8000
+
+# API de incidencias (puerto 8010)
+uv run uvicorn services.incidents-api.main:app --reload --port 8010
+
+# API de reporting (puerto 8001)
+uv run uvicorn services.reporting.main:app --reload --port 8001
+
+# Servidor telemetría standalone (puerto 8000)
+uv run python services/telemetry/server_standalone.py
+
+# Servidor RAG standalone (puerto 8000 — evita SQLModel)
+uv run python services/api/routes/rag_standalone.py
+```
+
+### Ejecutar Frontends
+
+```bash
+cd uis/backoffice && npm run dev      # Backoffice (puerto 3401)
+cd uis/website && npm run dev          # Sitio web (puerto 3402)
+cd uis/talent-pipeline-tracker && npm run dev  # Tracker (puerto 3403)
+```
+
+### Ejecutar Tests
+
+```bash
+# Todos los tests de pipelines (agente, RAG, pronóstico ventas, CV temporal)
+uv run python -m pytest tests/pipelines/ -v
+
+# Tests del agente (30 tests)
+uv run python -m pytest tests/pipelines/test_agent_graph.py -v
+
+# Tests de RAG (26 tests)
+uv run python -m pytest tests/pipelines/test_rag.py -v
+
+# Tests de pronóstico de ventas (19 tests)
+uv run python -m pytest tests/pipelines/test_sales_forecast_split.py -v
+
+# Tests del job nocturno (30 tests)
+.venv-nightly/bin/python -m pytest tests/nightly -q
+```
+
+### Ejecutar Stack Docker
+
+```bash
+docker compose up --build    # Construye e inicia todos los servicios
+```
 
 ---
 
-## Hitos (referencia)
+## 🧠 Agente LangGraph — Detalles Clave
 
-| Hito | Enfoque       | Entregables típicos                              |
-| ---- | ------------- | ------------------------------------------------ |
-| 0    | Prework       | Configuración del entorno, primeros prompts      |
-| 1    | Web           | Sitio corporativo, formularios, SEO              |
-| 2    | Programación  | Lógica de negocio, puntuación, cálculos          |
-| 3    | UI con IA     | Interfaces generadas con IA                      |
-| 4    | Next.js       | Portales, app de fidelización, UI de operaciones |
-| 5    | Backend       | API central (ubicaciones, menús, ventas, etc.)   |
-| 6    | Telemetría    | Pipeline de datos, dashboards                    |
-| 7    | RAG y memoria | Base de conocimiento semántica, búsqueda         |
-| 8    | Agentes       | Agentes de soporte, onboarding, formación        |
-| 9    | Workflows     | Automatizaciones con n8n                         |
-| 10   | Tiempo real   | Dashboards en vivo, alertas, streaming           |
+El agente de soporte está implementado como un `StateGraph` de LangGraph con **10 nodos** y **7 enrutadores condicionales**. Reutiliza las funciones RAG existentes (`retrieve`, `generate_answer`) sin reescribirlas.
+
+**Nodos:** `receive_question` → `classify_query` → (tool y/o RAG) → `synthesize_tool_answer` / `generate_answer` → END
+
+- **Clasificación:** Basada en regex (sin LLM). Decide entre RAG, tool de incidencias, tool de inventario, o una combinación.
+- **Tools:** Solo lectura (GET). Consultan los servicios reales de incidencias e inventario. Timeout 5s. Todos los errores producen respuestas de fallback honestas.
+- **Trazabilidad:** Cada ejecución produce un trace JSON persistido en `services/agent/traces/{run_id}.json`.
+- **Endpoint:** `POST /agent/query` (capa FastAPI delgada — sin lógica de negocio).
+- **Documentación:** [`agente-soporte-langgraph.md`](./agente-soporte-langgraph.md)
 
 ---
 
-## Enlaces
+## 📊 Modelo de Pronóstico de Ventas — Detalles Clave
 
-- [4Geeks Academy — Ingeniería de IA](https://4geeksacademy.com/es/programas-de-carrera/ingenieria-ia)
-- [Cómo empezar un proyecto de código](https://4geeks.com/lesson/how-to-start-a-project)
+Regresión XGBoost entrenada con 84 meses (2016–2023), probada en 24 meses no vistos (2024–2025). Sin fuga de datos. Validación walk-forward.
+
+- **Métricas (test):** RMSE $154.9K (5.5% del ingreso medio), MAPE 3.5%, Gini 0.82, K²/R² 0.81
+- **Banda de variabilidad:** ±$265K (cobertura empírica 87.5%)
+- **Diagnóstico sesgo/varianza:** Overfitting confirmado — brecha CV 28.7×. Acciones correctivas documentadas.
+- **Documentación:** [`predic-ventas-model-regresion.md`](./predic-ventas-model-regresion.md)
 
 ---
 
-## Contribuidores
+## 📚 Base de Conocimiento RAG — Detalles Clave
 
-Esta plantilla fue creada como parte del Programa de Carrera de Ingeniería de IA de 4Geeks Academy por [@marcogonzalo](https://www.linkedin.com/in/marcogonzalo) y [@alezanchezr](https://x.com/alesanchezr), junto a otros muchos colaboradores. Descubre más sobre nuestro [Curso de Ingeniería de IA](https://4geeksacademy.com/es/programas-de-carrera/ingenieria-ia) y sobre [otros cursos](https://4geeksacademy.com/es/comparar-programas).
+Generación Aumentada por Recuperación sobre 4 documentos de políticas de HealthCore. Embeddings con `pplx-embed-v1` (1024-dim) en Qdrant. Genera respuestas con `deepseek-v4-flash`.
 
-Puedes encontrar otras plantillas y recursos similares en la [página de GitHub de 4Geeks Academy](https://github.com/4geeksacademy).
+- **12 fragmentos** (3 por documento), 450 chars máx, 140 chars mín
+- **Recall@3:** 100% (8/8 consultas de prueba)
+- **Frontend:** Página de chat Q&A en el sitio web público (`uis/website/app/rag/`)
+- **Documentación:** [`docs/rag/rag-design.es.md`](./docs/rag/rag-design.es.md) (ES) / [`rag-design.md`](./docs/rag/rag-design.md) (EN)
 
-_Esta plantilla la mantiene 4Geeks Academy para el track de Ingeniería de IA. Uso exclusivo del programa._
+---
+
+## 📁 Documentación Clave
+
+| Archivo | Contenido |
+|---------|-----------|
+| [`CONTEXT.md`](./CONTEXT.md) | Descripción completa de la empresa (HealthCore, departamentos, problemas) |
+| [`agente-soporte-langgraph.md`](./agente-soporte-langgraph.md) | Arquitectura del agente LangGraph (Parte 1 + Parte 2) |
+| [`predic-ventas-model-regresion.md`](./predic-ventas-model-regresion.md) | Diseño y auditoría del modelo de pronóstico de ventas |
+| [`docs/rag/rag-design.es.md`](./docs/rag/rag-design.es.md) | Diseño de la base de conocimiento RAG |
+| [`background-processes.md`](./background-processes.md) | Arquitectura del proceso en segundo plano |
+| [`docs/ARCHITECTURE_PROPOSAL.md`](./docs/ARCHITECTURE_PROPOSAL.md) | Propuesta de arquitectura general |
+| [`memory-bank/`](./memory-bank/) | Progreso del desarrollo, contexto activo, patrones del sistema |
+
+---
+
+## 🧪 Filosofía de Testing
+
+- **Tests de pipelines** (`tests/pipelines/`) cubren agente, RAG y pronóstico de ventas — todos ejecutables con `uv run python -m pytest`
+- Los tests del agente incluyen: compilación del grafo, enrutamiento condicional, trazabilidad, comportamiento RAG fundamentado, enrutamiento de tools (5 tests) y comportamiento de fallback de tools (5 tests)
+- Todas las suites de tests pasan como puerta de entrada antes de fusionar ramas de funcionalidad
+- Desarrollo impulsado por auditoría: cada entregable tiene criterios de aceptación verificables
+
+---
+
+## 📝 Licencia & Contribuidores
+
+Construido como parte del [Programa de Carrera en Ingeniería IA de 4Geeks Academy](https://4geeksacademy.com/es/programas-de-carrera/ingenieria-ia) por la desarrolladora. Template original por [@marcogonzalo](https://www.linkedin.com/in/marcogonzalo) y [@alezanchezr](https://x.com/alesanchezr).
+
+**Developer Wendy Sanchez**
+
+---
+
+## Notas específicas del proyecto
+
+- Este repositorio incluye actualmente un sitio web estático bilingüe (`index.html`, `index.es.html`, `application.html`, `application.es.html`) y lógica de validación de formularios en `validation.js`.
+- Existe una aplicación Next.js para «Talent Pipeline Tracker» en `uis/talent-pipeline-tracker`.
+- Comandos de validación de TypeScript disponibles actualmente:
+  - `npm run typecheck`
+  - `cd uis/talent-pipeline-tracker && npm run typecheck`
