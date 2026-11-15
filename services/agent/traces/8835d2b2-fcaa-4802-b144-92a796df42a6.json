@@ -1,10 +1,11 @@
 {
-  "run_id": "a5ee6331-03b5-415c-a570-d661a9c6ba3b",
+  "run_id": "8835d2b2-fcaa-4802-b144-92a796df42a6",
   "question": "¿Cobran cargo por no-show a pacientes de Medicare?",
   "answer": "Según la documentación de HealthCore:\nCancelar con menos de 24 horas o no presentarse (no-show): cargo de 50 USD para pacientes de pago privado.\nPacientes con Medicare o Medicaid: no se les cobra cargo por no-show.",
   "error": null,
   "routing_log": [
-    "receive_question → retrieve_context (pregunta válida)",
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag",
     "retrieve_context → generate_answer (1 fragmentos recuperados)",
     "generate_answer → END (respuesta generada)"
   ],
@@ -12,15 +13,26 @@
     {
       "node": "receive_question",
       "status": "ok",
-      "timestamp": "2026-11-14T22:30:40.701175+00:00",
+      "timestamp": "2026-11-15T15:45:33.217650+00:00",
       "metadata": {
         "question_length": 50
       }
     },
     {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:45:33.218516+00:00",
+      "metadata": {
+        "decision": "rag",
+        "has_incident": false,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
       "node": "retrieve_context",
       "status": "ok",
-      "timestamp": "2026-11-14T22:30:40.701697+00:00",
+      "timestamp": "2026-11-15T15:45:33.219060+00:00",
       "metadata": {
         "num_chunks": 1
       }
@@ -28,7 +40,7 @@
     {
       "node": "generate_answer",
       "status": "ok",
-      "timestamp": "2026-11-14T22:30:40.702454+00:00",
+      "timestamp": "2026-11-15T15:45:33.219971+00:00",
       "metadata": {
         "answer_length": 214
       }
@@ -36,5 +48,5 @@
   ],
   "num_chunks_retrieved": 1,
   "final_answer_length": 214,
-  "timestamp": "2026-11-14T22:30:40.703183+00:00"
+  "timestamp": "2026-11-15T15:45:33.220732+00:00"
 }

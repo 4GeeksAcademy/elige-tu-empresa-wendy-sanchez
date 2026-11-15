@@ -184,7 +184,7 @@ def node_receive_question(state: AgentState) -> dict[str, Any]:
 
     return {
         "question_valid": True,
-        "routing_log": ["receive_question → retrieve_context (pregunta válida)"],
+        "routing_log": ["receive_question → classify_query (pregunta válida)"],
         "trace_events": [_make_trace_event("receive_question", "ok", {"question_length": len(question)})],
     }
 
@@ -494,13 +494,31 @@ def node_synthesize_tool_answer(state: AgentState) -> dict[str, Any]:
 
     Construye un mensaje legible a partir de los resultados de la(s)
     tool(s).  Si hubo errores, responde con honestidad sin inventar datos.
+    En modo combinado (rag+incident, rag+inventory) incluye la respuesta RAG
+    aunque la tool haya fallado.
     """
     tool_results = state.get("tool_results", [])
     tool_errors = state.get("tool_errors", [])
     decision = state.get("routing_decision", "")
+    rag_answer = state.get("answer", "")
 
-    # Si todas las tools fallaron
+    # Si todas las tools fallaron en modo combinado, incluir RAG + error
     if not tool_results and tool_errors:
+        if decision in ("rag+incident", "rag+inventory") and rag_answer:
+            error_msg = " ".join(tool_errors)
+            answer = (
+                f"{rag_answer}\n\n---\n\n"
+                f"⚠️ No se pudo consultar el servicio externo: {error_msg}"
+            )
+            return {
+                "answer": answer,
+                "routing_log": [f"synthesize_tool_answer → respuesta RAG + error tool ({error_msg[:60]})"],
+                "trace_events": [_make_trace_event(
+                    "synthesize_tool_answer", "fallback",
+                    {"errors": tool_errors, "rag_included": True},
+                )],
+            }
+        # Modo tool-only: fallback honesto
         error_msg = " ".join(tool_errors)
         return {
             "answer": (
@@ -516,15 +534,19 @@ def node_synthesize_tool_answer(state: AgentState) -> dict[str, Any]:
         }
 
     # Si hay resultados, construir respuesta
+    rag_answer = state.get("answer", "")
     if decision == "incident":
         answer = _format_incident_response(tool_results)
-    elif decision in ("inventory", "rag+inventory"):
+    elif decision == "inventory":
         answer = _format_inventory_response(tool_results)
     elif decision == "rag+incident":
-        # Combinar RAG + incidentes
-        rag_answer = state.get("answer", "")
+        # Combinar política (RAG) + incidente
         inc_answer = _format_incident_response(tool_results)
         answer = f"{inc_answer}\n\n---\n\n{rag_answer}" if rag_answer else inc_answer
+    elif decision == "rag+inventory":
+        # Combinar política (RAG) + inventario
+        inv_answer = _format_inventory_response(tool_results)
+        answer = f"{inv_answer}\n\n---\n\n{rag_answer}" if rag_answer else inv_answer
     else:
         # Fallback: si no hay decisión clara, volcar resultados
         items = []
@@ -750,39 +772,43 @@ def route_after_tool(state: AgentState) -> str:
 def route_after_retrieve_v2(state: AgentState) -> str:
     """Versión extendida de route_after_retrieve que considera tools.
 
-    Si el contexto RAG está vacío pero hay resultados de tools, salta a
-    synthesize_tool_answer.  Si hay contexto RAG y tools, combina ambos.
-    Si solo hay RAG, va a generate_answer como antes.
+    Si hay contexto RAG, va a generate_answer aunque haya tools pendientes.
+    Si no hay contexto RAG pero sí hay tools, va a synthesize_tool_answer.
+    Si no hay nada, responde con honestidad o error.
     """
     has_tool_results = bool(state.get("tool_results"))
     has_rag_context = bool(state.get("retrieved_chunks"))
+    decision = state.get("routing_decision", "")
 
     if state.get("error") and not has_tool_results:
         return "handle_error"
 
-    # Si tenemos resultados de tools, sintetizar (con o sin RAG)
+    # Dar prioridad a generate_answer con el contexto RAG recuperado
+    if has_rag_context:
+        return "generate_answer"
+
+    # Sin RAG pero con tools: sintetizar directamente
     if has_tool_results:
         return "synthesize_tool_answer"
 
-    # Sin tools: comportamiento original
-    if not has_rag_context:
-        return "respond_no_info"
-    return "generate_answer"
+    # Sin nada
+    return "respond_no_info"
 
 
 def route_after_generate(state: AgentState) -> Literal["handle_error", "synthesize_tool_answer", "__end__"]:
     """Después de generar la respuesta RAG, verifica si hay tools pendientes.
 
-    Si la decisión original incluía tools y hay tool_results, enruta a
-    synthesize_tool_answer para combinar.  Si no, va a END.
+    Si la decisión original incluía tools y hay tool_results o tool_errors,
+    enruta a synthesize_tool_answer para combinar.  Si no, va a END.
     """
     if state.get("error"):
         return "handle_error"
 
     has_tool_results = bool(state.get("tool_results"))
+    has_tool_errors = bool(state.get("tool_errors"))
     decision = state.get("routing_decision", "")
 
-    if has_tool_results and decision in ("rag+incident", "rag+inventory"):
+    if (has_tool_results or has_tool_errors) and decision in ("rag+incident", "rag+inventory"):
         return "synthesize_tool_answer"
 
     return "__end__"
