@@ -42,7 +42,7 @@
 ### Agente de Soporte LangGraph — Part 2: External Tools (services/agent)
 - **Python 3.14**, gestionado con `uv` (pyproject.toml raíz, `.venv` raíz).
 - **Dependencias**: `langgraph>=1.2.22`, `langgraph-checkpoint>=4.3.2`, `httpx>=0.28.1`.
-- **Comando de tests**: `uv run python -m pytest tests/pipelines/test_agent_graph.py -v` (30 tests).
+- **Comando de tests**: `uv run python -m pytest tests/pipelines/test_agent_graph.py -v` (32 tests).
 - **Tests completos**: `uv run python -m pytest tests/pipelines/ -v` (120+ tests en total).
 - **Estructura**:
   - `services/agent/graph.py` — núcleo del grafo (AgentState, 10 nodos, 7 routers condicionales, compilación, tracing)
@@ -51,7 +51,7 @@
   - `services/agent/tools/inventory.py` — tool de inventario (2 funciones, timeout 5s, JWT Bearer)
   - `services/agent/routes.py` — FastAPI router (POST /agent/query, GET /agent/trace/{id}, GET /agent/traces)
   - `services/agent/traces/` — directorio de trazas persistidas en JSON
-  - `tests/pipelines/test_agent_graph.py` — 30 evals en 8 clases
+  - `tests/pipelines/test_agent_graph.py` — 32 evals en 9 clases
   - `agente-soporte-langgraph.md` — documentación completa con Parte 1 + Parte 2
 - **Modelo de estado**: `AgentState` (TypedDict) con 10 campos: 7 originales + `routing_decision`, `tool_results`, `tool_errors`. Reducers acumulables via `Annotated[list, _accumulate_list]`.
 - **Clasificación**: `node_classify_query` — routing por patrones regex (5 decisiones). Sin LLM.

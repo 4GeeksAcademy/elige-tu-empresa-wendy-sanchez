@@ -28,7 +28,7 @@
 | 10 | **Sales Forecast Model** — XGBoost regression with strict temporal 8/2 split, 12 causal features, anti-leak audit, bias/variance evaluation | XGBoost, scikit-learn, pandas, matplotlib | ✅ Complete |
 | 11 | **RAG Knowledge Base** — Retrieval-Augmented Generation over HealthCore policy documents (insurance, appointments, referrals, checklists) | Qdrant, pplx-embed-v1, DeepSeek-v4, FastAPI | ✅ Complete |
 | 12 | **LangGraph Support Agent** — Decision graph wrapping RAG pipeline with explicit state, checkpointing, tracing, and HTTP endpoint | LangGraph 1.2.22, MemorySaver, httpx | ✅ Complete |
-| 13 | **LangGraph Agent — External Tools** — Added real-time incident and inventory query tools. Auto-routing between RAG, tools, or both via regex classification (no LLM). 5s timeout, honest fallback. 30 tests. | LangGraph, httpx, regex | ✅ Complete |
+| 13 | **LangGraph Agent — External Tools** — Added real-time incident and inventory query tools. Auto-routing between RAG, tools, or both via regex classification (no LLM). 5s timeout, honest fallback. 32 tests. | LangGraph, httpx, regex | ✅ Complete |
 
 ---
 
@@ -111,7 +111,7 @@ cd uis/talent-pipeline-tracker && npm run dev  # Tracker (port 3403)
 # All pipeline tests (agent, RAG, sales forecast, temporal CV)
 uv run python -m pytest tests/pipelines/ -v
 
-# Agent-specific (30 tests)
+# Agent-specific (32 tests)
 uv run python -m pytest tests/pipelines/test_agent_graph.py -v
 
 # RAG-specific (26 tests)
@@ -185,7 +185,7 @@ Retrieval-Augmented Generation over 4 HealthCore policy documents. Embedded with
 ## 🧪 Testing Philosophy
 
 - **Pipeline tests** (`tests/pipelines/`) cover agent, RAG, and sales forecast — all runnable with `uv run python -m pytest`
-- Agent tests include: graph compilation, conditional routing, traceability, grounded RAG behavior, tool routing (5 tests), and tool fallback behavior (5 tests)
+- Agent tests include: graph compilation, conditional routing, traceability, grounded RAG behavior, tool routing (5 tests), tool fallback behavior (5 tests), and mixed synthesis (2 tests)
 - All test suites pass as gate before feature branches merge
 - Audit-driven development: each deliverable has verifiable acceptance criteria
 

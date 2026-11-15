@@ -81,8 +81,8 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 **Routers nuevos (4)**:
 - `route_after_classify`: Mapea routing_decision a nodo destino (rag→retrieve_context, incident→query_incident, etc.).
 - `route_after_tool`: Si decisión era combinada → retrieve_context; si tool-only → synthesize_tool_answer.
-- `route_after_retrieve_v2`: Versión extendida que considera tool_results. Si hay tools → synthesize; si no → comportamiento original.
-- `route_after_generate`: Extendido para enrutar a synthesize_tool_answer si hay tool_results pendientes.
+- `route_after_retrieve_v2`: Versión extendida. **Prioridad**: si hay contexto RAG → `generate_answer`; si solo hay tools (sin RAG) → `synthesize_tool_answer`; si ambas → RAG primero, luego synthesize.
+- `route_after_generate`: Extendido para enrutar a synthesize_tool_answer si hay `tool_results` o `tool_errors` pendientes.
 
 **Flujo completo**:
 1. receive_question → valida
@@ -90,6 +90,7 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 3. Si tool → query_incident/query_inventory → si es combinado → retrieve_context → generate_answer → synthesize_tool_answer
 4. Si tool-only → query_incident/query_inventory → synthesize_tool_answer
 5. Si RAG → retrieve_context → generate_answer → END
+6. Si combinado (rag+tool) → retrieve_context → generate_answer (prioridad RAG) → synthesize_tool_answer (tool_results + answer se combinan en síntesis final)
 
 **Estado nuevo en AgentState**: `routing_decision: str`, `tool_results: list[dict]`, `tool_errors: list[str]`.
 

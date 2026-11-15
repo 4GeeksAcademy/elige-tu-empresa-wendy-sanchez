@@ -15,9 +15,16 @@
 - **Completado**: Nuevos routers — `route_after_classify`, `route_after_tool`, `route_after_retrieve_v2`, `route_after_generate` (extendido).
 - **Completado**: Grafo compilado con 10 nodos. Aristas: classify → (retrieve_context / query_incident / query_inventory); después de tool → (retrieve_context / synthesize); retrieve_v2 considera tools; generate → synthesize si hay tools.
 - **Completado**: Compatibilidad hacia atrás — `route_after_retrieve = route_after_retrieve_v2`.
-- **Completado**: 10 nuevos tests en `TestExternalToolRouting` (5) y `TestToolFallbackBehavior` (5). 30/30 total.
+- **Completado**: 12 nuevos tests en `TestExternalToolRouting` (5), `TestToolFallbackBehavior` (5) y `TestMixedSynthesis` (2). 32/32 total.
 - **Completado**: Documentación en `agente-soporte-langgraph.md` §Parte 2 completa.
 - **Completado**: Auditoría 9/9 acceptance criteria cumplidos.
+- **Completado**: Corrección de 3 bugs en la síntesis mixta:
+  - Bug 1: `route_after_retrieve_v2` prioriza `generate_answer` cuando hay chunks RAG (antes iba directo a `synthesize_tool_answer`, descartando el contexto RAG).
+  - Bug 2: `route_after_generate` ahora considera `tool_errors` además de `tool_results` para decidir si va a `synthesize_tool_answer`.
+  - Bug 3: `node_synthesize_tool_answer` incluye la respuesta RAG en modo combinado aun si la tool falla (antes mostraba solo error y omitía el RAG).
+- **Completado**: 2 nuevos tests en `TestMixedSynthesis` — verifica que rag+incident combina ambas fuentes y que el fallo de tool en modo combinado incluye RAG + error honesto.
+- **Completado**: Trazas regeneradas con ticket real (ID 2, no el inexistente 482) y timestamps reales para evitar artefactos de mock. `scripts/regenerate_traces.py`.
+- **Completado**: routing_log corregido: `receive_question → classify_query` en lugar del antiguo `receive_question → retrieve_context`.
 - **Completado**: Git push a `feature/langgraph-external-tools`.
 - **Branch**: `feature/langgraph-external-tools`.
 

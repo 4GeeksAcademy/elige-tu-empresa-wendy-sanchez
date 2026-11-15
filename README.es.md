@@ -28,7 +28,7 @@
 | 10 | **Modelo de Pronóstico de Ventas** — Regresión XGBoost con split temporal estricto 8/2, 12 features causales, auditoría anti-fuga, evaluación sesgo/varianza | XGBoost, scikit-learn, pandas, matplotlib | ✅ Completado |
 | 11 | **Base de Conocimiento RAG** — Generación Aumentada por Recuperación sobre documentos de políticas de HealthCore | Qdrant, pplx-embed-v1, DeepSeek-v4, FastAPI | ✅ Completado |
 | 12 | **Agente de Soporte LangGraph** — Grafo de decisión que envuelve el pipeline RAG con estado explícito, checkpointing, trazabilidad y endpoint HTTP | LangGraph 1.2.22, MemorySaver, httpx | ✅ Completado |
-| 13 | **Agente LangGraph — Tools Externas** — Añadidas herramientas de consulta en tiempo real a incidencias e inventario. Enrutamiento automático entre RAG, tools o ambos mediante clasificación regex (sin LLM). Timeout 5s, fallback honesto. 30 tests. | LangGraph, httpx, regex | ✅ Completado |
+| 13 | **Agente LangGraph — Tools Externas** — Añadidas herramientas de consulta en tiempo real a incidencias e inventario. Enrutamiento automático entre RAG, tools o ambos mediante clasificación regex (sin LLM). Timeout 5s, fallback honesto. 32 tests. | LangGraph, httpx, regex | ✅ Completado |
 
 ---
 
@@ -111,7 +111,7 @@ cd uis/talent-pipeline-tracker && npm run dev  # Tracker (puerto 3403)
 # Todos los tests de pipelines (agente, RAG, pronóstico ventas, CV temporal)
 uv run python -m pytest tests/pipelines/ -v
 
-# Tests del agente (30 tests)
+# Tests del agente (32 tests)
 uv run python -m pytest tests/pipelines/test_agent_graph.py -v
 
 # Tests de RAG (26 tests)
@@ -185,7 +185,7 @@ Generación Aumentada por Recuperación sobre 4 documentos de políticas de Heal
 ## 🧪 Filosofía de Testing
 
 - **Tests de pipelines** (`tests/pipelines/`) cubren agente, RAG y pronóstico de ventas — todos ejecutables con `uv run python -m pytest`
-- Los tests del agente incluyen: compilación del grafo, enrutamiento condicional, trazabilidad, comportamiento RAG fundamentado, enrutamiento de tools (5 tests) y comportamiento de fallback de tools (5 tests)
+- Los tests del agente incluyen: compilación del grafo, enrutamiento condicional, trazabilidad, comportamiento RAG fundamentado, enrutamiento de tools (5 tests), comportamiento de fallback de tools (5 tests) y síntesis mixta (2 tests)
 - Todas las suites de tests pasan como puerta de entrada antes de fusionar ramas de funcionalidad
 - Desarrollo impulsado por auditoría: cada entregable tiene criterios de aceptación verificables
 

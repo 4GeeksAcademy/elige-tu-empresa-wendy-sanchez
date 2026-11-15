@@ -20,10 +20,17 @@
   - Produce 5 decisiones: `"rag"`, `"incident"`, `"inventory"`, `"rag+incident"`, `"rag+inventory"`.
   - Sin señales → default RAG.
 - **Flujo del grafo**: receive → classify → (RAG / incident / inventory) → si combinado: tool → RAG → generate → synthesize; si tool-only: tool → synthesize.
-- **Tests** (`tests/pipelines/test_agent_graph.py`): **30 tests** (20 originales + 10 nuevos).
+- **Tests** (`tests/pipelines/test_agent_graph.py`): **32 tests** (20 originales + 12 nuevos).
   - **TestExternalToolRouting** (5): routing a incident, policy→rag, stock→inventory, combinado, default→rag.
   - **TestToolFallbackBehavior** (5): timeout, 404, synthesize con todas fallidas, extracción de ticket ID, trace_events con decisión.
-  - **30/30 pasan**. Tests RAG (26) siguen intactos. Suite total: 56 tests agente + RAG.
+  - **TestMixedSynthesis** (2): síntesis rag+incident combina fuentes; modo combinado con falla de tool incluye RAG + error honesto.
+  - **32/32 pasan**. Tests RAG (26) siguen intactos. Suite total: 58 tests agente + RAG.
+- **Bug fixes aplicados (2026-11-15)**:
+  - `route_after_retrieve_v2` corregido: prioriza `generate_answer` cuando hay chunks RAG, en vez de saltar a `synthesize_tool_answer`.
+  - `route_after_generate` ampliado: detecta `tool_errors` además de `tool_results` para enrutar a `synthesize_tool_answer`.
+  - `node_synthesize_tool_answer` mejorado: en modo combinado (rag+incident, rag+inventory) incluye RAG aun si la tool falla.
+  - routing_log corregido: `receive_question → classify_query` en vez de `→ retrieve_context`.
+  - Trazas regeneradas con ticket real (ID 2) y timestamps reales.
 - **Documentación**: `agente-soporte-langgraph.md` actualizada con §Parte 2 completa (~200 líneas): resumen, estructura, contrato, diagrama, estado, clasificación, timeout, fallback, trazabilidad, evaluación, auth, checklist.
 - **Auditoría (2026-11-15)**: **9/9 acceptance criteria cumplidos** — verificado contra código fuente + tests. Incluye: contratos tipados + gestor real + auth, solo GET, timeout 5s, fallback sin inventar, routing automático, única responsabilidad por nodo, trace con fuentes/orden, 5 evals de routing, tool de inventario sigue mismas reglas.
 - **Branch**: `feature/langgraph-external-tools`. Pusheado y completado.

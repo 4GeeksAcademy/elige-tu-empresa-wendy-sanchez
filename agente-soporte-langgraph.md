@@ -124,9 +124,11 @@ data/
 
 | Desde | Router | Condiciones |
 |-------|--------|-------------|
-| `receive_question` | `route_after_receive` | `error` o `question_valid=False` → END; válida → `retrieve_context` |
-| `retrieve_context` | `route_after_retrieve` | `error` → `handle_error`; sin chunks → `respond_no_info`; con chunks → `generate_answer` |
-| `generate_answer` | `route_after_generate` | `error` → `handle_error`; ok → END |
+| `receive_question` | `route_after_receive` | `error` o `question_valid=False` → END; válida → `classify_query` |
+| `classify_query` | `route_after_classify` | Según `routing_decision`: `rag` → `retrieve_context`, `incident` → `query_incident`, etc. |
+| `query_incident` / `query_inventory` | `route_after_tool` | Si decisión combinada → `retrieve_context`; si tool-only → `synthesize_tool_answer` |
+| `retrieve_context` | `route_after_retrieve_v2` | `error` → `handle_error`; con RAG → `generate_answer`; con tools (sin RAG) → `synthesize_tool_answer`; sin nada → `respond_no_info` |
+| `generate_answer` | `route_after_generate` | `error` → `handle_error`; con tools pendientes (resultados o errores) → `synthesize_tool_answer`; ok → END |
 
 ### 3.5 Compilación
 
@@ -220,7 +222,8 @@ Recupera la traza completa de una corrida.
   "answer": "No, ...",
   "error": null,
   "routing_log": [
-    "receive_question → retrieve_context (pregunta válida)",
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag",
     "retrieve_context → generate_answer (3 fragmentos recuperados)",
     "generate_answer → END (respuesta generada)"
   ],
@@ -242,7 +245,7 @@ Lista las N trazas más recientes (sin eventos completos).
 
 ## 6. Evaluación y Tests
 
-### 6.1 Evals (20 tests en `tests/pipelines/test_agent_graph.py`)
+### 6.1 Evals (32 tests en `tests/pipelines/test_agent_graph.py`)
 
 | Clase | # Tests | ¿Qué verifica? |
 |-------|---------|----------------|
@@ -251,6 +254,9 @@ Lista las N trazas más recientes (sin eventos completos).
 | `TestTraceability` | 4 | Cada corrida produce trace persistido, consultable, con eventos y routing_log |
 | `TestRAGBehavior` | 4 | El comportamiento RAG está anclado en los datos: retrieve antes que generate, Medicare no paga no-show verificado con fake LLM (solo responde con contexto), etc. |
 | `TestAgentEndpoint` | 2 | El endpoint existe con prefijo correcto y delega en `run_agent()` |
+| `TestExternalToolRouting` (Parte 2) | 5 | Clasificación de preguntas en 5 dominios (incident, rag, inventory, combinado, default) |
+| `TestToolFallbackBehavior` (Parte 2) | 5 | Timeout, 404, synthesize con fallos, extracción de IDs, trace_events con decisión |
+| `TestMixedSynthesis` (Parte 2) | 2 | Síntesis rag+incident combina ambas fuentes; fallo de tool en modo combinado incluye RAG + error honesto |
 
 ### 6.1.1 Fake LLM para verificar grounding
 
@@ -383,7 +389,7 @@ Las funciones de consulta (`get_trace`, `list_traces`) también leen con `encodi
 - [x] Checkpointing en cada transición de estado
 - [x] Trazas persistidas y consultables después de la corrida
 - [x] Endpoint sin lógica de negocio propia
-- [x] 20 evals que verifican compilación, enrutamiento, trazabilidad y comportamiento RAG
+- [x] 20 evals (Parte 1) que verifican compilación, enrutamiento, trazabilidad y comportamiento RAG + 12 evals (Parte 2) que verifican tools externas, fallback y síntesis mixta
 - [x] Respuestas de error sin stack traces crudos (503 con mensaje genérico, sin `str(exc)`)
 - [x] `persist_trace()` escribe con `encoding="utf-8"` (portabilidad Windows)
 - [x] Test de grounding con fake LLM (no mock prefabricado) — verifica que `generate_answer` recibe el fragmento y la respuesta sale de él
@@ -426,7 +432,7 @@ services/
 
 tests/
   pipelines/
-    test_agent_graph.py   ← Actualizado: +10 nuevos evals (Parte 2)
+    test_agent_graph.py   ← Actualizado: +12 nuevos evals (Parte 2)
 ```
 
 ## 4. Contrato de las tools
@@ -448,9 +454,9 @@ tests/
 ```python
 from services.agent.tools.incidents import query_incident_by_id
 
-result = query_incident_by_id(482)
-# → {"id": 482, "status": "in_progress", "category": "it_system", ...}
-```
+result = query_incident_by_id(2)
+# → {"id": 2, "status": "open", "category": "it_system", ...}
+``````
 
 ### 4.2 Tool de inventario (extra)
 
@@ -536,8 +542,8 @@ result = query_incident_by_id(482)
 | `receive_question` | `route_after_receive` | Ahora enruta a `classify_query` en vez de directamente a `retrieve_context` |
 | `classify_query` | `route_after_classify` | Según `routing_decision`: si es `"rag"` → `retrieve_context`; `"incident"` → `query_incident`; `"inventory"` → `query_inventory`; etc. |
 | `query_incident` / `query_inventory` | `route_after_tool` | Si era combinado (`rag+incident`, `rag+inventory`) → `retrieve_context`; si solo tool → `synthesize_tool_answer` |
-| `retrieve_context` | `route_after_retrieve_v2` | Como la original + detecta si hay `tool_results` para enrutar a `synthesize_tool_answer` |
-| `generate_answer` | `route_after_generate` | Si hay tools pendientes → `synthesize_tool_answer`; si no → END |
+| `retrieve_context` | `route_after_retrieve_v2` | Como la original + detecta si hay `tool_results` para enrutar a `synthesize_tool_answer`. **Prioridad**: RAG → generate_answer; tools sin RAG → synthesize; ambos → RAG primero. |
+| `generate_answer` | `route_after_generate` | Si hay tools pendientes (`tool_results` o `tool_errors`) → `synthesize_tool_answer`; si no → END |
 
 ## 6. Clasificación de preguntas
 
@@ -612,21 +618,22 @@ Cada evento del nodo `classify_query` incluye en `metadata` la decisión y los f
 
 ## 9. Evaluación y Tests (Parte 2)
 
-### 9.1 Nuevos evals (10 tests añadidos)
+### 9.1 Nuevos evals (12 tests añadidos)
 
 | Clase | # Tests | ¿Qué verifica? |
 |-------|---------|----------------|
 | `TestExternalToolRouting` | 5 | El enrutamiento automático: incidente → tool, política → RAG, stock → inventario, mixto → ambos, genérico → RAG |
 | `TestToolFallbackBehavior` | 5 | Timeout → respuesta honesta, ticket no encontrado → error, synthesis con fallos → honestidad, extracción de IDs, trace events contienen decisión |
+| `TestMixedSynthesis` | 2 | Síntesis rag+incident combina RAG y tool; modo combinado con falla de tool incluye RAG + error honesto |
 
-**Total: 30 tests** (20 Parte 1 + 10 Parte 2)
+**Total: 32 tests** (20 Parte 1 + 12 Parte 2)
 
 ### 9.2 Tests clave
 
 ```python
 def test_classify_query_routes_incident_to_incident_tool(self):
     """Pregunta sobre un ticket/incidente debe clasificarse como 'incident'."""
-    state = build_initial_state("¿En qué estado está el ticket 482?")
+    state = build_initial_state("¿En qué estado está el ticket 2?")
     result = node_classify_query(state)
     assert "incident" in result["routing_decision"]
 
@@ -645,8 +652,8 @@ def test_tool_timeout_returns_honest_fallback(self):
     assert "no respondió" in error_text
 
 def test_incident_tool_extracts_ticket_id_from_question(self):
-    """Extrae IDs de distintos formatos: 'ticket 482', '#123', 'caso 456'."""
-    assert _extract_ticket_id("ticket 482") == 482
+    """Extrae IDs de distintos formatos: 'ticket 2', '#123', 'caso 456'."""
+    assert _extract_ticket_id("ticket 2") == 2
     assert _extract_ticket_id("incidente #123") == 123
 ```
 
@@ -656,8 +663,8 @@ def test_incident_tool_extracts_ticket_id_from_question(self):
 # Todos los tests del agente (Parte 1 + Parte 2)
 uv run pytest tests/pipelines/test_agent_graph.py -v
 
-# Tests específicos de tools externas
-uv run pytest tests/pipelines/test_agent_graph.py -v -k "TestExternalToolRouting or TestToolFallbackBehavior"
+# Tests específicos de tools externas y síntesis mixta
+uv run pytest tests/pipelines/test_agent_graph.py -v -k "TestExternalToolRouting or TestToolFallbackBehavior or TestMixedSynthesis"
 ```
 
 ## 10. Notas sobre autenticación
@@ -676,6 +683,6 @@ uv run pytest tests/pipelines/test_agent_graph.py -v -k "TestExternalToolRouting
 - [x] Enrutamiento automático: el agente decide RAG, tool o ambos sin intervención del usuario
 - [x] Sin datos simulados — las tools llaman a servicios reales
 - [x] Sin auth hardcodeada — las credenciales se leen de entorno
-- [x] 10 nuevos evals que verifican enrutamiento y fallback
+- [x] 12 nuevos evals que verifican enrutamiento, fallback y síntesis mixta
 - [x] Trazabilidad: el trace muestra qué fuente se usó y en qué orden
-- [x] 30/30 tests pasando
+- [x] 32/32 tests pasando
