@@ -1,0 +1,52 @@
+{
+  "run_id": "836f00ce-0a2e-4404-aff3-8b65c47a18f7",
+  "question": "¿Qué cobertura de seguro ofrecen para consultas de especialista?",
+  "answer": "Ocurrió un error al procesar tu solicitud. Por favor intenta de nuevo más tarde. Si el problema persiste, contacta a soporte técnico.",
+  "error": "Error al recuperar información: Qdrant search failed: [Errno -2] Name or service not known",
+  "routing_log": [
+    "receive_question → retrieve_context (pregunta válida)",
+    "classify_query → rag",
+    "retrieve_context → error",
+    "handle_error → END (error capturado: Error al recuperar información: Qdrant search fail...)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:01:37.330789+00:00",
+      "metadata": {
+        "question_length": 64
+      }
+    },
+    {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:01:37.332590+00:00",
+      "metadata": {
+        "decision": "rag",
+        "has_incident": false,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "error",
+      "timestamp": "2026-11-15T15:01:41.835205+00:00",
+      "metadata": {
+        "error": "Qdrant search failed: [Errno -2] Name or service not known"
+      }
+    },
+    {
+      "node": "handle_error",
+      "status": "error",
+      "timestamp": "2026-11-15T15:01:41.836396+00:00",
+      "metadata": {
+        "original_error": "Error al recuperar información: Qdrant search failed: [Errno -2] Name or service not known"
+      }
+    }
+  ],
+  "num_chunks_retrieved": 0,
+  "final_answer_length": 133,
+  "timestamp": "2026-11-15T15:01:41.837515+00:00"
+}

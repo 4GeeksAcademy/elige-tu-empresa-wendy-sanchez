@@ -1,0 +1,52 @@
+{
+  "run_id": "c6187684-a7cd-46d0-a4c6-b53b9efed843",
+  "question": "¿Qué cobertura de seguro ofrecen para consultas de especialista?",
+  "answer": "HealthCore acepta los siguientes planes de seguro para consultas con especialistas: **Blue Cross Blue Shield** (PPO y HMO), **Aetna** (Open Access y Choice POS), **Cigna** (PPO) y **UnitedHealthcare** (Options PPO).\n\n⚠️ **Requisito importante:** Se requiere **autorización previa** para todas las visitas a especialistas. Los pacientes deben verificar su cobertura al menos 48 horas antes de la cita.",
+  "error": null,
+  "routing_log": [
+    "receive_question → retrieve_context (pregunta válida)",
+    "classify_query → rag",
+    "retrieve_context → generate_answer (2 fragmentos recuperados)",
+    "generate_answer → END (respuesta generada)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:02:20.518906+00:00",
+      "metadata": {
+        "question_length": 64
+      }
+    },
+    {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:02:20.521034+00:00",
+      "metadata": {
+        "decision": "rag",
+        "has_incident": false,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:02:20.521679+00:00",
+      "metadata": {
+        "num_chunks": 2
+      }
+    },
+    {
+      "node": "generate_answer",
+      "status": "ok",
+      "timestamp": "2026-11-15T15:02:20.522651+00:00",
+      "metadata": {
+        "answer_length": 400
+      }
+    }
+  ],
+  "num_chunks_retrieved": 2,
+  "final_answer_length": 400,
+  "timestamp": "2026-11-15T15:02:20.523468+00:00"
+}
