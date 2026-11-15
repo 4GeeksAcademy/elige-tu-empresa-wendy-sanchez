@@ -1,7 +1,7 @@
 {
-  "run_id": "3201d9a0-9db9-4605-be3e-a55fd55b0114",
+  "run_id": "f2c81979-2d92-4804-a822-352c49b61342",
   "question": "Según la política de cancelación, ¿el ticket 2 debería tener cargo?",
-  "answer": "📋 **Ticket #2** — Patient not informed of appointment reschedule by clinic\n- **Estado**: resolved\n- **Categoría**: patient_experience\n- **Origen**: customer\n- **Sucursal**: London — West\n- **Creado**: 2024-01-17T00:00:00+00:00\n- **Actualizado**: 2026-09-10T14:43:15.712221+00:00\n- **Descripción**: Patient not informed of appointment reschedule by clinic\n\n---\n\nSegún la documentación de HealthCore:\nCancelar con menos de 24 horas o no presentarse (no-show): cargo de 50 USD para pacientes de pago privado.\nPacientes con Medicare o Medicaid: no se les cobra cargo por no-show.",
+  "answer": "📋 **Ticket #2** — Patient not informed of appointment reschedule by clinic\n- **Estado**: resolved\n- **Categoría**: patient_experience\n- **Origen**: customer\n- **Sucursal**: London West End\n- **Creado**: 2024-01-17T00:00:00+00:00\n- **Actualizado**: 2026-09-10T14:43:15.712221+00:00\n- **Descripción**: Patient not informed of appointment reschedule by clinic\n\n---\n\nNo tengo información suficiente en la base de conocimiento para responder esta pregunta.",
   "error": null,
   "routing_log": [
     "receive_question → classify_query (pregunta válida)",
@@ -15,7 +15,7 @@
     {
       "node": "receive_question",
       "status": "ok",
-      "timestamp": "2026-11-15T15:45:33.315955+00:00",
+      "timestamp": "2026-11-15T19:37:06.966420+00:00",
       "metadata": {
         "question_length": 67
       }
@@ -23,7 +23,7 @@
     {
       "node": "classify_query",
       "status": "ok",
-      "timestamp": "2026-11-15T15:45:33.316809+00:00",
+      "timestamp": "2026-11-15T19:37:06.967201+00:00",
       "metadata": {
         "decision": "rag+incident",
         "has_incident": true,
@@ -34,7 +34,7 @@
     {
       "node": "query_incident",
       "status": "ok",
-      "timestamp": "2026-11-15T15:45:33.317418+00:00",
+      "timestamp": "2026-11-15T19:37:07.008592+00:00",
       "metadata": {
         "num_results": 1
       }
@@ -42,7 +42,7 @@
     {
       "node": "retrieve_context",
       "status": "ok",
-      "timestamp": "2026-11-15T15:45:33.318237+00:00",
+      "timestamp": "2026-11-15T19:37:07.306245+00:00",
       "metadata": {
         "num_chunks": 1
       }
@@ -50,15 +50,15 @@
     {
       "node": "generate_answer",
       "status": "ok",
-      "timestamp": "2026-11-15T15:45:33.318743+00:00",
+      "timestamp": "2026-11-15T19:37:09.857154+00:00",
       "metadata": {
-        "answer_length": 214
+        "answer_length": 88
       }
     },
     {
       "node": "synthesize_tool_answer",
       "status": "ok",
-      "timestamp": "2026-11-15T15:45:33.319630+00:00",
+      "timestamp": "2026-11-15T19:37:09.858233+00:00",
       "metadata": {
         "decision": "rag+incident",
         "num_results": 1
@@ -66,6 +66,6 @@
     }
   ],
   "num_chunks_retrieved": 1,
-  "final_answer_length": 575,
-  "timestamp": "2026-11-15T15:45:33.320522+00:00"
+  "final_answer_length": 451,
+  "timestamp": "2026-11-15T19:37:09.859344+00:00"
 }

@@ -1,19 +1,19 @@
 {
-  "run_id": "e89ba9af-1c84-408c-b857-dea039ff6dd4",
+  "run_id": "a9dc7770-5713-4f41-90b3-94ba5c969c36",
   "question": "¿Cobran cargo por no-show a pacientes de Medicare?",
-  "answer": "Según la documentación de HealthCore:\nCancelar con menos de 24 horas: cargo de 50 USD. Pacientes con Medicare: no se les cobra.",
+  "answer": "No, según la política de citas, a los pacientes con Medicare no se les cobra cargo por no-show, aunque se registra el incidente en su historial.",
   "error": null,
   "routing_log": [
     "receive_question → classify_query (pregunta válida)",
     "classify_query → rag",
-    "retrieve_context → generate_answer (1 fragmentos recuperados)",
+    "retrieve_context → generate_answer (4 fragmentos recuperados)",
     "generate_answer → END (respuesta generada)"
   ],
   "events": [
     {
       "node": "receive_question",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.777186+00:00",
+      "timestamp": "2026-11-15T19:37:01.128116+00:00",
       "metadata": {
         "question_length": 50
       }
@@ -21,7 +21,7 @@
     {
       "node": "classify_query",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.779400+00:00",
+      "timestamp": "2026-11-15T19:37:01.134016+00:00",
       "metadata": {
         "decision": "rag",
         "has_incident": false,
@@ -32,21 +32,21 @@
     {
       "node": "retrieve_context",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.782427+00:00",
+      "timestamp": "2026-11-15T19:37:05.261874+00:00",
       "metadata": {
-        "num_chunks": 1
+        "num_chunks": 4
       }
     },
     {
       "node": "generate_answer",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.783011+00:00",
+      "timestamp": "2026-11-15T19:37:06.916320+00:00",
       "metadata": {
-        "answer_length": 127
+        "answer_length": 144
       }
     }
   ],
-  "num_chunks_retrieved": 1,
-  "final_answer_length": 127,
-  "timestamp": "2026-11-15T15:44:37.784218+00:00"
+  "num_chunks_retrieved": 4,
+  "final_answer_length": 144,
+  "timestamp": "2026-11-15T19:37:06.917647+00:00"
 }

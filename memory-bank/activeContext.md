@@ -30,10 +30,12 @@
   - `route_after_generate` ampliado: detecta `tool_errors` además de `tool_results` para enrutar a `synthesize_tool_answer`.
   - `node_synthesize_tool_answer` mejorado: en modo combinado (rag+incident, rag+inventory) incluye RAG aun si la tool falla.
   - routing_log corregido: `receive_question → classify_query` en vez de `→ retrieve_context`.
-  - Trazas regeneradas con ticket real (ID 2) y timestamps reales.
+  - `regenerate_traces.py` reescrito sin mocks: usa servicios reales (Qdrant, LLM, Incidents API) con timestamps reales y branch_label correcto "London West End".
+  - Trazas regeneradas con ticket real (ID 2) y timestamps reales: RAG 5788ms, Incidente 41ms, Combinado 2892ms, Fallback 1649ms.
 - **Documentación**: `agente-soporte-langgraph.md` actualizada con §Parte 2 completa (~200 líneas): resumen, estructura, contrato, diagrama, estado, clasificación, timeout, fallback, trazabilidad, evaluación, auth, checklist.
 - **Auditoría (2026-11-15)**: **9/9 acceptance criteria cumplidos** — verificado contra código fuente + tests. Incluye: contratos tipados + gestor real + auth, solo GET, timeout 5s, fallback sin inventar, routing automático, única responsabilidad por nodo, trace con fuentes/orden, 5 evals de routing, tool de inventario sigue mismas reglas.
 - **Branch**: `feature/langgraph-external-tools`. Pusheado y completado.
+- **Commits**: `ca2ca1d` (HEAD, regenerate_traces.py usa servicios reales), `8b2c92c` (bugs 1,2,3), `9d5e33c` (traces anteriores con mocks), `15c93c7` (documentación), `7dfa797` (herramientas externas base).
 
 ## Modelo de pronóstico de ventas — Regresión con XGBoost (Oct–Nov 2026)
 - **Entregable**: pronóstico honesto de ingresos mensuales de HealthCore, con split temporal 8 años/2 años, 4 métricas exigidas (MSE, PSI, Gini, K2) + MAPE, y visualización con banda de variabilidad. Documentado íntegro en `predic-ventas-model-regresion.md`.

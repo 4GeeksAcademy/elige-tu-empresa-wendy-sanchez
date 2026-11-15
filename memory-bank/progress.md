@@ -23,9 +23,10 @@
   - Bug 2: `route_after_generate` ahora considera `tool_errors` además de `tool_results` para decidir si va a `synthesize_tool_answer`.
   - Bug 3: `node_synthesize_tool_answer` incluye la respuesta RAG en modo combinado aun si la tool falla (antes mostraba solo error y omitía el RAG).
 - **Completado**: 2 nuevos tests en `TestMixedSynthesis` — verifica que rag+incident combina ambas fuentes y que el fallo de tool en modo combinado incluye RAG + error honesto.
-- **Completado**: Trazas regeneradas con ticket real (ID 2, no el inexistente 482) y timestamps reales para evitar artefactos de mock. `scripts/regenerate_traces.py`.
+- **Completado**: Trazas regeneradas con ticket real (ID 2, no el inexistente 482) y timestamps reales para evitar artefactos de mock. `scripts/regenerate_traces.py` reescrito sin mocks — usa servicios reales: RAG 5788ms, Incidente 41ms (branch_label "London West End"), Combinado 2892ms, Fallback 1649ms.
 - **Completado**: routing_log corregido: `receive_question → classify_query` en lugar del antiguo `receive_question → retrieve_context`.
-- **Completado**: Git push a `feature/langgraph-external-tools`.
+- **Completado**: Commit `ca2ca1d` pusheado con regenerate_traces.py corregido.
+- **Completado**: PR #28 body actualizado con commits reales (`ca2ca1d`, `8b2c92c`, etc.) y timestamps de servicios reales.
 - **Branch**: `feature/langgraph-external-tools`.
 
 ### Modelo de pronóstico de ventas — Regresión con XGBoost (2026-10-31 → 2026-11-02)

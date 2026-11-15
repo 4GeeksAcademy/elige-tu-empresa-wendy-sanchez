@@ -1,7 +1,7 @@
 {
-  "run_id": "bb74aaa4-6d0b-4737-9bcf-14c947f3af45",
+  "run_id": "6da170a5-3ec0-4ea5-995c-5c0b72503110",
   "question": "¿En qué estado está el ticket 2?",
-  "answer": "📋 **Ticket #2** — Patient not informed of appointment reschedule by clinic\n- **Estado**: resolved\n- **Categoría**: patient_experience\n- **Origen**: customer\n- **Sucursal**: London — West\n- **Creado**: 2024-01-17T00:00:00+00:00\n- **Actualizado**: 2026-09-10T14:43:15.712221+00:00\n- **Descripción**: Patient not informed of appointment reschedule by clinic",
+  "answer": "📋 **Ticket #2** — Patient not informed of appointment reschedule by clinic\n- **Estado**: resolved\n- **Categoría**: patient_experience\n- **Origen**: customer\n- **Sucursal**: London West End\n- **Creado**: 2024-01-17T00:00:00+00:00\n- **Actualizado**: 2026-09-10T14:43:15.712221+00:00\n- **Descripción**: Patient not informed of appointment reschedule by clinic",
   "error": null,
   "routing_log": [
     "receive_question → classify_query (pregunta válida)",
@@ -13,7 +13,7 @@
     {
       "node": "receive_question",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.786550+00:00",
+      "timestamp": "2026-11-15T19:37:06.921356+00:00",
       "metadata": {
         "question_length": 32
       }
@@ -21,7 +21,7 @@
     {
       "node": "classify_query",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.787827+00:00",
+      "timestamp": "2026-11-15T19:37:06.922849+00:00",
       "metadata": {
         "decision": "incident",
         "has_incident": true,
@@ -32,7 +32,7 @@
     {
       "node": "query_incident",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.788542+00:00",
+      "timestamp": "2026-11-15T19:37:06.961604+00:00",
       "metadata": {
         "num_results": 1
       }
@@ -40,7 +40,7 @@
     {
       "node": "synthesize_tool_answer",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.789290+00:00",
+      "timestamp": "2026-11-15T19:37:06.962545+00:00",
       "metadata": {
         "decision": "incident",
         "num_results": 1
@@ -48,6 +48,6 @@
     }
   ],
   "num_chunks_retrieved": 0,
-  "final_answer_length": 354,
-  "timestamp": "2026-11-15T15:44:37.790273+00:00"
+  "final_answer_length": 356,
+  "timestamp": "2026-11-15T19:37:06.963690+00:00"
 }

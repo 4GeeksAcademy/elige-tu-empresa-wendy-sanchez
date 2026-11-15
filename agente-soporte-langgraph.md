@@ -672,6 +672,28 @@ uv run pytest tests/pipelines/test_agent_graph.py -v -k "TestExternalToolRouting
 - **Incidents API**: No requiere autenticación en el despliegue actual. Para producción se recomienda añadir JWT o API key.
 - **Inventory API**: Requiere JWT Bearer token. La tool lee el token de la variable de entorno `AGENT_JWT_TOKEN`. Si no está configurada, la tool devuelve un error controlado (HTTP 401) y el grafo responde con fallback honesto. **No se hardcodea ningún token en el código.**
 
+## 10.1 Corrección de bugs — Síntesis mixta y trazas (2026-11-15)
+
+### Bug 1: Síntesis mixta rag+incident descartaba el contexto RAG
+**Problema**: `route_after_retrieve_v2` iba directo a `synthesize_tool_answer` cuando había `tool_results`, saltándose `generate_answer` y perdiendo el contexto político de RAG.
+**Solución**: Se reordenó la prioridad: si hay `retrieved_chunks` (contexto RAG), siempre va primero a `generate_answer`, independientemente de `tool_results`. Luego `route_after_generate` redirige a `synthesize_tool_answer`.
+
+### Bug 2: Prueba de timeout real bloqueaba 5 segundos la suite de tests
+**Problema**: El test de timeout usaba `sleep(5)` para forzar el timeout de httpx.
+**Solución**: Reemplazado por monkeypatch del timeout en `httpx.Client` dentro del test. Ahora el timeout se simula en milisegundos.
+
+### Bug 3: Clasificación combinada no detectaba "política" + "ticket"
+**Problema**: El clasificador léxico no detectaba `rag+incident` cuando ambas señales estaban presentes (ej: "¿cuál es la política de no-show del ticket 2?").
+**Solución**: `node_classify_query` ahora usa prioridad combinada: si hay incidente y RAG → `"rag+incident"`. Se reescribieron los patrones RAG para incluir términos operativos ("cobro", "cargo", "no-show", "medicare", "cancelación", "horario", "consentimiento").
+
+### Bug 4: Trazas del script `regenerate_traces.py` tenían timestamps sub-ms (mockeadas)
+**Problema**: El script mockeaba `retrieve` y `generate_answer`, produciendo timestamps irreales (~1ms).
+**Solución**: Se eliminaron todos los mocks. Ahora llama a servicios reales (Qdrant, LLM e Incidents API). Timestamps reales obtenidos:
+- RAG puro (Medicare no-show): **5,788ms**
+- Incidente puro (ticket 2): **41ms** con `branch_label = "London West End"` (antes decía "London — West")
+- RAG+Incidente combinado: **2,892ms**
+- RAG+Incidente con fallo de tool: **1,649ms**
+
 ## 11. Checklist de cumplimiento (Parte 2)
 
 - [x] Tool `query_incident` implementada — lee del gestor de incidentes real (GET /api/incidents)

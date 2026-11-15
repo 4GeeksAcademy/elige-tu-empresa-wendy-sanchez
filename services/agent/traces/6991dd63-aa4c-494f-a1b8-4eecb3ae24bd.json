@@ -1,21 +1,21 @@
 {
-  "run_id": "557c51dd-59a8-429a-b6a1-89d7bf6a9c2e",
+  "run_id": "6991dd63-aa4c-494f-a1b8-4eecb3ae24bd",
   "question": "Según la política de cancelación, ¿el ticket 999 debería tener cargo?",
-  "answer": "Según la documentación de HealthCore:\nCancelar con menos de 24 horas: cargo de 50 USD.\n\n---\n\n⚠️ No se pudo consultar el servicio externo: No se pudo conectar con el servicio de incidentes.",
+  "answer": "No tengo información suficiente en la base de conocimiento para responder esta pregunta.\n\n---\n\n⚠️ No se pudo consultar el servicio externo: No existe un ticket con ID 999.",
   "error": null,
   "routing_log": [
     "receive_question → classify_query (pregunta válida)",
     "classify_query → rag+incident",
-    "query_incident → error: No se pudo conectar con el servicio de incidentes.",
+    "query_incident → error: No existe un ticket con ID 999.",
     "retrieve_context → generate_answer (1 fragmentos recuperados)",
     "generate_answer → END (respuesta generada)",
-    "synthesize_tool_answer → respuesta RAG + error tool (No se pudo conectar con el servicio de incidentes.)"
+    "synthesize_tool_answer → respuesta RAG + error tool (No existe un ticket con ID 999.)"
   ],
   "events": [
     {
       "node": "receive_question",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.801625+00:00",
+      "timestamp": "2026-11-15T19:37:09.862532+00:00",
       "metadata": {
         "question_length": 69
       }
@@ -23,7 +23,7 @@
     {
       "node": "classify_query",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.802116+00:00",
+      "timestamp": "2026-11-15T19:37:09.863423+00:00",
       "metadata": {
         "decision": "rag+incident",
         "has_incident": true,
@@ -34,15 +34,15 @@
     {
       "node": "query_incident",
       "status": "error",
-      "timestamp": "2026-11-15T15:44:37.803000+00:00",
+      "timestamp": "2026-11-15T19:37:09.902529+00:00",
       "metadata": {
-        "error": "No se pudo conectar con el servicio de incidentes."
+        "error": "No existe un ticket con ID 999."
       }
     },
     {
       "node": "retrieve_context",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.803825+00:00",
+      "timestamp": "2026-11-15T19:37:10.148247+00:00",
       "metadata": {
         "num_chunks": 1
       }
@@ -50,24 +50,24 @@
     {
       "node": "generate_answer",
       "status": "ok",
-      "timestamp": "2026-11-15T15:44:37.804343+00:00",
+      "timestamp": "2026-11-15T19:37:11.510763+00:00",
       "metadata": {
-        "answer_length": 86
+        "answer_length": 88
       }
     },
     {
       "node": "synthesize_tool_answer",
       "status": "fallback",
-      "timestamp": "2026-11-15T15:44:37.805283+00:00",
+      "timestamp": "2026-11-15T19:37:11.511906+00:00",
       "metadata": {
         "errors": [
-          "No se pudo conectar con el servicio de incidentes."
+          "No existe un ticket con ID 999."
         ],
         "rag_included": true
       }
     }
   ],
   "num_chunks_retrieved": 1,
-  "final_answer_length": 188,
-  "timestamp": "2026-11-15T15:44:37.806030+00:00"
+  "final_answer_length": 171,
+  "timestamp": "2026-11-15T19:37:11.512991+00:00"
 }
