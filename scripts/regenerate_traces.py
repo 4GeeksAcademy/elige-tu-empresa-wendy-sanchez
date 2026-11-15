@@ -1,164 +1,117 @@
-"""Regenera trazas reales del agente LangGraph con los servicios mockeados.
+"""Regenera trazas reales del agente LangGraph usando servicios reales.
 
 Cada corrida produce un archivo JSON en services/agent/traces/<run_id>.json
 con timestamps reales (no sub-ms), routing_log verificable y eventos ordenados.
+
+A diferencia de la versión anterior, NO se mockea ningún servicio:
+  - retrieve() consulta Qdrant real (http://localhost:6333)
+  - generate_answer() invoca el LLM real (https://llm.4geeks.ai)
+  - query_incident_by_id() consulta la Incidents API real (http://localhost:8010)
+
+Requisitos:
+  - Docker services corriendo: qdrant, incidents-backend
+  - .env con API_KEY, HOST, QDRANT_URL configurados
+
+Los timestamps reflejan latencias reales de red, Qdrant y LLM.
 """
+
 from __future__ import annotations
 
+import os
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from unittest.mock import patch
+# ── Cargar .env primero (API_KEY, HOST) ────────────────────────────
+from dotenv import load_dotenv
+load_dotenv()
+
+# ── Sobrescribir URLs Docker-internas con localhost ────────────────
+# Desde fuera de Docker, los contenedores son reachables por localhost
+# gracias al mapeo de puertos en docker-compose.yml.
+os.environ["QDRANT_URL"] = "http://localhost:6333"
+os.environ["INCIDENTS_API_URL"] = "http://localhost:8010"
+
 from services.agent.graph import run_agent, get_trace, list_traces
+
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-def _make_chunk(source_document="appointment-policy", section="Política de cancelación",
-                text=None, score=0.85):
-    return {
-        "company": "healthcore",
-        "source_document": source_document,
-        "section": section,
-        "language": "es",
-        "chunk_index": 0,
-        "text": text or (
-            "Política de cancelación:\n"
-            "Cancelar con más de 24 horas de anticipación: sin cargo.\n"
-            "Cancelar con menos de 24 horas o no presentarse (no-show): "
-            "cargo de 50 USD para pacientes de pago privado.\n"
-            "Pacientes con Medicare o Medicaid: no se les cobra cargo por no-show."
-        ),
-        "_score": score,
-    }
+def _compute_duration_ms(trace: dict) -> str:
+    """Calcula la duración real de la corrida desde los timestamps de eventos."""
+    timestamps = [
+        e.get("timestamp", "") for e in trace.get("events", [])
+        if e.get("timestamp")
+    ]
+    if len(timestamps) >= 2:
+        try:
+            t0 = datetime.fromisoformat(timestamps[0])
+            t1 = datetime.fromisoformat(timestamps[-1])
+            ms = (t1 - t0).total_seconds() * 1000
+            return f" | ⏱ {ms:.0f}ms"
+        except (ValueError, TypeError):
+            pass
+    return ""
 
-def _fake_generate_answer_grounded(question, context):
-    if not context:
-        return "No tengo información en los documentos disponibles..."
-    texts = [chunk.get("text", "") for chunk in context]
-    question_lower = question.lower()
-    keywords = question_lower.split()
-    best_text, best_score = "", 0
-    for text in texts:
-        text_lower = text.lower()
-        score = sum(1 for kw in keywords if kw in text_lower)
-        if score > best_score:
-            best_score = score
-            best_text = text
-    if best_text:
-        return f"Según la documentación de HealthCore:\n{best_text.strip()}"
-    return "No encontré información relevante..."
 
-def run_scenario(question, scenario_name, chunks=None, incident_result=None,
-                 inventory_result=None, generate_answer=None):
-    """Ejecuta el agente con los mocks correspondientes y retorna el run_id."""
+def run_scenario(question: str, scenario_name: str) -> tuple[str, dict]:
+    """Ejecuta el agente real (sin mocks) y retorna el run_id.
+
+    Los servicios reales son:
+      - Qdrant para retrieve (embed + vector search)
+      - LLM para generate_answer
+      - Incidents API para query_incident_by_id
+    """
     run_id = str(uuid.uuid4())
-
-    patches_list = []
-
-    # Mock retrieve
-    if chunks is not None:
-        patches_list.append(patch("services.agent.graph.retrieve", return_value=chunks))
-    else:
-        patches_list.append(patch("services.agent.graph.retrieve",
-                                  return_value=[_make_chunk()]))
-
-    # Mock generate_answer
-    if generate_answer is not None:
-        patches_list.append(patch("services.agent.graph.generate_answer",
-                                  side_effect=generate_answer or _fake_generate_answer_grounded))
-    else:
-        patches_list.append(patch("services.agent.graph.generate_answer",
-                                  side_effect=_fake_generate_answer_grounded))
-
-    # Mock incident tool
-    if incident_result is not None:
-        patches_list.append(patch("services.agent.graph.query_incident_by_id",
-                                  return_value=incident_result))
-
-    # Mock inventory tool
-    if inventory_result is not None:
-        patches_list.append(patch("services.agent.graph.query_products_list",
-                                  return_value=inventory_result))
-
-    with patches_list[0]:
-        with patches_list[1]:
-            for p in patches_list[2:]:
-                p.start()
-            try:
-                result = run_agent(question, run_id=run_id)
-            finally:
-                for p in patches_list[2:]:
-                    p.stop()
-
+    result = run_agent(question, run_id=run_id)
     trace = get_trace(run_id)
     if trace:
-        print(f"✅ {scenario_name} → {run_id[:8]}... ({len(trace['events'])} eventos, "
-              f"routing: {' | '.join(trace['routing_log'])})")
+        events = trace.get("events", [])
+        routing = trace.get("routing_log", [])
+        duration = _compute_duration_ms(trace)
+        print(f"✅ {scenario_name}")
+        print(f"   run_id={run_id[:8]}... | {len(events)} eventos | "
+              f"routing: {' → '.join(routing)}{duration}")
     else:
-        print(f"❌ {scenario_name} → no trace generated")
+        print(f"❌ {scenario_name} → no se generó trace")
     return run_id, result
+
 
 # ── Limpiar trazas anteriores ────────────────────────────────────────
 traces_dir = _PROJECT_ROOT / "services" / "agent" / "traces"
-for f in traces_dir.glob("*.json"):
+cleaned = 0
+for f in sorted(traces_dir.glob("*.json")):
     f.unlink()
-print("🧹 Traces cleaned.\n")
+    cleaned += 1
+print(f"🧹 {cleaned} traces anteriores eliminados.\n")
 
 # ── Escenario 1: RAG puro ────────────────────────────────────────────
 run_scenario(
     "¿Cobran cargo por no-show a pacientes de Medicare?",
     "RAG puro — Medicare no-show",
-    chunks=[_make_chunk(
-        text="Cancelar con menos de 24 horas: cargo de 50 USD. Pacientes con Medicare: no se les cobra."
-    )],
 )
 
 # ── Escenario 2: Incidente puro ──────────────────────────────────────
 run_scenario(
     "¿En qué estado está el ticket 2?",
     "Incidente puro — ticket 2",
-    incident_result={
-        "id": 2, "title": "Patient not informed of appointment reschedule by clinic",
-        "status": "resolved", "category": "patient_experience",
-        "origin": "customer", "branch": "london_west",
-        "branch_label": "London — West",
-        "created_at": "2024-01-17T00:00:00+00:00",
-        "updated_at": "2026-09-10T14:43:15.712221+00:00",
-        "description_preview": "Patient not informed of appointment reschedule by clinic",
-    },
 )
 
 # ── Escenario 3: Rag+Incidente combinado (caso que fallaba) ──────────
 run_scenario(
     "Según la política de cancelación, ¿el ticket 2 debería tener cargo?",
     "RAG+Incidente combinado",
-    chunks=[_make_chunk(
-        text="Cancelar con menos de 24 horas: cargo de 50 USD. Pacientes con Medicare: no se les cobra."
-    )],
-    incident_result={
-        "id": 2, "title": "Patient not informed of appointment reschedule by clinic",
-        "status": "resolved", "category": "patient_experience",
-        "origin": "customer",
-        "branch": "london_west", "branch_label": "London — West",
-        "created_at": "2024-01-17T00:00:00+00:00",
-        "updated_at": "2026-09-10T14:43:15.712221+00:00",
-        "description_preview": "Patient not informed of appointment reschedule by clinic",
-    },
 )
 
 # ── Escenario 4: Fallo de tool en modo combinado ────────────────────
 run_scenario(
     "Según la política de cancelación, ¿el ticket 999 debería tener cargo?",
     "RAG+Incidente con fallo de tool",
-    chunks=[_make_chunk(
-        text="Cancelar con menos de 24 horas: cargo de 50 USD."
-    )],
-    incident_result={"error": "No se pudo conectar con el servicio de incidentes."},
 )
 
 # ── Escenario 5: Pregunta inválida ──────────────────────────────────
@@ -171,4 +124,6 @@ except ValueError as e:
 all_traces = list_traces(limit=10)
 print(f"\n📊 Total trazas generadas: {len(all_traces)}")
 for t in all_traces:
-    print(f"  • {t['run_id'][:8]}... | {t['question'][:50]} | {t['num_events']} eventos")
+    dur = _compute_duration_ms(t)
+    print(f"  • {t['run_id'][:8]}... | {t['question'][:50]} | "
+          f"{t['num_events']} eventos{dur}")
