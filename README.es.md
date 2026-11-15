@@ -143,7 +143,6 @@ El agente de soporte está implementado como un `StateGraph` de LangGraph con **
 - **Trazabilidad:** Cada ejecución produce un trace JSON persistido en `services/agent/traces/{run_id}.json`.
 - **Endpoint:** `POST /agent/query` (capa FastAPI delgada — sin lógica de negocio).
 - **Documentación:** [`agente-soporte-langgraph.md`](./agente-soporte-langgraph.md)
-- **Bug fixes (Nov 2026):** 4 bugs corregidos en síntesis mixta (prioridad RAG en modo combinado), timeout de tests, clasificación combinada rag+incident, y trazas regeneradas con servicios reales (Qdrant, LLM, Incidents API) con timestamps reales y branch_label correcto "London West End".
 
 ---
 

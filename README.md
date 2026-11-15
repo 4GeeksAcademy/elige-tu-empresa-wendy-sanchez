@@ -143,7 +143,6 @@ The support agent is implemented as a LangGraph `StateGraph` with **10 nodes** a
 - **Tracing:** Each run produces a JSON trace persisted to `services/agent/traces/{run_id}.json`.
 - **Endpoint:** `POST /agent/query` (thin FastAPI layer — no business logic).
 - **Docs:** [`agente-soporte-langgraph.md`](./agente-soporte-langgraph.md) (Spanish).
-- **Bug fixes (Nov 2026):** 4 bugs fixed in mixed synthesis (RAG priority in combined mode), test timeout, combined rag+incident classification, and traces regenerated with real services (Qdrant, LLM, Incidents API) with real timestamps and correct branch_label "London West End".
 
 ---
 
