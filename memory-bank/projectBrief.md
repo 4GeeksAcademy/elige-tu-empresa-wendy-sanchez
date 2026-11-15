@@ -27,6 +27,7 @@ En paralelo, se trabaja en digitalización interna para People/HR con un tracker
 8. Producir un pronóstico de ventas defendible ante Finanzas: split temporal estricto 8/2 sin fuga de datos, métricas de error explicables (MSE, PSI, Gini, K2 + MAPE) calculadas solo sobre el conjunto de prueba, y una visualización con rango de variabilidad en lugar de un único número optimista.
 9. **Evaluar formalmente el modelo de pronóstico** con diagnóstico de sesgo/varianza (underfitting/overfitting) respaldado por validación cruzada temporal y curvas de aprendizaje, no por opinión. La acción correctiva debe ser específica y coherente con el diagnóstico.
 10. **Implementar un sistema RAG (Retrieval-Augmented Generation)** que permita al equipo de HealthCore consultar en lenguaje natural las políticas documentadas de la clínica (seguros, citas, referencias, pacientes nuevos), respondiendo exclusivamente con información extraída de los documentos oficiales, sin alucinaciones del LLM.
+11. **Implementar un agente de soporte LangGraph** que envuelva el pipeline RAG existente en un grafo de decisión trazable, con estado explícito, nodos de responsabilidad única, aristas condicionales, checkpointing y tracing persistido. El agente debe reutilizar (no reescribir) las funciones `retrieve()` y `generate_answer()` existentes, mantener los tests RAG intactos, y exponer un endpoint HTTP delgado sin lógica de negocio.
 
 ## Problema que resuelve
 - Externo (pacientes): corrige una presencia digital insuficiente y permite intake estructurado de consultas.

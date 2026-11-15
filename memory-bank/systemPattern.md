@@ -59,7 +59,33 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - Supplier para la respuesta, con los campos que genera el sistema (id, updated_at, archived_at).
 - Los campos generados por el sistema se ignoran si el cliente los envía.
 
-### 8) Trazabilidad temporal
+### 8) LangGraph Agent Pattern — Grafo de decisión con estado explícito
+
+**Ubicación**: `services/agent/graph.py`, `services/agent/routes.py`
+
+**Propósito**: Migrar el flujo RAG lineal a un grafo de decisión LangGraph trazable, evaluable y auditable.
+
+**Componentes**:
+- `AgentState` (TypedDict): estado mínimo que fluye entre nodos. 7 campos: `question`, `retrieved_chunks`, `answer`, `error`, `trace_events`, `routing_log`, `question_valid`. Usa `Annotated[list, _accumulate_list]` para acumular eventos y logs (no historial de conversación).
+- **Nodos** (funciones puras que reciben `state` y devuelven `dict` parcial):
+  - `node_receive_question`: validación de entrada
+  - `node_retrieve_context`: recuperación de Qdrant via `retrieve()`
+  - `node_generate_answer`: generación vía `generate_answer()` con chunks ya recuperados
+  - `node_respond_no_info`: fallback honesto sin contexto
+  - `node_handle_error`: respuesta amigable sin stack trace
+- **Routers condicionales** (`add_conditional_edges`): `route_after_receive`, `route_after_retrieve`, `route_after_generate`. Cada uno evalúa condiciones reales del estado (if/else).
+- **Compilación en build**: `_compile_graph()` se ejecuta al importar el módulo. `try/except/raise` convierte errores estructurales en fallos de arranque.
+- **Checkpointing**: `MemorySaver` como checkpointer en `compile()`, cada invocación con `thread_id`.
+- **Trazabilidad**: `persist_trace()` escribe JSON por corrida. `get_trace()`, `list_traces()` consultan.
+- **Endpoint**: router FastAPI que solo invoca `run_agent()`, sin lógica RAG directa. Manejo de errores diferenciado (422, 503).
+
+**Principios**:
+1. El grafo no duplica lógica RAG — importa `retrieve` y `generate_answer` desde `data/pipelines/rag.py` (identity check verificado).
+2. Ningún nodo re-envuelve `query()` monolítico — retrieve y generate viven en nodos separados.
+3. El estado no arrastra historial de conversación — eso vive en el checkpoint.
+4. Los tests del agente extienden los tests RAG existentes (26 siguen pasando).
+
+### 9) Trazabilidad temporal
 - updated_at sella exclusivamente los cambios de tarifa (auditorías de coste).
 - archived_at sella la baja del proveedor. No se mezclan semánticas en un mismo campo.
 

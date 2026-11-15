@@ -1,6 +1,27 @@
 # Active Context
 
-## Modelo de pronóstico de ventas — Regresión con XGBoost (2026-10-31)
+## Agente de Soporte LangGraph — HealthCore (2026-11-14)
+- **Entregable**: Migración del agente de soporte RAG de HealthCore desde un flujo lineal (retrieve → generate) a un **grafo de LangGraph** con estado explícito, nodos de responsabilidad única, aristas condicionales, checkpointing, tracing y evals.
+- **Stack**: `langgraph v1.2.22` con `langgraph-checkpoint v4.3.2` (`MemorySaver`), Python 3.14, `uv 0.13.5`. La lógica RAG (`retrieve()`, `generate_answer()`) se **reutiliza** desde `data/pipelines/rag.py` sin modificar.
+- **Grafo** (`services/agent/graph.py`): `StateGraph(AgentState)` con 5 nodos + 3 routers condicionales:
+  - `receive_question` — valida longitud de pregunta
+  - `retrieve_context` — llama a `retrieve()` de Qdrant
+  - `generate_answer` — llama a `generate_answer()` con chunks ya recuperados
+  - `respond_no_info` — respuesta honesta sin contexto
+  - `handle_error` — mensaje amigable sin stack trace
+- **Routers**: `route_after_receive` (2 destinos), `route_after_retrieve` (3 destinos), `route_after_generate` (2 destinos). Todos con condiciones reales (`if`), no secuencia fija.
+- **Compilación**: `_compile_graph()` se ejecuta al importar el módulo (`try/except` con `logger.critical` + `raise`). Errores estructurales detienen el servidor en tiempo de build.
+- **Checkpointing**: `MemorySaver` pasado como `checkpointer=` en `workflow.compile()`. Cada invocación usa `thread_id` para trazabilidad por transición.
+- **Tracing**: `persist_trace()` escribe JSON en `services/agent/traces/{run_id}.json` con `encoding="utf-8"` (portabilidad Windows). Consultable con `get_trace(run_id)` y `list_traces(limit=20)`.
+- **Endpoint** (`services/agent/routes.py`): `POST /agent/query` — capa delgada que llama a `run_agent()`, maneja `ValueError→422`, `RuntimeError→503` con mensaje genérico (sin exponer `str(exc)`), error sin answer→503 genérico. `GET /agent/trace/{run_id}` y `GET /agent/traces` para consultar trazas.
+- **Tests** (`tests/pipelines/test_agent_graph.py`): **20 evals** en 5 clases — compilación (3), enrutamiento condicional (7), trazabilidad (4), comportamiento RAG con fake LLM que verifica grounding real (4), endpoint (2). **Todos pasan**.
+- **Tests RAG existentes**: 26 tests de `test_rag.py` siguen pasando intactos (46 total entre agente + RAG).
+- **Auditoría (2026-11-14)**: **11/11 acceptance criteria cumplidos** — verificado contra código fuente + ejecución de tests. La lógica RAG existente no se duplica ni modifica (identity check `is`). Ningún nodo re-envuelve `query()` monolítico. El estado `AgentState` no incluye historial de conversación.
+- **Correcciones (2026-11-14)**: (1) Test de Medicare reemplazado por fake LLM `_fake_generate_answer_grounded` que solo responde con contexto — verifica grounding real. (2) 503 usa mensaje genérico, no `str(exc)`. (3) `persist_trace()` añade `encoding="utf-8"` para portabilidad Windows.
+- **Documentación**: `agente-soporte-langgraph.md` completa con arquitectura, nodos, aristas, compilación, checkpointing, trazabilidad y evals.
+- **Branch**: `feature/langgraph-agent-base`. `data/pipelines/rag.py` NO modificado.
+
+## Modelo de pronóstico de ventas — Regresión con XGBoost (Oct–Nov 2026)
 - **Entregable**: pronóstico honesto de ingresos mensuales de HealthCore, con split temporal 8 años/2 años, 4 métricas exigidas (MSE, PSI, Gini, K2) + MAPE, y visualización con banda de variabilidad. Documentado íntegro en `predic-ventas-model-regresion.md`.
 - **Entorno**: `uv 0.13.5` (`uv init --bare --name healthcore-sales-forecast`), Python 3.14, pandas 3.1, scikit-learn 1.9.1, xgboost 3.4.1, matplotlib 3.11.2, pytest 9.2.0. Nunca `pip install` ni `pipenv`.
 - **Datos**: `data/raw/healthcore_sales.csv` (provisto, no simulado), serie `consolidated`, 120 meses 2016-01..2025-12.

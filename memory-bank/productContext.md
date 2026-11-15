@@ -67,7 +67,15 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Demo Data**: 10 clínicas (5 US + 5 UK) con datos de Octubre 2026 insertados en Supabase PostgreSQL.
 - **Cadena E2E verificada**: Login → JWT → Reporting API → Dashboard con datos y nombres de clínica.
 
-10. **Modelo de pronóstico de ventas — Regresión con XGBoost (Oct–Nov 2026)**
+10. **Agente de Soporte LangGraph — HealthCore (Nov 2026)**
+- **Grafo de decisión**: Migración del flujo RAG lineal a un grafo LangGraph con estado explícito (`AgentState`), 5 nodos de responsabilidad única y 3 aristas condicionales. El grafo se compila en tiempo de importación (falla estructural → servidor no arranca).
+- **Checkpointing**: `MemorySaver` en cada transición de estado, lo que permite inspeccionar o retomar cualquier corrida.
+- **Trazabilidad**: Cada corrida produce un trace persistido en JSON (`services/agent/traces/{run_id}.json`) con eventos de nodos, decisiones de enrutamiento y metadatos. Consultable via `GET /agent/trace/{run_id}` y `GET /agent/traces`.
+- **Endpoint**: `POST /agent/query` — capa delgada FastAPI que invoca el grafo compilado sin duplicar lógica RAG. Maneja errores sin exponer detalles internos (422, 503).
+- **Evals**: 20 tests en 5 niveles verifican compilación, enrutamiento, trazabilidad, comportamiento RAG (respuesta anclada en CONTEXT.md) y que el endpoint delega en el grafo. Todos pasan.
+- **Relación con RAG**: Reutiliza `retrieve()` y `generate_answer()` de `data/pipelines/rag.py` sin modificar. No reescribe nada. Los nodos llaman retrieve y generate por separado — ningún nodo envuelve el `query()` monolítico.
+
+11. **Modelo de pronóstico de ventas — Regresión con XGBoost (Oct–Nov 2026)**
 - **Qué entrega**: pronóstico de ingresos mensuales de HealthCore para los 24 meses del bienio 2024-2025, comparado contra la realidad, con banda de variabilidad. Herramienta de planificación para Finanzas, no un dashboard en vivo (no hay endpoint; se ejecuta como script).
 - **Dataset**: `data/raw/healthcore_sales.csv` provisto en el escenario (no simulado), serie `consolidated`, 120 meses desde 2016-01 hasta 2025-12. El script valida columnas, rango de fechas, ausencia de huecos y unicidad de la serie consolidada antes de entrenar.
 - **Split 8/2**: entrenamiento 2016-01..2023-12 (96 meses, de los que 12 se descartan como warm-up de lags → 84 efectivos); prueba 2024-01..2025-12 (24 meses que el modelo nunca ve). No hay mezcla aleatoria: el corte es estrictamente cronológico.
@@ -130,7 +138,7 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Consistencia de datos**: los valores derivados (denial rates, no-show costs) se calculan una sola vez por render (useMemo) y no cambian durante la vida de la página, incluso si hay re-renders parciales.
 - **Frescura de datos en dashboards**: el resumen de incidencias y la lista de productos pueden tener hasta 30-60 segundos de desfase (caché). Esto es aceptable para dashboards operativos donde la inmediatez no es crítica.
 
-11. **RAG Knowledge Base — HealthCore Knowledge Q&A (Nov 2026)**
+12. **RAG Knowledge Base — HealthCore Knowledge Q&A (Nov 2026)**
 - **Sistema de preguntas y respuestas** basado en Retrieval-Augmented Generation (RAG) que permite al equipo de HealthCore consultar en lenguaje natural las políticas documentadas de la clínica.
 - **Documentos fuente**: 4 archivos Markdown en `docs/company-knowledge-base/` (cobertura de seguros, política de citas, proceso de referencias internas, checklist de pacientes nuevos), todos en español.
 - **Arquitectura**: chunking semántico por párrafos → embedding con `pplx-embed-v1-0.6b` → indexado en Qdrant (vector DB) → recuperación por similitud coseno → generación de respuesta con `deepseek-v4-flash`.

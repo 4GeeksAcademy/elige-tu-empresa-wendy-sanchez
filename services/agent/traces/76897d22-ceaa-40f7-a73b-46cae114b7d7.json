@@ -1,0 +1,40 @@
+{
+  "run_id": "76897d22-ceaa-40f7-a73b-46cae114b7d7",
+  "question": "¿Cobran cargo por no-show a pacientes de Medicare?",
+  "answer": "No, los pacientes de Medicare o Medicaid no están sujetos al cargo por no-show en HealthCore.",
+  "error": null,
+  "routing_log": [
+    "receive_question → retrieve_context (pregunta válida)",
+    "retrieve_context → generate_answer (1 fragmentos recuperados)",
+    "generate_answer → END (respuesta generada)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-14T20:43:29.788578+00:00",
+      "metadata": {
+        "question_length": 50
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "ok",
+      "timestamp": "2026-11-14T20:43:29.789315+00:00",
+      "metadata": {
+        "num_chunks": 1
+      }
+    },
+    {
+      "node": "generate_answer",
+      "status": "ok",
+      "timestamp": "2026-11-14T20:43:29.789808+00:00",
+      "metadata": {
+        "answer_length": 93
+      }
+    }
+  ],
+  "num_chunks_retrieved": 1,
+  "final_answer_length": 93,
+  "timestamp": "2026-11-14T20:43:29.790775+00:00"
+}

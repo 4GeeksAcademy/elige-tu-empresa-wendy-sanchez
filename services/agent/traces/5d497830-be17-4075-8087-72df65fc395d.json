@@ -1,0 +1,13 @@
+{
+  "run_id": "5d497830-be17-4075-8087-72df65fc395d",
+  "question": "ab",
+  "answer": "",
+  "error": "La pregunta es demasiado corta (mínimo 3 caracteres).",
+  "routing_log": [
+    "receive_question → END (pregunta demasiado corta)"
+  ],
+  "events": [],
+  "num_chunks_retrieved": 0,
+  "final_answer_length": 0,
+  "timestamp": "2026-11-14T20:18:39.901223+00:00"
+}

@@ -39,6 +39,23 @@
 - Ruta de TinyDB de usuarios/auth: services/api/db.json (creado automáticamente).
 - Variables de entorno requeridas: JWT_SECRET_KEY, y opcionalmente RESEND_API_KEY, SUPABASE_URL, SUPABASE_KEY, HEALTHCORE_DB_PATH, RATE_LIMIT_MAX_REQUESTS, ACCESS_TOKEN_EXPIRE_MINUTES, etc.
 
+### Agente de Soporte LangGraph (services/agent)
+- **Python 3.14**, gestionado con `uv` (pyproject.toml raíz, `.venv` raíz).
+- **Dependencias**: `langgraph>=1.2.22`, `langgraph-checkpoint>=4.3.2`.
+- **Comando de tests**: `uv run python -m pytest tests/pipelines/test_agent_graph.py -v` (20 tests).
+- **Tests completos**: `uv run python -m pytest tests/pipelines/ -v` (110 tests en total: agente + RAG + sales_forecast + temporal_cv).
+- **Estructura**:
+  - `services/agent/graph.py` — núcleo del grafo (AgentState, 5 nodos, 3 routers, compilación, tracing)
+  - `services/agent/routes.py` — FastAPI router (POST /agent/query, GET /agent/trace/{id}, GET /agent/traces)
+  - `services/agent/traces/` — directorio de trazas persistidas en JSON
+  - `tests/pipelines/test_agent_graph.py` — 20 evals en 5 clases
+  - `agente-soporte-langgraph.md` — documentación completa
+- **Modelo de estado**: `AgentState` (TypedDict) con 7 campos. Reducers acumulables via `Annotated[list, _accumulate_list]`.
+- **Checkpointer**: `MemorySaver` de `langgraph.checkpoint.memory`.
+- **Funciones RAG reutilizadas**: `retrieve` y `generate_answer` importadas de `data.pipelines.rag` (same-functions, no rewrite).
+- **Branch**: `feature/langgraph-agent-base`.
+- **Integración**: El router se monta en `services/api/main.py` vía `app.include_router(agent_router)`.
+
 ### Evaluación técnica del modelo de pronóstico (raíz del repo)
 - **Python 3.14**, gestionado con `uv` (pyproject.toml raíz, `.venv` raíz). Prohibido `pip install` / `pipenv`.
 - **Dependencias**: `pandas>=3.1.0`, `scikit-learn>=1.9.1`, `xgboost>=3.4.1`, `matplotlib>=3.11.2`, `pytest>=9.2.0`.

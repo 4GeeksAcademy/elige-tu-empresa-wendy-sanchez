@@ -1,0 +1,41 @@
+{
+  "run_id": "8c62eedb-69b2-43af-8e92-53f6c3a3fcc5",
+  "question": "¿Qué documentos necesita un paciente nuevo?",
+  "answer": "Ocurrió un error al procesar tu solicitud. Por favor intenta de nuevo más tarde. Si el problema persiste, contacta a soporte técnico.",
+  "error": "Error al recuperar información: Qdrant search failed: [Errno -2] Name or service not known",
+  "routing_log": [
+    "handle_error → END (error capturado: Error al recuperar información: Qdrant search fail...)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-14T20:16:34.007052+00:00",
+      "routing": null,
+      "metadata": {
+        "question_length": 43
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "error",
+      "timestamp": "2026-11-14T20:16:38.895183+00:00",
+      "routing": "receive_question → retrieve_context (pregunta válida)",
+      "metadata": {
+        "error": "Qdrant search failed: [Errno -2] Name or service not known"
+      }
+    },
+    {
+      "node": "handle_error",
+      "status": "error",
+      "timestamp": "2026-11-14T20:16:38.896449+00:00",
+      "routing": "retrieve_context → error",
+      "metadata": {
+        "original_error": "Error al recuperar información: Qdrant search failed: [Errno -2] Name or service not known"
+      }
+    }
+  ],
+  "num_chunks_retrieved": 0,
+  "final_answer_length": 133,
+  "timestamp": "2026-11-14T20:16:38.897604+00:00"
+}
