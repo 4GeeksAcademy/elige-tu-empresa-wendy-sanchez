@@ -189,13 +189,6 @@ Generación Aumentada por Recuperación sobre 4 documentos de políticas de Heal
 - Todas las suites de tests pasan como puerta de entrada antes de fusionar ramas de funcionalidad
 - Desarrollo impulsado por auditoría: cada entregable tiene criterios de aceptación verificables
 
----
-
-## 📝 Licencia & Contribuidores
-
-Construido como parte del [Programa de Carrera en Ingeniería IA de 4Geeks Academy](https://4geeksacademy.com/es/programas-de-carrera/ingenieria-ia) por la desarrolladora. Template original por [@marcogonzalo](https://www.linkedin.com/in/marcogonzalo) y [@alezanchezr](https://x.com/alesanchezr).
-
-**Developer Wendy Sanchez**
 
 ---
 
@@ -206,3 +199,7 @@ Construido como parte del [Programa de Carrera en Ingeniería IA de 4Geeks Acade
 - Comandos de validación de TypeScript disponibles actualmente:
   - `npm run typecheck`
   - `cd uis/talent-pipeline-tracker && npm run typecheck`
+
+---
+
+**Developer Wendy Sanchez**
