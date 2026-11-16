@@ -68,11 +68,20 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Cadena E2E verificada**: Login → JWT → Reporting API → Dashboard con datos y nombres de clínica.
 
 10. **Agente de Soporte LangGraph — HealthCore (Nov 2026)**
-- **Grafo de decisión**: Migración del flujo RAG lineal a un grafo LangGraph con estado explícito (`AgentState`), 5 nodos de responsabilidad única y 3 aristas condicionales. El grafo se compila en tiempo de importación (falla estructural → servidor no arranca).
+- **Grafo de decisión**: Migración del flujo RAG lineal a un grafo LangGraph con estado explícito (`AgentState`), 10 nodos de responsabilidad única y 5 aristas condicionales. El grafo se compila en tiempo de importación (falla estructural → servidor no arranca).
 - **Checkpointing**: `MemorySaver` en cada transición de estado, lo que permite inspeccionar o retomar cualquier corrida.
 - **Trazabilidad**: Cada corrida produce un trace persistido en JSON (`services/agent/traces/{run_id}.json`) con eventos de nodos, decisiones de enrutamiento y metadatos. Consultable via `GET /agent/trace/{run_id}` y `GET /agent/traces`.
 - **Endpoint**: `POST /agent/query` — capa delgada FastAPI que invoca el grafo compilado sin duplicar lógica RAG. Maneja errores sin exponer detalles internos (422, 503).
-- **Evals**: 20 tests en 5 niveles verifican compilación, enrutamiento, trazabilidad, comportamiento RAG (respuesta anclada en CONTEXT.md) y que el endpoint delega en el grafo. Todos pasan.
+- **Parte 2 — Tools externas (Nov 2026)**: Se añadieron 2 herramientas que consultan sistemas operativos reales:
+  - `query_incident`: consulta el gestor de incidentes real (GET /api/incidents, puerto 8010, TinyDB). Sin autenticación.
+  - `query_inventory`: consulta el gestor de inventario real (GET /inventory/products, puerto 8000, Supabase PostgreSQL). Requiere JWT Bearer (variable de entorno `AGENT_JWT_TOKEN`).
+  - Ambas tools son solo lectura (GET), con timeout explícito de 5s, y rutas de fallback verificables (timeout, 404, 401, error de conexión).
+  - El agente **decide automáticamente** si necesita RAG, tool(s) o ambos mediante clasificación léxica por patrones regex (sin LLM para el routing) — produce 5 decisiones: `"rag"`, `"incident"`, `"inventory"`, `"rag+incident"`, `"rag+inventory"`.
+  - Nuevos nodos en el grafo: `classify_query`, `query_incident`, `query_inventory`, `synthesize_tool_answer` (10 nodos totales).
+  - Nuevos routers: `route_after_classify`, `route_after_tool`, `route_after_generate`, `route_after_retrieve_v2`.
+  - En modo combinado (rag+tool): primero tool (datos operativos), luego RAG (conocimiento), luego sintetiza ambos.
+  - Si todas las tools fallan, el nodo `synthesize_tool_answer` responde honestamente sin inventar datos.
+- **Evals**: 30 tests en 8 clases verifican compilación, enrutamiento (Parte 1 + Parte 2), trazabilidad, comportamiento RAG, endpoint, enrutamiento de tools externas (5 tests) y fallback de tools (5 tests). Todos pasan.
 - **Relación con RAG**: Reutiliza `retrieve()` y `generate_answer()` de `data/pipelines/rag.py` sin modificar. No reescribe nada. Los nodos llaman retrieve y generate por separado — ningún nodo envuelve el `query()` monolítico.
 
 11. **Modelo de pronóstico de ventas — Regresión con XGBoost (Oct–Nov 2026)**

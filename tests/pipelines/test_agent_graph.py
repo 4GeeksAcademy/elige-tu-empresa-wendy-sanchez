@@ -160,7 +160,7 @@ class TestGraphCompilation:
         assert hasattr(agent_graph, "nodes")
 
     def test_graph_has_all_expected_nodes(self):
-        """Deben existir todos los nodos del diseño, incluyendo __start__."""
+        """Deben existir todos los nodos del diseño (Parte 1 + Parte 2)."""
         from services.agent.graph import agent_graph
 
         expected_nodes = {
@@ -170,6 +170,11 @@ class TestGraphCompilation:
             "generate_answer",
             "respond_no_info",
             "handle_error",
+            # Parte 2
+            "classify_query",
+            "query_incident",
+            "query_inventory",
+            "synthesize_tool_answer",
         }
         actual_nodes = set(agent_graph.nodes.keys())
         for node in expected_nodes:
@@ -206,19 +211,19 @@ class TestConditionalRouting:
         with pytest.raises(ValueError, match="demasiado corta"):
             run_agent("ab")
 
-    def test_valid_question_routes_to_retrieve_context(self):
-        """Pregunta válida → retrieve_context debe ejecutarse."""
+    def test_valid_question_routes_to_classify_query(self):
+        """Pregunta válida → classify_query debe ejecutarse (Parte 2)."""
         from services.agent.graph import agent_graph, build_initial_state
 
         state = build_initial_state("¿Cuál es la política de cancelación?")
         config = {"configurable": {"thread_id": str(uuid.uuid4())}}
 
-        # Simular que receive_question pasó sin error y enruta a retrieve_context
+        # Simular que receive_question pasó sin error y enruta a classify_query
         from services.agent.graph import route_after_receive
 
         decision = route_after_receive(state)
-        assert decision == "retrieve_context", (
-            f"Esperaba 'retrieve_context' pero obtuve '{decision}'"
+        assert decision == "classify_query", (
+            f"Esperaba 'classify_query' pero obtuve '{decision}'"
         )
 
     def test_no_chunks_routes_to_respond_no_info(self):
@@ -506,3 +511,355 @@ class TestAgentEndpoint:
                 return
 
         pytest.fail("No se encontró el endpoint POST /agent/query")
+
+
+# ======================================================================
+# EVAL 6: Enrutamiento de tools externas (Parte 2)
+# ======================================================================
+
+
+class TestExternalToolRouting:
+    """
+    El agente debe decidir automáticamente si necesita RAG, tool externa
+    (incidentes, inventario) o ambos, sin que el usuario lo especifique.
+    """
+
+    def test_classify_query_routes_incident_to_incident_tool(self):
+        """Pregunta sobre un ticket/incidente debe clasificarse como 'incident'."""
+        from services.agent.graph import node_classify_query, build_initial_state
+
+        state = build_initial_state("¿En qué estado está el ticket 482?")
+        result = node_classify_query(state)
+        assert "incident" in result["routing_decision"], (
+            "'ticket 482' debe clasificar como incident. "
+            f"Obtuvo: {result['routing_decision']}"
+        )
+
+    def test_classify_query_routes_policy_to_rag(self):
+        """Pregunta sobre política/cancelación debe clasificarse como 'rag'."""
+        from services.agent.graph import node_classify_query, build_initial_state
+
+        state = build_initial_state("¿Cuál es la política de cancelación de citas?")
+        result = node_classify_query(state)
+        assert result["routing_decision"] == "rag", (
+            "Pregunta de política debe clasificar como 'rag'. "
+            f"Obtuvo: {result['routing_decision']}"
+        )
+
+    def test_classify_query_routes_stock_to_inventory(self):
+        """Pregunta sobre stock/producto debe clasificarse como 'inventory'."""
+        from services.agent.graph import node_classify_query, build_initial_state
+
+        state = build_initial_state("¿Tenemos stock de guantes quirúrgicos?")
+        result = node_classify_query(state)
+        assert "inventory" in result["routing_decision"], (
+            "'stock de guantes' debe clasificar como inventory. "
+            f"Obtuvo: {result['routing_decision']}"
+        )
+
+    def test_classify_query_combined_policy_and_incident(self):
+        """Pregunta que mezcla política + ticket debe clasificar combinado."""
+        from services.agent.graph import node_classify_query, build_initial_state
+
+        state = build_initial_state(
+            "Según la política de cancelación, ¿el ticket 482 debería tener cargo?"
+        )
+        result = node_classify_query(state)
+        assert result["routing_decision"] == "rag+incident", (
+            "Pregunta mixta debe clasificar como 'rag+incident'. "
+            f"Obtuvo: {result['routing_decision']}"
+        )
+
+    def test_classify_query_defaults_to_rag(self):
+        """Pregunta sin señales claras debe clasificar como 'rag' por defecto."""
+        from services.agent.graph import node_classify_query, build_initial_state
+
+        state = build_initial_state("¿Cómo funciona el sistema de salud en Texas?")
+        result = node_classify_query(state)
+        assert result["routing_decision"] == "rag", (
+            "Pregunta genérica debe clasificar como 'rag'. "
+            f"Obtuvo: {result['routing_decision']}"
+        )
+
+
+# ======================================================================
+# EVAL 7: Fallback cuando el servicio de incidentes/inventario falla
+# ======================================================================
+
+
+class TestToolFallbackBehavior:
+    """
+    Si una tool falla (timeout, servicio caído, ticket no encontrado),
+    el grafo debe responder con honestidad sin inventar datos.
+    """
+
+    def test_tool_timeout_returns_honest_fallback(self):
+        """Timeout en tool debe producir respuesta honesta, no datos inventados."""
+        from services.agent.graph import run_agent
+
+        # Forzamos timeout parcheando httpx.Client.get para que lance timeout
+        import httpx
+        from unittest.mock import patch
+
+        def _timeout_get(*args, **kwargs):
+            raise httpx.TimeoutException("Timed out", request=None)
+
+        with patch("services.agent.tools.incidents.httpx.Client.get", _timeout_get):
+            from services.agent.graph import build_initial_state, node_query_incident
+
+            state = build_initial_state("¿En qué estado está el ticket 482?")
+            state["routing_decision"] = "incident"
+            result = node_query_incident(state)
+
+        # Debe tener un error, no datos inventados
+        assert len(result.get("tool_errors", [])) > 0, (
+            "Debe haber al menos un tool_error cuando hay timeout"
+        )
+        error_text = " ".join(result.get("tool_errors", []))
+        assert "no respondió" in error_text or "conectar" in error_text, (
+            f"El error debe mencionar timeout o conexión: {error_text}"
+        )
+        # tool_results debe estar vacío
+        assert len(result.get("tool_results", [])) == 0, (
+            "tool_results debe estar vacío cuando hay timeout"
+        )
+
+    def test_ticket_not_found_returns_honest_response(self):
+        """Ticket inexistente debe devolver error, no inventar estado."""
+        from services.agent.graph import build_initial_state, node_query_incident
+        from unittest.mock import patch
+        import httpx
+
+        # Simular respuesta 404 del servicio
+        mock_response = httpx.Response(
+            404,
+            json={"detail": "Incident with id 99999 not found"},
+        )
+
+        with patch("services.agent.tools.incidents.httpx.Client.get", return_value=mock_response):
+            state = build_initial_state("¿Qué pasó con el ticket 99999?")
+            state["routing_decision"] = "incident"
+            result = node_query_incident(state)
+
+        errors = result.get("tool_errors", [])
+        assert len(errors) > 0, "Debe haber error para ticket inexistente"
+        assert any("no existe" in e.lower() or "99999" in e for e in errors), (
+            f"Error debe mencionar que no existe: {errors}"
+        )
+
+    def test_synthesize_handles_all_tool_failures(self):
+        """Synthesize con todos los tools fallidos debe responder honestamente."""
+        from services.agent.graph import node_synthesize_tool_answer, build_initial_state
+
+        state = build_initial_state("¿Estado del ticket 482?")
+        state["routing_decision"] = "incident"
+        state["tool_errors"] = [
+            "El servicio de incidentes no respondió en 5s. Intenta de nuevo más tarde."
+        ]
+        state["tool_results"] = []
+
+        result = node_synthesize_tool_answer(state)
+        answer = result.get("answer", "")
+        assert len(answer) > 0, "Debe producir una respuesta aunque las tools fallen"
+        assert "no pude" in answer.lower() or "no respondió" in answer.lower() or (
+            "intenta" in answer.lower()
+        ), (
+            f"La respuesta debe ser honesta sobre el fallo: {answer}"
+        )
+
+    def test_incident_tool_extracts_ticket_id_from_question(self):
+        """_extract_ticket_id debe extraer correctamente IDs de distintos formatos."""
+        from services.agent.graph import _extract_ticket_id
+
+        assert _extract_ticket_id("ticket 482") == 482
+        assert _extract_ticket_id("incidente #123") == 123
+        assert _extract_ticket_id("¿qué pasó con el caso 456?") == 456
+        assert _extract_ticket_id("¿estado del ticket #7890?") == 7890
+        # Sin número: debe devolver None
+        assert _extract_ticket_id("¿cuántos tickets abiertos hay?") is None
+
+    def test_classify_query_trace_events_contain_decision(self):
+        """Los trace_events deben contener la decisión de enrutamiento."""
+        from services.agent.graph import node_classify_query, build_initial_state
+
+        state = build_initial_state("¿En qué estado está el ticket 482?")
+        result = node_classify_query(state)
+
+        events = result.get("trace_events", [])
+        assert len(events) > 0
+        event = events[0]
+        assert event["node"] == "classify_query"
+        assert event["metadata"]["decision"] == "incident"
+
+
+# ======================================================================
+# EVAL 8: Síntesis combinada rag+incident — respuesta mixta real
+# ======================================================================
+
+
+class TestMixedSynthesis:
+    """
+    Cuando el agente clasifica 'rag+incident' debe ejecutar BOTH
+    query_incident Y retrieve_context → generate_answer, y luego
+    synthesize_tool_answer debe combinar AMBAS fuentes en la respuesta.
+    """
+
+    def _mock_incident_result(self, ticket_id: int = 2) -> dict:
+        """Retorna un incidente simulado como el que devuelve query_incident_by_id() tras normalización."""
+        return {
+            "id": ticket_id,
+            "title": "Patient not informed of appointment reschedule by clinic",
+            "status": "resolved",
+            "category": "patient_experience",
+            "origin": "customer",
+            "branch": "london_west",
+            "branch_label": "London — West",
+            "created_at": "2024-01-17T00:00:00+00:00",
+            "updated_at": "2026-09-10T14:43:15.712221+00:00",
+            "description_preview": "Patient not informed of appointment reschedule by clinic",
+        }
+
+    def test_rag_plus_incident_synthesis_combines_sources(self):
+        """Pregunta mixta debe producir respuesta con datos del ticket + política RAG."""
+        from services.agent.graph import run_agent, get_trace
+        from unittest.mock import patch
+
+        run_id = str(uuid.uuid4())
+
+        # Chunk de política de cancelación
+        policy_chunk = _make_chunk(
+            source_document="appointment-policy",
+            section="Política de cancelación",
+            text=(
+                "Cancelar con menos de 24 horas o no presentarse (no-show): "
+                "cargo de 50 USD para pacientes de pago privado.\n"
+                "Pacientes con Medicare o Medicaid: "
+                "no se les cobra cargo por no-show."
+            ),
+        )
+
+        mock_incident = self._mock_incident_result(ticket_id=2)
+
+        with (
+            _mock_retrieve([policy_chunk]),
+            patch(
+                "services.agent.graph.generate_answer",
+                side_effect=_fake_generate_answer_grounded,
+            ),
+            patch(
+                "services.agent.graph.query_incident_by_id",
+                return_value=mock_incident,
+            ),
+        ):
+            result = run_agent(
+                "Según la política de cancelación, ¿el ticket 2 debería tener cargo?",
+                run_id=run_id,
+            )
+
+        answer = result["answer"]
+
+        # 1) Debe contener datos del ticket (incidente)
+        assert "ticket" in answer.lower() or "#2" in answer, (
+            f"La respuesta debe mencionar el ticket. Respuesta: {answer[:200]}"
+        )
+        assert "resolved" in answer.lower() or "patient" in answer.lower(), (
+            f"La respuesta debe incluir datos del incidente. Respuesta: {answer[:200]}"
+        )
+
+        # 2) Debe contener datos de la política (RAG)
+        assert "cancelación" in answer.lower() or "cancelar" in answer.lower() or "no-show" in answer.lower(), (
+            f"La respuesta debe mencionar la política de cancelación. Respuesta: {answer[:200]}"
+        )
+
+        # 3) Debe tener un separador entre tool y RAG (---)
+        assert "---" in answer, (
+            "La respuesta debe separar la info de tool y RAG con '---'. "
+            f"Respuesta: {answer[:200]}"
+        )
+
+        # 4) El routing_log debe mostrar la secuencia correcta
+        trace = get_trace(run_id)
+        assert trace is not None
+        routing_log = trace.get("routing_log", [])
+
+        # Debe partir de classify_query → rag+incident
+        assert any("rag+incident" in entry for entry in routing_log), (
+            f"El routing_log debe contener rag+incident. Log: {routing_log}"
+        )
+
+        # Debe mostrar query_incident
+        assert any("query_incident" in entry for entry in routing_log), (
+            f"El routing_log debe mostrar query_incident. Log: {routing_log}"
+        )
+
+        # Debe mostrar retrieve_context → generate_answer
+        assert any("retrieve_context → generate_answer" in entry for entry in routing_log), (
+            f"El routing_log debe mostrar retrieve_context → generate_answer. Log: {routing_log}"
+        )
+
+        # Debe mostrar synthesize_tool_answer
+        assert any("synthesize_tool_answer" in entry for entry in routing_log), (
+            f"El routing_log debe mostrar synthesize_tool_answer. Log: {routing_log}"
+        )
+
+        # 5) Los eventos de traza deben estar en orden correcto
+        events = trace.get("events", [])
+        node_order = [e["node"] for e in events]
+        expected_prefix = ["receive_question", "classify_query"]
+        for i, expected_node in enumerate(expected_prefix):
+            assert node_order[i] == expected_node, (
+                f"Evento {i} debe ser {expected_node}, pero es {node_order[i]}"
+            )
+        # Los siguientes nodos pueden ser query_incident o retrieve_context
+        # (dependiendo del orden de ejecución del grafo)
+        assert "query_incident" in node_order, (
+            f"Los eventos deben incluir query_incident. Orden: {node_order}"
+        )
+        assert "retrieve_context" in node_order, (
+            f"Los eventos deben incluir retrieve_context. Orden: {node_order}"
+        )
+        assert "generate_answer" in node_order, (
+            f"Los eventos deben incluir generate_answer. Orden: {node_order}"
+        )
+        assert "synthesize_tool_answer" in node_order, (
+            f"Los eventos deben incluir synthesize_tool_answer. Orden: {node_order}"
+        )
+
+    def test_rag_plus_incident_honest_when_tool_fails(self):
+        """Si la tool falla pero RAG funciona, la respuesta debe reflejar el fallo honestamente."""
+        from services.agent.graph import run_agent
+        from unittest.mock import patch
+
+        run_id = str(uuid.uuid4())
+
+        policy_chunk = _make_chunk(
+            source_document="appointment-policy",
+            section="Política de cancelación",
+            text=(
+                "Cancelar con menos de 24 horas o no presentarse (no-show): "
+                "cargo de 50 USD para pacientes de pago privado."
+            ),
+        )
+
+        with (
+            _mock_retrieve([policy_chunk]),
+            patch(
+                "services.agent.graph.generate_answer",
+                side_effect=_fake_generate_answer_grounded,
+            ),
+            patch(
+                "services.agent.graph.query_incident_by_id",
+                return_value={"error": "No se pudo conectar con el servicio de incidentes."},
+            ),
+        ):
+            result = run_agent(
+                "Según la política de cancelación, ¿el ticket 482 debería tener cargo?",
+                run_id=run_id,
+            )
+
+        answer = result["answer"]
+
+        # Debe mencionar el error de la tool
+        assert "no pudo" in answer.lower() or "conectar" in answer.lower() or "incidente" in answer.lower(), (
+            f"La respuesta debe reflejar el fallo de la tool. Respuesta: {answer[:200]}"
+        )

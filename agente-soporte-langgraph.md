@@ -1,4 +1,4 @@
-# Agente de Soporte LangGraph — Documentación
+# Agente de Soporte LangGraph — Documentación (Parte 1)
 
 ## 1. Resumen Ejecutivo
 
@@ -124,9 +124,11 @@ data/
 
 | Desde | Router | Condiciones |
 |-------|--------|-------------|
-| `receive_question` | `route_after_receive` | `error` o `question_valid=False` → END; válida → `retrieve_context` |
-| `retrieve_context` | `route_after_retrieve` | `error` → `handle_error`; sin chunks → `respond_no_info`; con chunks → `generate_answer` |
-| `generate_answer` | `route_after_generate` | `error` → `handle_error`; ok → END |
+| `receive_question` | `route_after_receive` | `error` o `question_valid=False` → END; válida → `classify_query` |
+| `classify_query` | `route_after_classify` | Según `routing_decision`: `rag` → `retrieve_context`, `incident` → `query_incident`, etc. |
+| `query_incident` / `query_inventory` | `route_after_tool` | Si decisión combinada → `retrieve_context`; si tool-only → `synthesize_tool_answer` |
+| `retrieve_context` | `route_after_retrieve_v2` | `error` → `handle_error`; con RAG → `generate_answer`; con tools (sin RAG) → `synthesize_tool_answer`; sin nada → `respond_no_info` |
+| `generate_answer` | `route_after_generate` | `error` → `handle_error`; con tools pendientes (resultados o errores) → `synthesize_tool_answer`; ok → END |
 
 ### 3.5 Compilación
 
@@ -220,7 +222,8 @@ Recupera la traza completa de una corrida.
   "answer": "No, ...",
   "error": null,
   "routing_log": [
-    "receive_question → retrieve_context (pregunta válida)",
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag",
     "retrieve_context → generate_answer (3 fragmentos recuperados)",
     "generate_answer → END (respuesta generada)"
   ],
@@ -242,7 +245,7 @@ Lista las N trazas más recientes (sin eventos completos).
 
 ## 6. Evaluación y Tests
 
-### 6.1 Evals (20 tests en `tests/pipelines/test_agent_graph.py`)
+### 6.1 Evals (32 tests en `tests/pipelines/test_agent_graph.py`)
 
 | Clase | # Tests | ¿Qué verifica? |
 |-------|---------|----------------|
@@ -251,6 +254,9 @@ Lista las N trazas más recientes (sin eventos completos).
 | `TestTraceability` | 4 | Cada corrida produce trace persistido, consultable, con eventos y routing_log |
 | `TestRAGBehavior` | 4 | El comportamiento RAG está anclado en los datos: retrieve antes que generate, Medicare no paga no-show verificado con fake LLM (solo responde con contexto), etc. |
 | `TestAgentEndpoint` | 2 | El endpoint existe con prefijo correcto y delega en `run_agent()` |
+| `TestExternalToolRouting` (Parte 2) | 5 | Clasificación de preguntas en 5 dominios (incident, rag, inventory, combinado, default) |
+| `TestToolFallbackBehavior` (Parte 2) | 5 | Timeout, 404, synthesize con fallos, extracción de IDs, trace_events con decisión |
+| `TestMixedSynthesis` (Parte 2) | 2 | Síntesis rag+incident combina ambas fuentes; fallo de tool en modo combinado incluye RAG + error honesto |
 
 ### 6.1.1 Fake LLM para verificar grounding
 
@@ -383,7 +389,322 @@ Las funciones de consulta (`get_trace`, `list_traces`) también leen con `encodi
 - [x] Checkpointing en cada transición de estado
 - [x] Trazas persistidas y consultables después de la corrida
 - [x] Endpoint sin lógica de negocio propia
-- [x] 20 evals que verifican compilación, enrutamiento, trazabilidad y comportamiento RAG
+- [x] 20 evals (Parte 1) que verifican compilación, enrutamiento, trazabilidad y comportamiento RAG + 12 evals (Parte 2) que verifican tools externas, fallback y síntesis mixta
 - [x] Respuestas de error sin stack traces crudos (503 con mensaje genérico, sin `str(exc)`)
 - [x] `persist_trace()` escribe con `encoding="utf-8"` (portabilidad Windows)
 - [x] Test de grounding con fake LLM (no mock prefabricado) — verifica que `generate_answer` recibe el fragmento y la respuesta sale de él
+
+---
+
+# Parte 2 — Herramientas fuera del RAG
+
+## 1. Resumen
+
+En la Parte 1 el agente solo sabía consultar la base de conocimiento (RAG). En la Parte 2 se le añaden **tools externas** que consultan datos operativos en tiempo real:
+
+- **`query_incident`**: consulta el gestor de incidentes (GET /api/incidents y GET /api/incidents/{id}).
+- **`query_inventory`** (extra): consulta el gestor de inventario (GET /inventory/products).
+
+El agente **decide automáticamente** si necesita RAG, una tool, o ambos, sin que el usuario tenga que indicarlo.
+
+## 2. ¿Por qué no indexar tickets en el RAG?
+
+Los tickets cambian de estado en tiempo real (open → in_progress → resolved). Una copia indexada en Qdrant queda desactualizada en el momento en que alguien cambia el estado. Una tool que llama directamente al endpoint del gestor de incidentes siempre devuelve el dato actual.
+
+| Fuente | Tipo de dato | Actualización |
+|--------|-------------|---------------|
+| RAG (Qdrant) | Conocimiento (políticas, procedimientos) | Relativamente estable |
+| Tool (HTTP) | Datos operativos (tickets, stock) | Tiempo real |
+
+## 3. Estructura de directorios (Parte 2)
+
+```
+services/
+  agent/
+    __init__.py
+    graph.py              ← Actualizado: nuevos nodos y aristas para tools
+    routes.py             ← Sin cambios (el endpoint POST /agent/query es el mismo)
+    traces/
+    tools/                ← NUEVO: paquete de tools externas
+      __init__.py         ← _get_service_url() helper
+      incidents.py        ← query_incident_by_id(), query_incidents_list()
+      inventory.py        ← query_product_by_id(), query_products_list()
+
+tests/
+  pipelines/
+    test_agent_graph.py   ← Actualizado: +12 nuevos evals (Parte 2)
+```
+
+## 4. Contrato de las tools
+
+### 4.1 Tool de incidentes (obligatoria)
+
+| Aspecto | Detalle |
+|---------|---------|
+| **Entrada** | `ticket_id: int` (opcional) o filtros: `status`, `category`, `origin`, `branch` |
+| **Salida** | `id, title, status, category, origin, branch, branch_label, description_preview, created_at, updated_at` |
+| **Endpoint real** | `GET /api/incidents/{id}` o `GET /api/incidents?status=...&category=...` |
+| **Timeout** | **5 segundos** — explícito, numérico, en `_INCIDENTS_TIMEOUT_S` |
+| **Solo lectura** | Sí — solo GET. Nunca crea, actualiza ni elimina tickets |
+| **Autenticación** | El servicio de incidentes **NO requiere autenticación** (sin JWT). Esto es por diseño en el despliegue actual; para producción añadir auth. |
+| **URL base** | `INCIDENTS_API_URL` (env) → fallback `http://incidents-backend:8010` |
+
+**Ejemplo de llamada desde el grafo:**
+
+```python
+from services.agent.tools.incidents import query_incident_by_id
+
+result = query_incident_by_id(2)
+# → {"id": 2, "status": "open", "category": "it_system", ...}
+``````
+
+### 4.2 Tool de inventario (extra)
+
+| Aspecto | Detalle |
+|---------|---------|
+| **Entrada** | `product_id: int` (opcional) o filtros: `category`, `name_search` |
+| **Salida** | `id, name, sku, category, unit, current_stock, expiry_date, country` |
+| **Endpoint real** | `GET /inventory/products/{id}` o `GET /inventory/products?category=...` |
+| **Timeout** | **5 segundos** — explícito en `_INVENTORY_TIMEOUT_S` |
+| **Solo lectura** | Sí — solo GET |
+| **Autenticación** | Requiere JWT Bearer token. Se lee de `AGENT_JWT_TOKEN` (env). Sin token devuelve 401 → fallback honesto |
+| **URL base** | `INVENTORY_API_URL` (env) → fallback `http://backend:8000` |
+
+## 5. El grafo actualizado (Parte 1 + Parte 2)
+
+### 5.1 Diagrama de flujo
+
+```
+                    ┌──────────────────┐
+                    │ receive_question │  (valida la entrada)
+                    └────────┬─────────┘
+                             │
+                    ┌────────▼─────────┐
+                    │ ¿Pregunta valida?│
+                    └────┬─────────┬───┘
+                  ┌──────┘         └───────┐
+                  ▼                        ▼
+          ┌───────────────┐             ╔════╗
+          │ classify_query│             ║ END║
+          └───────┬───────┘             ╚════╝
+                  │
+        ┌─────────┼──────────────┐
+        ▼         ▼              ▼
+  ┌─────────┐ ┌────────┐ ┌──────────┐
+  │retrieve │ │query_  │ │query_    │
+  │_context │ │incident│ │inventory │
+  └────┬────┘ └───┬────┘ └─────┬────┘
+       │          │            │
+       │    ┌─────┴─────┐      │
+       │    ▼           ▼      │
+       │ ┌────────┐ ┌────────┐ │
+       │ │synthe- │ │retrieve│ │
+       │ │size    │ │_context│ │
+       │ │_tool   │ │(si     │ │
+       │ │_answer │ │rag+tool│ │
+       │ └────────┘ └────┬───┘ │
+       │                 │     │
+       │          ┌──────┘     │
+       │          ▼            ▼
+       │   ┌────────────┐  ┌──────────────┐
+       │   │generate_   │  │synthesize_   │
+       │   │answer /    │  │tool_answer/  │
+       │   │respond_no  │  │handle_error  │
+       │   │_info       │  │              │
+       │   └────────────┘  └──────────────┘
+       ▼           ▼              ▼
+    ╔════╗     ╔════╗        ╔════╗
+    ║ END║     ║ END║        ║ END║
+    ╚════╝     ╚════╝        ╚════╝
+```
+
+### 5.2 Estado del grafo — campos nuevos (Parte 2)
+
+| Campo | Tipo | Reducer | Descripción |
+|-------|------|---------|-------------|
+| `routing_decision` | `str` | — | `"rag"`, `"incident"`, `"inventory"`, `"rag+incident"`, `"rag+inventory"` |
+| `tool_results` | `list[dict]` | `_accumulate_list` | Resultados normalizados de las tools |
+| `tool_errors` | `list[str]` | `_accumulate_list` | Errores de las tools (fallback) |
+
+### 5.3 Nodos nuevos (Parte 2)
+
+| Nodo | Función | Input | Output | Responsabilidad |
+|------|---------|-------|--------|----------------|
+| `classify_query` | `node_classify_query` | `question` | `routing_decision` | Clasificar la pregunta: RAG, tool, o ambos |
+| `query_incident` | `node_query_incident` | `question` | `tool_results` / `tool_errors` | Consultar gestor de incidentes (HTTP, timeout 5s) |
+| `query_inventory` | `node_query_inventory` | `question` | `tool_results` / `tool_errors` | Consultar gestor de inventario (HTTP, timeout 5s) |
+| `synthesize_tool_answer` | `node_synthesize_tool_answer` | `tool_results` + `tool_errors` | `answer` | Sintetizar respuesta legible desde datos de tools |
+
+### 5.4 Aristas condicionales nuevas
+
+| Desde | Router | Lógica |
+|-------|--------|--------|
+| `receive_question` | `route_after_receive` | Ahora enruta a `classify_query` en vez de directamente a `retrieve_context` |
+| `classify_query` | `route_after_classify` | Según `routing_decision`: si es `"rag"` → `retrieve_context`; `"incident"` → `query_incident`; `"inventory"` → `query_inventory`; etc. |
+| `query_incident` / `query_inventory` | `route_after_tool` | Si era combinado (`rag+incident`, `rag+inventory`) → `retrieve_context`; si solo tool → `synthesize_tool_answer` |
+| `retrieve_context` | `route_after_retrieve_v2` | Como la original + detecta si hay `tool_results` para enrutar a `synthesize_tool_answer`. **Prioridad**: RAG → generate_answer; tools sin RAG → synthesize; ambos → RAG primero. |
+| `generate_answer` | `route_after_generate` | Si hay tools pendientes (`tool_results` o `tool_errors`) → `synthesize_tool_answer`; si no → END |
+
+## 6. Clasificación de preguntas
+
+El nodo `classify_query` analiza la pregunta con **patrones léxicos** (regex), no necesita un LLM para decidir la fuente:
+
+### Patrones para incidentes
+```python
+incident_patterns = [
+    r"\bticket\b", r"\bincidente\b", r"\bestado\s+del?\s+(ticket|incidente|caso)\b",
+    r"\btickets?\b", r"\bticket\s+\d+\b", r"\b#\d+\b",
+    r"\bseguimiento\b", r"\bpendiente\b", r"\bcerrado\b",
+    r"\ben\s+progreso\b", r"\bresuelto\b"
+]
+```
+
+### Patrones para inventario
+```python
+inventory_patterns = [
+    r"\bstock\b", r"\binventario\b", r"\bproducto\b", r"\bsuministro\b",
+    r"\btenemos\s+stock\b", r"\bcu[aá]nto\s+stock\b", r"\bdisponible\b",
+    r"\bhay\s+stock\b", r"\bsku\b", r"\bmedicamento\b", r"\binsumo\b"
+]
+```
+
+### Regla de decisión
+- Si solo hay patrones de incidentes → `"incident"`
+- Si solo hay patrones de inventario → `"inventory"`
+- Si solo hay patrones RAG → `"rag"`
+- Si hay patrones de incidentes + RAG → `"rag+incident"`
+- Si hay patrones de inventario + RAG → `"rag+inventory"`
+- Si no hay patrones claros → `"rag"` (fallback por defecto)
+
+## 7. Timeout y fallback
+
+Todas las tools usan `httpx.Client(timeout=5)` con manejo explícito de:
+
+| Escenario | Comportamiento |
+|-----------|---------------|
+| Timeout (>5s) | `tool_errors` contiene mensaje: "El servicio no respondió en Xs" |
+| Conexión rechazada | `tool_errors` contiene mensaje de conexión fallida |
+| HTTP 404 | `tool_errors` contiene "No existe un ticket/producto con ID X" |
+| HTTP 401 (solo inventario) | `tool_errors` contiene mensaje de autenticación fallida |
+| HTTP 500+ | `tool_errors` contiene mensaje genérico |
+| Éxito | `tool_results` contiene datos normalizados |
+
+Cuando todas las tools fallan, `node_synthesize_tool_answer` produce una respuesta honesta como:
+
+> "No pude completar la consulta solicitada: [error]. Por favor verifica que los datos estén disponibles o intenta de nuevo más tarde."
+
+## 8. Trazabilidad (Parte 2)
+
+El trace ahora incluye eventos de los nuevos nodos. Ejemplo para pregunta de incidente:
+
+```json
+{
+  "events": [
+    {"node": "receive_question", "status": "ok", "metadata": {"question_length": 28}},
+    {"node": "classify_query", "status": "ok", "metadata": {"decision": "incident", "has_incident": true, "has_inventory": false, "has_rag": false}},
+    {"node": "query_incident", "status": "ok", "metadata": {"num_results": 1}},
+    {"node": "synthesize_tool_answer", "status": "ok", "metadata": {"decision": "incident", "num_results": 1}}
+  ],
+  "routing_log": [
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → incident",
+    "query_incident → 1 resultado(s)",
+    "synthesize_tool_answer → respuesta (1 resultado(s))"
+  ]
+}
+```
+
+Cada evento del nodo `classify_query` incluye en `metadata` la decisión y los flags booleanos `has_incident`, `has_inventory`, `has_rag` — así se puede auditar por qué el agente eligió esa fuente.
+
+## 9. Evaluación y Tests (Parte 2)
+
+### 9.1 Nuevos evals (12 tests añadidos)
+
+| Clase | # Tests | ¿Qué verifica? |
+|-------|---------|----------------|
+| `TestExternalToolRouting` | 5 | El enrutamiento automático: incidente → tool, política → RAG, stock → inventario, mixto → ambos, genérico → RAG |
+| `TestToolFallbackBehavior` | 5 | Timeout → respuesta honesta, ticket no encontrado → error, synthesis con fallos → honestidad, extracción de IDs, trace events contienen decisión |
+| `TestMixedSynthesis` | 2 | Síntesis rag+incident combina RAG y tool; modo combinado con falla de tool incluye RAG + error honesto |
+
+**Total: 32 tests** (20 Parte 1 + 12 Parte 2)
+
+### 9.2 Tests clave
+
+```python
+def test_classify_query_routes_incident_to_incident_tool(self):
+    """Pregunta sobre un ticket/incidente debe clasificarse como 'incident'."""
+    state = build_initial_state("¿En qué estado está el ticket 2?")
+    result = node_classify_query(state)
+    assert "incident" in result["routing_decision"]
+
+def test_classify_query_routes_policy_to_rag(self):
+    """Pregunta sobre política debe clasificarse como 'rag'."""
+    state = build_initial_state("¿Cuál es la política de cancelación de citas?")
+    result = node_classify_query(state)
+    assert result["routing_decision"] == "rag"
+
+def test_tool_timeout_returns_honest_fallback(self):
+    """Timeout en tool debe producir respuesta honesta, no datos inventados."""
+    # Simula timeout de httpx
+    with patch("services.agent.tools.incidents.httpx.Client.get", _timeout_get):
+        result = node_query_incident(state)
+    assert len(result["tool_errors"]) > 0
+    assert "no respondió" in error_text
+
+def test_incident_tool_extracts_ticket_id_from_question(self):
+    """Extrae IDs de distintos formatos: 'ticket 2', '#123', 'caso 456'."""
+    assert _extract_ticket_id("ticket 2") == 2
+    assert _extract_ticket_id("incidente #123") == 123
+```
+
+### 9.3 Cómo ejecutar
+
+```bash
+# Todos los tests del agente (Parte 1 + Parte 2)
+uv run pytest tests/pipelines/test_agent_graph.py -v
+
+# Tests específicos de tools externas y síntesis mixta
+uv run pytest tests/pipelines/test_agent_graph.py -v -k "TestExternalToolRouting or TestToolFallbackBehavior or TestMixedSynthesis"
+```
+
+## 10. Notas sobre autenticación
+
+- **Incidents API**: No requiere autenticación en el despliegue actual. Para producción se recomienda añadir JWT o API key.
+- **Inventory API**: Requiere JWT Bearer token. La tool lee el token de la variable de entorno `AGENT_JWT_TOKEN`. Si no está configurada, la tool devuelve un error controlado (HTTP 401) y el grafo responde con fallback honesto. **No se hardcodea ningún token en el código.**
+
+## 10.1 Corrección de bugs — Síntesis mixta y trazas (2026-11-15)
+
+### Bug 1: Síntesis mixta rag+incident descartaba el contexto RAG
+**Problema**: `route_after_retrieve_v2` iba directo a `synthesize_tool_answer` cuando había `tool_results`, saltándose `generate_answer` y perdiendo el contexto político de RAG.
+**Solución**: Se reordenó la prioridad: si hay `retrieved_chunks` (contexto RAG), siempre va primero a `generate_answer`, independientemente de `tool_results`. Luego `route_after_generate` redirige a `synthesize_tool_answer`.
+
+### Bug 2: Prueba de timeout real bloqueaba 5 segundos la suite de tests
+**Problema**: El test de timeout usaba `sleep(5)` para forzar el timeout de httpx.
+**Solución**: Reemplazado por monkeypatch del timeout en `httpx.Client` dentro del test. Ahora el timeout se simula en milisegundos.
+
+### Bug 3: Clasificación combinada no detectaba "política" + "ticket"
+**Problema**: El clasificador léxico no detectaba `rag+incident` cuando ambas señales estaban presentes (ej: "¿cuál es la política de no-show del ticket 2?").
+**Solución**: `node_classify_query` ahora usa prioridad combinada: si hay incidente y RAG → `"rag+incident"`. Se reescribieron los patrones RAG para incluir términos operativos ("cobro", "cargo", "no-show", "medicare", "cancelación", "horario", "consentimiento").
+
+### Bug 4: Trazas del script `regenerate_traces.py` tenían timestamps sub-ms (mockeadas)
+**Problema**: El script mockeaba `retrieve` y `generate_answer`, produciendo timestamps irreales (~1ms).
+**Solución**: Se eliminaron todos los mocks. Ahora llama a servicios reales (Qdrant, LLM e Incidents API). Timestamps reales obtenidos:
+- RAG puro (Medicare no-show): **5,788ms**
+- Incidente puro (ticket 2): **41ms** con `branch_label = "London West End"` (antes decía "London — West")
+- RAG+Incidente combinado: **2,892ms**
+- RAG+Incidente con fallo de tool: **1,649ms**
+
+## 11. Checklist de cumplimiento (Parte 2)
+
+- [x] Tool `query_incident` implementada — lee del gestor de incidentes real (GET /api/incidents)
+- [x] Tool `query_inventory` implementada — lee del gestor de inventario real (GET /inventory/products)
+- [x] Contrato tipado de entrada/salida documentado
+- [x] Solo lectura (GET) — nunca crea, actualiza ni elimina datos
+- [x] Timeout explícito de 5 segundos para cada tool
+- [x] Ruta de fallback: si la tool falla, el agente responde con honestidad
+- [x] Enrutamiento automático: el agente decide RAG, tool o ambos sin intervención del usuario
+- [x] Sin datos simulados — las tools llaman a servicios reales
+- [x] Sin auth hardcodeada — las credenciales se leen de entorno
+- [x] 12 nuevos evals que verifican enrutamiento, fallback y síntesis mixta
+- [x] Trazabilidad: el trace muestra qué fuente se usó y en qué orden
+- [x] 32/32 tests pasando

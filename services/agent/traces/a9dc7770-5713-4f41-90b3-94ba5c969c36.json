@@ -1,0 +1,52 @@
+{
+  "run_id": "a9dc7770-5713-4f41-90b3-94ba5c969c36",
+  "question": "¿Cobran cargo por no-show a pacientes de Medicare?",
+  "answer": "No, según la política de citas, a los pacientes con Medicare no se les cobra cargo por no-show, aunque se registra el incidente en su historial.",
+  "error": null,
+  "routing_log": [
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag",
+    "retrieve_context → generate_answer (4 fragmentos recuperados)",
+    "generate_answer → END (respuesta generada)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-15T19:37:01.128116+00:00",
+      "metadata": {
+        "question_length": 50
+      }
+    },
+    {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-15T19:37:01.134016+00:00",
+      "metadata": {
+        "decision": "rag",
+        "has_incident": false,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "ok",
+      "timestamp": "2026-11-15T19:37:05.261874+00:00",
+      "metadata": {
+        "num_chunks": 4
+      }
+    },
+    {
+      "node": "generate_answer",
+      "status": "ok",
+      "timestamp": "2026-11-15T19:37:06.916320+00:00",
+      "metadata": {
+        "answer_length": 144
+      }
+    }
+  ],
+  "num_chunks_retrieved": 4,
+  "final_answer_length": 144,
+  "timestamp": "2026-11-15T19:37:06.917647+00:00"
+}
