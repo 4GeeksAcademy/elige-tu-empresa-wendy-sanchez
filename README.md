@@ -189,13 +189,6 @@ Retrieval-Augmented Generation over 4 HealthCore policy documents. Embedded with
 - All test suites pass as gate before feature branches merge
 - Audit-driven development: each deliverable has verifiable acceptance criteria
 
----
-
-## 📝 License & Contributors
-
-Built as part of the [4Geeks Academy AI Engineering Career Program](https://4geeksacademy.com/en/career-programs/ai-engineering) by the developer. Template originally by [@marcogonzalo](https://www.linkedin.com/in/marcogonzalo) and [@alezanchezr](https://x.com/alesanchezr).
-
-**Developer Wendy Sanchez**
 
 ---
 
@@ -206,3 +199,7 @@ Built as part of the [4Geeks Academy AI Engineering Career Program](https://4gee
 - TypeScript validation commands currently available:
   - `npm run typecheck`
   - `cd uis/talent-pipeline-tracker && npm run typecheck`
+
+---
+
+**Developer Wendy Sanchez**
