@@ -17,3 +17,16 @@ Por ello, veo fenomenal la idea que se plantea de una API central de HealthCore 
 ## Mi idea de Agente de IA
 
 Me gustaría crear un agente de IA que ayude a gestionar citas médicas y consultas frecuentes de pacientes. El agente podría responder preguntas comunes, organizar horarios disponibles, enviar recordatorios automáticos y detectar posibles conflictos en la agenda. También podría ayudar al personal administrativo reduciendo tareas repetitivas y mejorando la experiencia de los pacientes.
+
+---
+
+## ¿Por qué elegir HealthCore?
+
+Elige HealthCore si te atraen:
+
+- **Sanidad y datos regulados** — construir sistemas que gestionan información sanitaria protegida bajo HIPAA y UK GDPR, donde los errores tienen consecuencias legales y la privacidad no es negociable.
+- **Operaciones sanitarias transfronterizas** — dos países, dos marcos regulatorios, dos sistemas EHR y una experiencia del paciente unificada que debe funcionar a través de todo ello.
+- **Aplicaciones de IA de alto riesgo** — asistencia a la documentación clínica, predicción de rechazo de reclamaciones y pronóstico de no-shows de citas no son mejoras opcionales; impactan directamente en la atención al paciente y la viabilidad de la empresa.
+- **Sistemas que sirven a pacientes reales** — cada dashboard, API y automatización que construyes existe para ayudar a las personas a recibir la atención sanitaria que necesitan, cuando la necesitan, sin fricciones innecesarias.
+
+Los desafíos de IA en HealthCore incluyen procesamiento de lenguaje natural de notas clínicas para sugerencias de códigos de facturación, modelos predictivos para no-shows de citas entrenados con datos multi-sede, sistemas RAG sobre documentación de cumplimiento en dos jurisdicciones y programación inteligente que equilibra las preferencias del paciente con la capacidad de la clínica. Si quieres construir sistemas donde la excelencia técnica se traduce directamente en mejor prestación de atención sanitaria, HealthCore es tu empresa.

@@ -81,7 +81,7 @@ class TracesListResponse(BaseModel):
 
 
 @router.post("/query", response_model=QueryResponse)
-def agent_query(req: QueryRequest) -> QueryResponse:
+async def agent_query(req: QueryRequest) -> QueryResponse:
     """Ejecuta el agente de soporte LangGraph para responder una pregunta.
 
     El flujo completo:
@@ -97,7 +97,7 @@ def agent_query(req: QueryRequest) -> QueryResponse:
     run_id = str(uuid.uuid4())
 
     try:
-        final_state = run_agent(question=req.question, run_id=run_id)
+        final_state = await run_agent(question=req.question, run_id=run_id)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except RuntimeError:

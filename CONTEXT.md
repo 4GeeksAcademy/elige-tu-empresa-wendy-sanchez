@@ -1,6 +1,6 @@
 # Bienvenido a HealthCore
 
-## AI Engineering · 4Geeks Academy — Briefing de empresa
+## AI Engineering — Briefing de empresa
 
 ---
 
@@ -115,17 +115,6 @@ La Dra. Okonkwo gestiona una red sanitaria de 28 millones de dólares en dos pa�
 **Lo que necesita:** Un dashboard ejecutivo unificado con KPIs en tiempo real de todos los departamentos (volumen de citas, tasa de no-shows, tasa de rechazo de reclamaciones, ingresos por sede, satisfacción del paciente), un informe semanal generado automáticamente entregado cada lunes a las 7am, alertas de umbral para métricas críticas, y un asistente de IA en lenguaje natural que pueda consultar directamente.
 
 ---
-
-## ¿Por qué elegir HealthCore?
-
-Elige HealthCore si te atraen:
-
-- **Sanidad y datos regulados** — construir sistemas que gestionan información sanitaria protegida bajo HIPAA y UK GDPR, donde los errores tienen consecuencias legales y la privacidad no es negociable.
-- **Operaciones sanitarias transfronterizas** — dos países, dos marcos regulatorios, dos sistemas EHR y una experiencia del paciente unificada que debe funcionar a través de todo ello.
-- **Aplicaciones de IA de alto riesgo** — asistencia a la documentación clínica, predicción de rechazo de reclamaciones y pronóstico de no-shows de citas no son mejoras opcionales; impactan directamente en la atención al paciente y la viabilidad de la empresa.
-- **Sistemas que sirven a pacientes reales** — cada dashboard, API y automatización que construyes existe para ayudar a las personas a recibir la atención sanitaria que necesitan, cuando la necesitan, sin fricciones innecesarias.
-
-Los desafíos de IA en HealthCore incluyen procesamiento de lenguaje natural de notas clínicas para sugerencias de códigos de facturación, modelos predictivos para no-shows de citas entrenados con datos multi-sede, sistemas RAG sobre documentación de cumplimiento en dos jurisdicciones y programación inteligente que equilibra las preferencias del paciente con la capacidad de la clínica. Si quieres construir sistemas donde la excelencia técnica se traduce directamente en mejor prestación de atención sanitaria, HealthCore es tu empresa.
 
 ## Sitio Web HealthCore
 

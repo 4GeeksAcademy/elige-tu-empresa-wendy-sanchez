@@ -14,6 +14,7 @@ tests sean deterministas y no dependan de infraestructura externa.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 import uuid
@@ -197,19 +198,21 @@ class TestGraphCompilation:
 class TestConditionalRouting:
     """Las aristas condicionales deben enrutar según el estado."""
 
-    def test_empty_question_routes_to_end(self):
+    @pytest.mark.asyncio
+    async def test_empty_question_routes_to_end(self):
         """Pregunta vacía → error, no debe ejecutar retrieve_context."""
         from services.agent.graph import run_agent
 
         with pytest.raises(ValueError, match="no puede estar vacía"):
-            run_agent("")
+            await run_agent("")
 
-    def test_short_question_routes_to_end(self):
+    @pytest.mark.asyncio
+    async def test_short_question_routes_to_end(self):
         """Pregunta muy corta → error, no debe ejecutar retrieve_context."""
         from services.agent.graph import run_agent
 
         with pytest.raises(ValueError, match="demasiado corta"):
-            run_agent("ab")
+            await run_agent("ab")
 
     def test_valid_question_routes_to_classify_query(self):
         """Pregunta válida → classify_query debe ejecutarse (Parte 2)."""
@@ -277,14 +280,15 @@ class TestConditionalRouting:
 class TestTraceability:
     """Cada corrida debe producir un trace consultable con eventos y enrutamiento."""
 
-    def test_trace_is_persisted_after_run(self):
+    @pytest.mark.asyncio
+    async def test_trace_is_persisted_after_run(self):
         """Después de una corrida, debe existir un archivo de trace en disco."""
         from services.agent.graph import run_agent, get_trace
 
         run_id = str(uuid.uuid4())
 
         with _mock_retrieve(), _mock_generate_answer():
-            _ = run_agent("¿Qué seguros aceptan?", run_id=run_id)
+            _ = await run_agent("¿Qué seguros aceptan?", run_id=run_id)
 
         trace = get_trace(run_id)
 
@@ -295,14 +299,15 @@ class TestTraceability:
         assert len(trace["events"]) > 0
         assert "routing_log" in trace
 
-    def test_trace_contains_node_execution_order(self):
+    @pytest.mark.asyncio
+    async def test_trace_contains_node_execution_order(self):
         """El trace debe registrar qué nodos se ejecutaron y en qué orden."""
         from services.agent.graph import run_agent, get_trace
 
         run_id = str(uuid.uuid4())
 
         with _mock_retrieve(), _mock_generate_answer():
-            run_agent("¿Cuál es la política de no-show?", run_id=run_id)
+            await run_agent("¿Cuál es la política de no-show?", run_id=run_id)
 
         trace = get_trace(run_id)
         events = trace["events"]
@@ -318,14 +323,15 @@ class TestTraceability:
             f"El trace debería contener 'generate_answer'. Nodos: {node_names}"
         )
 
-    def test_trace_routing_log_records_decisions(self):
+    @pytest.mark.asyncio
+    async def test_trace_routing_log_records_decisions(self):
         """El routing_log debe registrar cada decisión de enrutamiento."""
         from services.agent.graph import run_agent, get_trace
 
         run_id = str(uuid.uuid4())
 
         with _mock_retrieve(), _mock_generate_answer():
-            run_agent("¿Cobran cargo por no-show?", run_id=run_id)
+            await run_agent("¿Cobran cargo por no-show?", run_id=run_id)
 
         trace = get_trace(run_id)
         routing_log = trace["routing_log"]
@@ -335,13 +341,14 @@ class TestTraceability:
             f"Obtenidas: {len(routing_log)}"
         )
 
-    def test_trace_consultable_after_run(self):
+    @pytest.mark.asyncio
+    async def test_trace_consultable_after_run(self):
         """El trace debe ser consultable por get_trace() después de la corrida."""
         from services.agent.graph import run_agent, get_trace, list_traces
 
         run_id = str(uuid.uuid4())
         with _mock_retrieve(), _mock_generate_answer():
-            run_agent("¿Qué es HealthCore?", run_id=run_id)
+            await run_agent("¿Qué es HealthCore?", run_id=run_id)
 
         # Consulta por ID específico
         trace = get_trace(run_id)
@@ -401,7 +408,8 @@ class TestRAGBehavior:
             "Sin chunks, debe enrutar a respond_no_info (no forzar generación)"
         )
 
-    def test_medicare_no_show_policy_grounded(self):
+    @pytest.mark.asyncio
+    async def test_medicare_no_show_policy_grounded(self):
         """El agente debe responder anclado en el contexto, sin alucinar.
 
         En lugar de mockear ``generate_answer`` con una respuesta prefabricada,
@@ -435,7 +443,7 @@ class TestRAGBehavior:
             "services.agent.graph.generate_answer",
             side_effect=_fake_generate_answer_grounded,
         ):
-            result = run_agent(
+            result = await run_agent(
                 "¿Cobran cargo por no-show a pacientes de Medicare?",
                 run_id=run_id,
             )
@@ -593,23 +601,22 @@ class TestToolFallbackBehavior:
     el grafo debe responder con honestidad sin inventar datos.
     """
 
-    def test_tool_timeout_returns_honest_fallback(self):
+    @pytest.mark.asyncio
+    async def test_tool_timeout_returns_honest_fallback(self):
         """Timeout en tool debe producir respuesta honesta, no datos inventados."""
         from services.agent.graph import run_agent
-
-        # Forzamos timeout parcheando httpx.Client.get para que lance timeout
-        import httpx
         from unittest.mock import patch
 
-        def _timeout_get(*args, **kwargs):
-            raise httpx.TimeoutException("Timed out", request=None)
+        # Forzamos timeout parcheando el MCP Client para que devuelva error
+        async def _mcp_timeout(*args, **kwargs):
+            return {"error": "El servicio de incidentes no respondió en 10s. Intenta de nuevo más tarde."}
 
-        with patch("services.agent.tools.incidents.httpx.Client.get", _timeout_get):
+        with patch("services.agent.graph.query_incident_by_id", _mcp_timeout):
             from services.agent.graph import build_initial_state, node_query_incident
 
             state = build_initial_state("¿En qué estado está el ticket 482?")
             state["routing_decision"] = "incident"
-            result = node_query_incident(state)
+            result = await node_query_incident(state)
 
         # Debe tener un error, no datos inventados
         assert len(result.get("tool_errors", [])) > 0, (
@@ -624,22 +631,19 @@ class TestToolFallbackBehavior:
             "tool_results debe estar vacío cuando hay timeout"
         )
 
-    def test_ticket_not_found_returns_honest_response(self):
+    @pytest.mark.asyncio
+    async def test_ticket_not_found_returns_honest_response(self):
         """Ticket inexistente debe devolver error, no inventar estado."""
         from services.agent.graph import build_initial_state, node_query_incident
         from unittest.mock import patch
-        import httpx
 
-        # Simular respuesta 404 del servicio
-        mock_response = httpx.Response(
-            404,
-            json={"detail": "Incident with id 99999 not found"},
-        )
+        async def _mcp_not_found(*args, **kwargs):
+            return {"error": "No existe un ticket con ID 99999."}
 
-        with patch("services.agent.tools.incidents.httpx.Client.get", return_value=mock_response):
+        with patch("services.agent.graph.query_incident_by_id", _mcp_not_found):
             state = build_initial_state("¿Qué pasó con el ticket 99999?")
             state["routing_decision"] = "incident"
-            result = node_query_incident(state)
+            result = await node_query_incident(state)
 
         errors = result.get("tool_errors", [])
         assert len(errors) > 0, "Debe haber error para ticket inexistente"
@@ -719,7 +723,8 @@ class TestMixedSynthesis:
             "description_preview": "Patient not informed of appointment reschedule by clinic",
         }
 
-    def test_rag_plus_incident_synthesis_combines_sources(self):
+    @pytest.mark.asyncio
+    async def test_rag_plus_incident_synthesis_combines_sources(self):
         """Pregunta mixta debe producir respuesta con datos del ticket + política RAG."""
         from services.agent.graph import run_agent, get_trace
         from unittest.mock import patch
@@ -751,7 +756,7 @@ class TestMixedSynthesis:
                 return_value=mock_incident,
             ),
         ):
-            result = run_agent(
+            result = await run_agent(
                 "Según la política de cancelación, ¿el ticket 2 debería tener cargo?",
                 run_id=run_id,
             )
@@ -825,7 +830,8 @@ class TestMixedSynthesis:
             f"Los eventos deben incluir synthesize_tool_answer. Orden: {node_order}"
         )
 
-    def test_rag_plus_incident_honest_when_tool_fails(self):
+    @pytest.mark.asyncio
+    async def test_rag_plus_incident_honest_when_tool_fails(self):
         """Si la tool falla pero RAG funciona, la respuesta debe reflejar el fallo honestamente."""
         from services.agent.graph import run_agent
         from unittest.mock import patch
@@ -852,7 +858,7 @@ class TestMixedSynthesis:
                 return_value={"error": "No se pudo conectar con el servicio de incidentes."},
             ),
         ):
-            result = run_agent(
+            result = await run_agent(
                 "Según la política de cancelación, ¿el ticket 482 debería tener cargo?",
                 run_id=run_id,
             )

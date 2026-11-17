@@ -177,6 +177,7 @@ Generación Aumentada por Recuperación sobre 4 documentos de políticas de Heal
 | [`predic-ventas-model-regresion.md`](./predic-ventas-model-regresion.md) | Diseño y auditoría del modelo de pronóstico de ventas |
 | [`docs/rag/rag-design.es.md`](./docs/rag/rag-design.es.md) | Diseño de la base de conocimiento RAG |
 | [`background-processes.md`](./background-processes.md) | Arquitectura del proceso en segundo plano |
+| [`message-queues-asyns-task.md`](./message-queues-asyns-task.md) | Cola de Tareas Asíncronas — Redis + Celery |
 | [`docs/ARCHITECTURE_PROPOSAL.md`](./docs/ARCHITECTURE_PROPOSAL.md) | Propuesta de arquitectura general |
 | [`memory-bank/`](./memory-bank/) | Progreso del desarrollo, contexto activo, patrones del sistema |
 

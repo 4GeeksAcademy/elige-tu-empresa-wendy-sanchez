@@ -36,9 +36,13 @@ from typing_extensions import TypedDict
 # Reutilizamos las funciones RAG existentes — sin duplicar lógica.
 from data.pipelines.rag import generate_answer, retrieve
 
-# Tools externas (Parte 2)
-from services.agent.tools.incidents import query_incident_by_id, query_incidents_list
-from services.agent.tools.inventory import query_product_by_id, query_products_list
+# Tools externas (Parte 2) — MCP Client
+from services.agent.tools.mcp_client import (
+    query_incident_by_id,
+    query_incidents_list,
+    query_product_by_id,
+    query_products_list,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -392,11 +396,11 @@ def node_classify_query(state: AgentState) -> dict[str, Any]:
     }
 
 
-def node_query_incident(state: AgentState) -> dict[str, Any]:
-    """Consulta el gestor de incidentes.
+async def node_query_incident(state: AgentState) -> dict[str, Any]:
+    """Consulta el gestor de incidentes vía MCP Client.
 
     Extrae el ID del ticket de la pregunta (si existe) o lista incidentes
-    con filtros.  Solo lectura (GET).  Timeout: 5s.
+    con filtros.  Timeout: configurado en el MCP Client (default 10s).
 
     Si el servicio no responde o el ticket no existe, registra un error
     controlado para que el grafo enrute a handle_error.
@@ -407,11 +411,11 @@ def node_query_incident(state: AgentState) -> dict[str, Any]:
     ticket_id = _extract_ticket_id(question)
 
     if ticket_id is not None:
-        result = query_incident_by_id(ticket_id)
+        result = await query_incident_by_id(ticket_id)
     else:
         # Sin ID específico: listar con filtros inferidos de la pregunta
         filters = _infer_incident_filters(question)
-        result = query_incidents_list(**filters)
+        result = await query_incidents_list(**filters)
 
     if isinstance(result, dict) and "error" in result:
         logger.warning("Fallo en query_incident: %s", result["error"])
@@ -440,11 +444,11 @@ def node_query_incident(state: AgentState) -> dict[str, Any]:
     }
 
 
-def node_query_inventory(state: AgentState) -> dict[str, Any]:
-    """Consulta el gestor de inventario.
+async def node_query_inventory(state: AgentState) -> dict[str, Any]:
+    """Consulta el gestor de inventario vía MCP Client.
 
     Extrae el ID del producto de la pregunta (si existe) o lista productos
-    con filtros.  Solo lectura (GET).  Timeout: 5s.
+    con filtros.  Timeout: configurado en el MCP Client (default 10s).
     """
     question = state["question"]
 
@@ -453,7 +457,7 @@ def node_query_inventory(state: AgentState) -> dict[str, Any]:
     name_search = _extract_product_name(question)
 
     if product_id is not None:
-        result = query_product_by_id(product_id)
+        result = await query_product_by_id(product_id)
     else:
         filters = {}
         category = _infer_product_category(question)
@@ -461,7 +465,7 @@ def node_query_inventory(state: AgentState) -> dict[str, Any]:
             filters["category"] = category
         if name_search:
             filters["name_search"] = name_search
-        result = query_products_list(**filters)
+        result = await query_products_list(**filters)
 
     if isinstance(result, dict) and "error" in result:
         logger.warning("Fallo en query_inventory: %s", result["error"])
@@ -955,8 +959,11 @@ except Exception as exc:
 # ──────────────────────────────────────────────────────────────────────
 
 
-def run_agent(question: str, run_id: str | None = None) -> AgentState:
-    """Ejecuta el agente completo para una pregunta.
+async def run_agent(question: str, run_id: str | None = None) -> AgentState:
+    """Ejecuta el agente completo para una pregunta (async).
+
+    Llama al grafo compilado vía ainvoke, lo que permite que los nodos
+    asíncronos (query_incident, query_inventory) funcionen correctamente.
 
     Args:
         question: Pregunta del usuario.
@@ -993,8 +1000,8 @@ def run_agent(question: str, run_id: str | None = None) -> AgentState:
 
     logger.info("Ejecutando agente (run_id=%s): '%s'", run_id, question[:100])
 
-    # Invocar el grafo compilado
-    final_state: AgentState = agent_graph.invoke(initial_state, config=config)
+    # Invocar el grafo compilado — ainvoke permite nodos async
+    final_state: AgentState = await agent_graph.ainvoke(initial_state, config=config)
 
     # Persistir la traza
     persist_trace(final_state, run_id)

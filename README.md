@@ -177,6 +177,7 @@ Retrieval-Augmented Generation over 4 HealthCore policy documents. Embedded with
 | [`predic-ventas-model-regresion.md`](./predic-ventas-model-regresion.md) | Sales forecast model design and audit |
 | [`docs/rag/rag-design.md`](./docs/rag/rag-design.md) | RAG knowledge base design |
 | [`background-processes.md`](./background-processes.md) | Background job architecture |
+| [`message-queues-asyns-task.md`](./message-queues-asyns-task.md) | Asynchronous Task Queue — Redis + Celery |
 | [`docs/ARCHITECTURE_PROPOSAL.md`](./docs/ARCHITECTURE_PROPOSAL.md) | Overall architecture proposal |
 | [`memory-bank/`](./memory-bank/) | Development progress, active context, system patterns |
 
