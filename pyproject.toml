@@ -8,7 +8,10 @@ dependencies = [
     "fastapi>=0.162.4",
     "fastmcp>=1.0.0",
     "flower>=2.2.0",
-    "langchain-mcp-adapters>=0.1.0",
+    # langchain-mcp-adapters: convierte tools MCP a BaseTool de LangChain.
+    # Se usa en services/agent/tools/mcp_client.py para que el agente LangGraph
+    # consuma las tools del MCP Server vía langchain-mcp-adapters.load_mcp_tools.
+    "langchain-mcp-adapters>=0.3.2",
     "langgraph>=1.2.22",
     "libpass>=1.9.4",
     "matplotlib>=3.11.2",

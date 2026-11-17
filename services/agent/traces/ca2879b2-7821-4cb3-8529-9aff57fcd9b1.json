@@ -1,0 +1,52 @@
+{
+  "run_id": "ca2879b2-7821-4cb3-8529-9aff57fcd9b1",
+  "question": "¿Qué es HealthCore?",
+  "answer": "Respuesta simulada.",
+  "error": null,
+  "routing_log": [
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag",
+    "retrieve_context → generate_answer (1 fragmentos recuperados)",
+    "generate_answer → END (respuesta generada)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-17T21:36:31.644330+00:00",
+      "metadata": {
+        "question_length": 19
+      }
+    },
+    {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-17T21:36:31.645272+00:00",
+      "metadata": {
+        "decision": "rag",
+        "has_incident": false,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "ok",
+      "timestamp": "2026-11-17T21:36:31.646130+00:00",
+      "metadata": {
+        "num_chunks": 1
+      }
+    },
+    {
+      "node": "generate_answer",
+      "status": "ok",
+      "timestamp": "2026-11-17T21:36:31.647063+00:00",
+      "metadata": {
+        "answer_length": 19
+      }
+    }
+  ],
+  "num_chunks_retrieved": 1,
+  "final_answer_length": 19,
+  "timestamp": "2026-11-17T21:36:31.647755+00:00"
+}

@@ -1,20 +1,22 @@
-"""Tool para consultar el gestor de inventario en tiempo real.
+"""⚠️  DEPRECATED — usar services.agent.tools.mcp_client en su lugar.
 
-Contrato:
-  - Entrada: product_id (int, opcional) o búsqueda por nombre/SKU.
-  - Salida: nombre, SKU, categoría, stock actual, unidad, fechas.
+Este archivo se manteniene solo como referencia temporal.  Todo el código
+nuevo debe importar las tools desde ``services.agent.tools.mcp_client``.
 
-Timeout: 5s. Fallback: si el servicio no responde o el producto no existe,
-el agente responde con honestidad.
-
-Solo lectura: GET únicamente. Nunca crea, actualiza ni elimina productos.
-
-Autenticación: El gestor de inventario requiere JWT. La tool lee la clave
-JWT de la variable de entorno ``AGENT_JWT_TOKEN``. Si no está configurada,
-se usa una lógica de fallback para desarrollo.
+El agente LangGraph ya no usa este módulo.  Se eliminará en una limpieza
+futura.
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "services.agent.tools.inventory está DEPRECATED. "
+    "Usa services.agent.tools.mcp_client en su lugar.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import logging
 import os

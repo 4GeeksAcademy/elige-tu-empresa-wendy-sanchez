@@ -1,13 +1,16 @@
 """Tools externas para el agente de soporte LangGraph.
 
-Este paquete contiene herramientas que permiten al agente consultar
-datos operativos en tiempo real fuera de la base de conocimiento RAG:
+Este paquete permite al agente consultar datos operativos en tiempo real
+a través del **MCP Server** (NO mediante HTTP directo a los servicios):
 
-  - ``incidents``  → Consulta el gestor de incidentes (GET /api/incidents).
-  - ``inventory``  → Consulta el gestor de inventario (GET /inventory/products).
+  - ``mcp_client`` → Cliente MCP que se comunica con el MCP Server vía
+    Streamable HTTP, usando **langchain-mcp-adapters** para convertir
+    tools MCP a objetos ``BaseTool`` de LangChain.
+  - ``incidents``  → (DEPRECATED) Archivo legacy que será eliminado.
+  - ``inventory``  → (DEPRECATED) Archivo legacy que será eliminado.
 
-Ninguna tool escribe datos — solo lectura (GET).
-Todas las tools tienen timeout explícito (5s) y ruta de fallback.
+Toda interacción con Incidents Manager e Inventory pasa por el MCP
+Server como cliente MCP, no por HTTP directo.
 """
 
 from __future__ import annotations

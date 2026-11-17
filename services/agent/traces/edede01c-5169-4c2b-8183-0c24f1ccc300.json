@@ -1,0 +1,52 @@
+{
+  "run_id": "edede01c-5169-4c2b-8183-0c24f1ccc300",
+  "question": "¿Qué seguros aceptan?",
+  "answer": "Respuesta simulada.",
+  "error": null,
+  "routing_log": [
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag",
+    "retrieve_context → generate_answer (1 fragmentos recuperados)",
+    "generate_answer → END (respuesta generada)"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-17T22:02:07.447183+00:00",
+      "metadata": {
+        "question_length": 21
+      }
+    },
+    {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-17T22:02:07.450039+00:00",
+      "metadata": {
+        "decision": "rag",
+        "has_incident": false,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "ok",
+      "timestamp": "2026-11-17T22:02:07.450997+00:00",
+      "metadata": {
+        "num_chunks": 1
+      }
+    },
+    {
+      "node": "generate_answer",
+      "status": "ok",
+      "timestamp": "2026-11-17T22:02:07.451869+00:00",
+      "metadata": {
+        "answer_length": 19
+      }
+    }
+  ],
+  "num_chunks_retrieved": 1,
+  "final_answer_length": 19,
+  "timestamp": "2026-11-17T22:02:07.452518+00:00"
+}

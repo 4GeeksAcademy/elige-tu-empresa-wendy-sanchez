@@ -62,10 +62,11 @@ def build_auth_server_config() -> AuthServerConfig:
         authorization_endpoint="",
         token_endpoint="",
         jwks_uri=jwks_uri or None,
-        response_types_supported=["token"],
-        grant_types_supported=["client_credentials"],
+        response_types_supported=["code"],
+        grant_types_supported=["authorization_code"],
+        code_challenge_methods_supported=["S256"],
         token_endpoint_auth_methods_supported=["client_secret_basic"],
-        scopes_supported=config.MCP_SCOPES_SUPPORTED,
+        scope_supported=config.MCP_SCOPES_SUPPORTED,
     )
 
     return AuthServerConfig(
@@ -148,6 +149,38 @@ def build_bearer_middleware(mcp_auth: MCPAuth) -> type:
         )
 
     return bearer_mw
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Wrapper ASGI que aplica Bearer Auth solo en rutas protegidas
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Envuelve el FastMCP app directamente a nivel ASGI.  Las rutas públicas
+# (/.well-known/, /health) pasan directo; el resto pasa por el middleware
+# Bearer Auth de mcpauth.  Así el lifespan del FastMCP se preserva porque
+# seguimos siendo una sola capa ASGI.
+
+
+class SelectiveBearerASGI:
+    """ASGI wrapper que aplica bearer auth solo en paths no-públicos."""
+
+    EXCLUDED_PREFIXES = ("/.well-known/", "/health", "/openapi")
+
+    def __init__(self, mcp_asgi_app: Any, bearer_mw_class: type) -> None:
+        self._public_app = mcp_asgi_app
+        # La instancia del middleware Bearer envuelve el app protegido
+        self._protected_app = bearer_mw_class(mcp_asgi_app)
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self._public_app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        if any(path.startswith(prefix) for prefix in self.EXCLUDED_PREFIXES):
+            await self._public_app(scope, receive, send)
+        else:
+            await self._protected_app(scope, receive, send)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -237,3 +270,62 @@ def build_protected_resource_routes() -> list:
             methods=["GET", "OPTIONS"],
         ),
     ]
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  CORS ASGI middleware
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Necesario para que el MCP Playground (web) pueda conectar desde el
+# navegador.  Sin CORS, el navegador bloquea las peticiones cross-origin.
+
+
+class CORSAsgiMiddleware:
+    """ASGI wrapper que añade cabeceras CORS a todas las respuestas.
+
+    Permite peticiones cross-origin desde cualquier origen (necesario
+    para el MCP Playground web).  Maneja preflight OPTIONS.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+
+    async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
+        if scope["type"] != "http":
+            await self._app(scope, receive, send)
+            return
+
+        # ── Preflight OPTIONS ────────────────────────────────────────
+        if scope["method"] == "OPTIONS":
+            headers = [
+                (b"access-control-allow-origin", b"*"),
+                (b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"),
+                (b"access-control-allow-headers", b"Content-Type, Authorization, Accept, X-Requested-With"),
+                (b"access-control-max-age", b"86400"),
+                (b"content-length", b"0"),
+            ]
+            response = b"HTTP/1.1 204 No Content\r\n"
+            for name, value in headers:
+                response += name + b": " + value + b"\r\n"
+            response += b"\r\n"
+            await send({
+                "type": "http.response.start",
+                "status": 204,
+                "headers": headers,
+            })
+            await send({"type": "http.response.body", "body": b""})
+            return
+
+        # ── Request normal: interceptar send para añadir CORS ────────
+        original_send = send
+
+        async def cors_send(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append((b"access-control-allow-origin", b"*"))
+                headers.append((b"access-control-allow-headers", b"Content-Type, Authorization, Accept"))
+                headers.append((b"access-control-allow-methods", b"GET, POST, PUT, PATCH, DELETE, OPTIONS"))
+                message["headers"] = headers
+            await original_send(message)
+
+        await self._app(scope, receive, cors_send)

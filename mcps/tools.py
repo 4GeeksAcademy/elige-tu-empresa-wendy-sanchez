@@ -316,3 +316,99 @@ def list_products(
             total = len(items)
         return {"success": True, "products": items, "total": total}
     return {"success": False, "error": result["error"]}
+
+
+# ═══════════════════════════════════════════════════════════════════════
+#  Inventory — Tools de escritura (rechazo explícito)
+# ═══════════════════════════════════════════════════════════════════════
+#
+# Estas tools EXISTEN y son descubribles por el cliente MCP, pero
+# devuelven un error controlado indicando que el inventario es solo
+# lectura.  El ticket (RETO 2) exige explícitamente que "no basta con
+# 'no implementar' el endpoint de escritura, el servidor debe rechazar
+# explícitamente cualquier intento de modificación."
+#
+# Esto evita que el agente o el cliente MCP reciban un "tool not found"
+# y sigan intentando.  En su lugar, reciben un mensaje claro de por qué
+# la operación no está permitida.
+
+
+def create_product(**kwargs: Any) -> dict[str, Any]:
+    """Crea un nuevo producto en el inventario.
+
+    IMPORTANTE: El inventario es SOLO LECTURA — esta tool rechaza
+    explícitamente cualquier intento de crear un producto.
+
+    Returns:
+        Siempre ``{"success": False, "error": "read_only"}`` con un
+        mensaje explícito.
+    """
+    logger.warning("Intento de crear producto rechazado (inventario read-only). Args: %s", kwargs)
+    return {
+        "success": False,
+        "error": "read_only",
+        "message": (
+            "El módulo de inventario es solo lectura. "
+            "No se pueden crear, modificar ni eliminar productos a través "
+            "de este MCP Server.  Para cambios en el inventario, utiliza "
+            "el sistema de gestión de inventario directamente."
+        ),
+    }
+
+
+def update_product(product_id: int, **kwargs: Any) -> dict[str, Any]:
+    """Actualiza un producto existente en el inventario.
+
+    IMPORTANTE: El inventario es SOLO LECTURA — esta tool rechaza
+    explícitamente cualquier intento de modificar un producto.
+
+    Args:
+        product_id: ID del producto a modificar.
+
+    Returns:
+        Siempre ``{"success": False, "error": "read_only"}`` con un
+        mensaje explícito.
+    """
+    logger.warning(
+        "Intento de actualizar producto %s rechazado (inventario read-only). Args: %s",
+        product_id, kwargs,
+    )
+    return {
+        "success": False,
+        "error": "read_only",
+        "message": (
+            "El módulo de inventario es solo lectura. "
+            "No se pueden crear, modificar ni eliminar productos a través "
+            "de este MCP Server.  Para cambios en el inventario, utiliza "
+            "el sistema de gestión de inventario directamente."
+        ),
+    }
+
+
+def delete_product(product_id: int) -> dict[str, Any]:
+    """Elimina un producto del inventario.
+
+    IMPORTANTE: El inventario es SOLO LECTURA — esta tool rechaza
+    explícitamente cualquier intento de eliminar un producto.
+
+    Args:
+        product_id: ID del producto a eliminar.
+
+    Returns:
+        Siempre ``{"success": False, "error": "read_only"}`` con un
+        mensaje explícito.
+    """
+    logger.warning(
+        "Intento de eliminar producto %s rechazado (inventario read-only).",
+        product_id,
+    )
+    return {
+        "success": False,
+        "error": "read_only",
+        "message": (
+            "El módulo de inventario es solo lectura. "
+            "No se pueden crear, modificar ni eliminar productos a través "
+            "de este MCP Server.  Para cambios en el inventario, utiliza "
+            "el sistema de gestión de inventario directamente."
+        ),
+    }

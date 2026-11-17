@@ -1,0 +1,71 @@
+{
+  "run_id": "01e8631e-c5fc-43c5-8dc0-4fb59dac5788",
+  "question": "Según la política de cancelación, ¿el ticket 2 debería tener cargo?",
+  "answer": "📋 **Ticket #2** — Patient not informed of appointment reschedule by clinic\n- **Estado**: resolved\n- **Categoría**: patient_experience\n- **Origen**: customer\n- **Sucursal**: London — West\n- **Creado**: 2024-01-17T00:00:00+00:00\n- **Actualizado**: 2026-09-10T14:43:15.712221+00:00\n- **Descripción**: Patient not informed of appointment reschedule by clinic\n\n---\n\nSegún la documentación de HealthCore:\nCancelar con menos de 24 horas o no presentarse (no-show): cargo de 50 USD para pacientes de pago privado.\nPacientes con Medicare o Medicaid: no se les cobra cargo por no-show.",
+  "error": null,
+  "routing_log": [
+    "receive_question → classify_query (pregunta válida)",
+    "classify_query → rag+incident",
+    "query_incident → 1 resultado(s)",
+    "retrieve_context → generate_answer (1 fragmentos recuperados)",
+    "generate_answer → END (respuesta generada)",
+    "synthesize_tool_answer → respuesta (1 resultado(s))"
+  ],
+  "events": [
+    {
+      "node": "receive_question",
+      "status": "ok",
+      "timestamp": "2026-11-17T20:01:07.218322+00:00",
+      "metadata": {
+        "question_length": 67
+      }
+    },
+    {
+      "node": "classify_query",
+      "status": "ok",
+      "timestamp": "2026-11-17T20:01:07.219351+00:00",
+      "metadata": {
+        "decision": "rag+incident",
+        "has_incident": true,
+        "has_inventory": false,
+        "has_rag": true
+      }
+    },
+    {
+      "node": "query_incident",
+      "status": "ok",
+      "timestamp": "2026-11-17T20:01:07.220296+00:00",
+      "metadata": {
+        "num_results": 1
+      }
+    },
+    {
+      "node": "retrieve_context",
+      "status": "ok",
+      "timestamp": "2026-11-17T20:01:07.221092+00:00",
+      "metadata": {
+        "num_chunks": 1
+      }
+    },
+    {
+      "node": "generate_answer",
+      "status": "ok",
+      "timestamp": "2026-11-17T20:01:07.221954+00:00",
+      "metadata": {
+        "answer_length": 214
+      }
+    },
+    {
+      "node": "synthesize_tool_answer",
+      "status": "ok",
+      "timestamp": "2026-11-17T20:01:07.222809+00:00",
+      "metadata": {
+        "decision": "rag+incident",
+        "num_results": 1
+      }
+    }
+  ],
+  "num_chunks_retrieved": 1,
+  "final_answer_length": 575,
+  "timestamp": "2026-11-17T20:01:07.223227+00:00"
+}

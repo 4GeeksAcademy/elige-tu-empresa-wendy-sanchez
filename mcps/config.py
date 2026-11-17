@@ -53,12 +53,13 @@ MCP_SCOPES_SUPPORTED = [
     "incidents.read",
     "incidents.write",
     "inventory.read",
+    "inventory.write",
 ]
 
 # Scopes requeridos globalmente (todas las tools).  Se aplican además de
 # los scopes específicos que cada tool exige.  Usamos uno "base" para que
 # un token sin ningún scope sea rechazado incluso antes de llegar a la tool.
-MCP_REQUIRED_SCOPES = ["incidents.read"] if os.getenv("MCP_SKIP_AUTH") else []
+MCP_REQUIRED_SCOPES = ["incidents.read"] if not os.getenv("MCP_SKIP_AUTH") else []
 
 # ── Propiedades del servidor ─────────────────────────────────────────
 SERVER_NAME = "healthcore-mcp"

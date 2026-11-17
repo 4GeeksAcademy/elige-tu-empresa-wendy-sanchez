@@ -7,8 +7,11 @@ en este módulo. Las clases ``table=True`` fallarían con Python 3.14+.
 
 from datetime import date, datetime, timezone
 from enum import Enum
+from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from sqlalchemy import Column
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class Country(str, Enum):
@@ -399,7 +402,10 @@ class TelemetryEventDB(SQLModel, table=True):
     """Semantic version of the event contract."""
     request_id: str = Field(max_length=128, nullable=False)
     """Correlation ID propagated frontend→proxy→API→logs."""
-    tags: dict | None = Field(default=None)
+    tags: dict | None = Field(
+        default=None,
+        sa_column=Column(JSONB, nullable=True),
+    )
     """Properties payload — only allowlist keys, enables GIN-indexed queries on PostgreSQL."""
     created_at: datetime = Field(
         sa_type=DateTime(timezone=True),

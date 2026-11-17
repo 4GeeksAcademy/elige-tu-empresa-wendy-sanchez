@@ -26,6 +26,7 @@ import os
 import sys
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 
 from mcps import config
 from mcps.tools import (
@@ -36,6 +37,9 @@ from mcps.tools import (
     get_summary as _get_summary,
     get_product as _get_product,
     list_products as _list_products,
+    create_product as _create_product,
+    update_product as _update_product,
+    delete_product as _delete_product,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,6 +63,10 @@ mcp = FastMCP(
     name=config.SERVER_NAME,
     instructions=config.SERVER_DESCRIPTION,
     dependencies=["httpx"],
+    stateless_http=True,
+    transport_security=TransportSecuritySettings(
+        enable_dns_rebinding_protection=False,
+    ),
     # El auth se aplica externamente con mcpauth (no la auth interna de FastMCP).
     # La auth interna de FastMCP es opcional/experimental; nosotros usamos la
     # capa de mcpauth que es la implementación de referencia de MCP Auth.
@@ -227,8 +235,9 @@ def get_incident_summary() -> str:
 # ═══════════════════════════════════════════════════════════════════════
 #
 # El servidor rechaza explícitamente cualquier intento de crear, actualizar
-# o eliminar productos.  No exponemos tools de escritura para inventario.
-# Todas las tools de inventario requieren scope inventory.read.
+# o eliminar productos.  Las tools de escritura EXISTEN y son descubribles,
+# pero devuelven un error controlado (RETO 2 del ticket).
+# Todas las tools de inventario (lectura) requieren scope inventory.read.
 
 
 @mcp.tool(
@@ -278,19 +287,137 @@ def list_products(
     return _serialize_result(result, label="productos")
 
 
+@mcp.tool(
+    name="create_product",
+    description="""INTENCIONALMENTE RECHAZADA — El inventario es SOLO LECTURA.
+
+Esta tool existe para que el cliente MCP reciba un error controlado
+en lugar de "tool not found".  Siempre devuelve un error indicando
+que el inventario es solo lectura.  Requiere scope inventory.write.""",
+)
+def create_product(
+    name: str,
+    category: str,
+    unit: str,
+    stock: int = 0,
+    sku: str | None = None,
+) -> str:
+    """Crea un nuevo producto en el inventario.
+
+    IMPORTANTE: El inventario es SOLO LECTURA — esta operación siempre
+    es rechazada.  La tool existe para dar un mensaje de error claro
+    en lugar de "tool not found".
+
+    Args:
+        name: Nombre del producto.
+        category: Categoría (equipment, medication, supply, instrument).
+        unit: Unidad de medida.
+        stock: Stock inicial (opcional, default 0).
+        sku: Código SKU (opcional).
+
+    Returns:
+        Siempre un error indicando que el inventario es solo lectura.
+    """
+    result = _create_product(
+        name=name,
+        category=category,
+        unit=unit,
+        stock=stock,
+        sku=sku,
+    )
+    return _serialize_result(result, label="create_product (read-only)")
+
+
+@mcp.tool(
+    name="update_product",
+    description="""INTENCIONALMENTE RECHAZADA — El inventario es SOLO LECTURA.
+
+Esta tool existe para que el cliente MCP reciba un error controlado
+en lugar de "tool not found".  Siempre devuelve un error indicando
+que el inventario es solo lectura.  Requiere scope inventory.write.""",
+)
+def update_product(
+    product_id: int,
+    name: str | None = None,
+    category: str | None = None,
+    unit: str | None = None,
+    stock: int | None = None,
+) -> str:
+    """Actualiza un producto existente en el inventario.
+
+    IMPORTANTE: El inventario es SOLO LECTURA — esta operación siempre
+    es rechazada.  La tool existe para dar un mensaje de error claro
+    en lugar de "tool not found".
+
+    Args:
+        product_id: ID del producto a modificar.
+        name: Nuevo nombre (opcional).
+        category: Nueva categoría (opcional).
+        unit: Nueva unidad de medida (opcional).
+        stock: Nuevo stock (opcional).
+
+    Returns:
+        Siempre un error indicando que el inventario es solo lectura.
+    """
+    result = _update_product(
+        product_id=product_id,
+        name=name,
+        category=category,
+        unit=unit,
+        stock=stock,
+    )
+    return _serialize_result(result, label="update_product (read-only)")
+
+
+@mcp.tool(
+    name="delete_product",
+    description="""INTENCIONALMENTE RECHAZADA — El inventario es SOLO LECTURA.
+
+Esta tool existe para que el cliente MCP reciba un error controlado
+en lugar de "tool not found".  Siempre devuelve un error indicando
+que el inventario es solo lectura.  Requiere scope inventory.write.""",
+)
+def delete_product(product_id: int) -> str:
+    """Elimina un producto del inventario.
+
+    IMPORTANTE: El inventario es SOLO LECTURA — esta operación siempre
+    es rechazada.  La tool existe para dar un mensaje de error claro
+    en lugar de "tool not found".
+
+    Args:
+        product_id: ID del producto a eliminar.
+
+    Returns:
+        Siempre un error indicando que el inventario es solo lectura.
+    """
+    result = _delete_product(product_id=product_id)
+    return _serialize_result(result, label="delete_product (read-only)")
+
+
 # ═══════════════════════════════════════════════════════════════════════
 #  Helpers
 # ═══════════════════════════════════════════════════════════════════════
 
 
 def _serialize_result(result: dict, label: str = "resultado") -> str:
-    """Serializa el resultado de una tool a JSON para el cliente MCP."""
+    """Serializa el resultado de una tool a JSON para el cliente MCP.
+
+    Registra un log por cada invocación con tool, resultado y estado.
+    """
     import json
 
     if result.get("success"):
+        logger.info(
+            "Tool OK | tool=%(label)s | success=true",
+            {"label": label},
+        )
         return json.dumps(result, ensure_ascii=False, default=str)
     else:
         error_msg = result.get("error", "Error desconocido")
+        logger.warning(
+            "Tool ERROR | tool=%(label)s | success=false | error=%(error)s",
+            {"label": label, "error": error_msg[:120]},
+        )
         return json.dumps(
             {"error": error_msg, "success": False},
             ensure_ascii=False,
@@ -322,53 +449,55 @@ SKIP_AUTH = os.getenv("MCP_SKIP_AUTH", "").strip() in ("1", "true", "yes")
 
 if SKIP_AUTH:
     # Modo desarrollo: app sin auth
-    app = mcp.streamable_http_app()
+    raw_app = mcp.streamable_http_app()
     logger.warning("MCP Server ejecutándose SIN autenticación (solo desarrollo).")
 else:
     # ── Modo producción: aplicar OAuth vía mcpauth (modo RS) ─────────
-    from starlette.applications import Starlette
-    from starlette.routing import Mount
-    from starlette.middleware import Middleware
-
-    from mcpauth import MCPAuth, AuthServerConfig
-    from mcpauth.config import AuthorizationServerMetadata, AuthServerType
+    from mcpauth import MCPAuth
     from mcps.auth import (
+        CORSAsgiMiddleware,
         build_auth_server_config,
         build_bearer_middleware,
         build_protected_resource_routes,
+        SelectiveBearerASGI,
     )
 
     # ── 1. Construir config del Authorization Server remoto ──────────
-    #     No es que seamos el AS; es la configuración del AS que emitió
-    #     el token, necesaria para que mcpauth valide issuer/jwks.
     auth_server_config = build_auth_server_config()
     mcp_auth = MCPAuth(server=auth_server_config)
 
     # ── 2. Crear middleware Bearer Auth (mcpauth) ────────────────────
-    bearer_mw = build_bearer_middleware(mcp_auth)
+    bearer_mw_class = build_bearer_middleware(mcp_auth)
 
     # ── 3. Obtener la app Streamable HTTP de FastMCP ─────────────────
-    mcp_app = mcp.streamable_http_app()
+    raw_app = mcp.streamable_http_app()
 
-    # ── 4. Rutas de Protected Resource Metadata (RFC 9728) ───────────
-    protected_resource_routes = build_protected_resource_routes()
+    # ── 4. Agregar rutas públicas de Protected Resource Metadata ─────
+    #     Se agregan directamente al FastMCP app (sin auth).
+    for route in build_protected_resource_routes():
+        raw_app.add_route(
+            path=route.path,
+            route=route.endpoint,
+            methods=route.methods,
+        )
 
-    # ── 5. Construir aplicación Starlette final ──────────────────────
-    app = Starlette(
-        debug=False,
-        routes=[
-            *protected_resource_routes,
-            Mount("/", app=mcp_app),
-        ],
-        middleware=[
-            Middleware(bearer_mw),
-        ],
+    # ── 5. Envolver con ASGI selectivo: público directo,              ──
+    #       protegido pasa por Bearer Auth.  El lifespan del FastMCP
+    #       se preserva porque seguimos siendo una sola capa ASGI.
+    raw_app = SelectiveBearerASGI(
+        mcp_asgi_app=raw_app,
+        bearer_mw_class=bearer_mw_class,
     )
+
     logger.info(
         "MCP Server configurado como Resource Server. "
         "Scopes soportados: %s",
         config.MCP_SCOPES_SUPPORTED,
     )
+
+# ── 6. Envolver con CORS (necesario para MCP Playground web) ────────
+from mcps.auth import CORSAsgiMiddleware
+app = CORSAsgiMiddleware(raw_app)
 
 
 # ═══════════════════════════════════════════════════════════════════════

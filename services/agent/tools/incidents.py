@@ -1,17 +1,22 @@
-"""Tool para consultar el gestor de incidentes en tiempo real.
+"""⚠️  DEPRECATED — usar services.agent.tools.mcp_client en su lugar.
 
-Contrato:
-  - Entrada: ticket_id (int, opcional) o filtros de búsqueda.
-  - Salida: estado, categoría, origen, fechas, branch — exactamente
-    los campos que expone GET /api/incidents y GET /api/incidents/{id}.
+Este archivo se manteniene solo como referencia temporal.  Todo el código
+nuevo debe importar las tools desde ``services.agent.tools.mcp_client``.
 
-Timeout: 5s. Fallback: si el servicio no responde o el ticket no existe,
-el agente responde con honestidad.
-
-Solo lectura: GET únicamente. Nunca crea, actualiza ni elimina tickets.
+El agente LangGraph ya no usa este módulo.  Se eliminará en una limpieza
+futura.
 """
 
 from __future__ import annotations
+
+import warnings
+
+warnings.warn(
+    "services.agent.tools.incidents está DEPRECATED. "
+    "Usa services.agent.tools.mcp_client en su lugar.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 import logging
 from typing import Any, Literal
