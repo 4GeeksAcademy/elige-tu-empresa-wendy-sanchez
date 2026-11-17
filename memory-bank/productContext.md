@@ -158,3 +158,12 @@ El producto en este repositorio tiene las siguientes superficies:
 - **Interfaz de usuario**: Página de chat Q&A en el website público (`uis/website/app/rag/page.tsx`) para coordinadores de HealthCore. También UI HTML embebida en el propio servidor standalone.
 - **Evaluación**: 8 queries de prueba en `data/eval/test-queries.json` cubriendo los 4 documentos. KPI: Recall@3 ≥ 80%, Faithfulness 100%, Threshold coverage 100%.
 - **Tests**: 26 tests unitarios en `tests/pipelines/test_rag.py` cubriendo chunking, embedding, retrieval, generación y validación de modelos.
+
+13. **MCP Server — OAuth-protected tools (Dec 2026)**
+- **Servidor MCP** que expone los módulos de Incidencias e Inventario como 10 herramientas MCP (Model Context Protocol), protegidas con OAuth 2.1 Resource Server vía MCP Auth (mcpauth).
+- **Herramientas de Incidencias (5)**: `get_incident`, `list_incidents`, `create_incident`, `update_incident_status` (usa endpoint de ciclo de vida `PATCH /api/incidents/{id}/status`), `get_incident_summary`.
+- **Herramientas de Inventario (5)**: `get_product`, `list_products` (lectura), `create_product`, `update_product`, `delete_product` (las 3 de escritura devuelven error controlado `INVENTORY_READ_ONLY` — rechazo explícito, RETO 2).
+- **OAuth**: SelectiveBearerASGI wrapper que mantiene `/.well-known/` y `/health` públicos, protege `/mcp` con Bearer JWT. Soporta JWKS (producción), token fijo de desarrollo, y modo skip.
+- **Scopes**: `incidents.read`, `incidents.write`, `inventory.read`, `inventory.write` — mínimo privilegio por tool.
+- **Integración LangGraph**: El agente de soporte migró de HTTP directo a MCP Client usando `langchain-mcp-adapters`. Los nodos del grafo se convirtieron a `async def` con `await tool.ainvoke()`.
+- **Documentación**: `mcp-server.md` — arquitectura completa, setup, tools, OAuth flow, códigos de error, migración del agente, testing.

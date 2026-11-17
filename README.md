@@ -29,6 +29,7 @@
 | 11 | **RAG Knowledge Base** — Retrieval-Augmented Generation over HealthCore policy documents (insurance, appointments, referrals, checklists) | Qdrant, pplx-embed-v1, DeepSeek-v4, FastAPI | ✅ Complete |
 | 12 | **LangGraph Support Agent** — Decision graph wrapping RAG pipeline with explicit state, checkpointing, tracing, and HTTP endpoint | LangGraph 1.2.22, MemorySaver, httpx | ✅ Complete |
 | 13 | **LangGraph Agent — External Tools** — Added real-time incident and inventory query tools. Auto-routing between RAG, tools, or both via regex classification (no LLM). 5s timeout, honest fallback. 32 tests. | LangGraph, httpx, regex | ✅ Complete |
+| 14 | **MCP Server — OAuth-Protected Tools** — Model Context Protocol server exposing Incidents (5 tools) and Inventory (5 tools) as MCP tools, protected with OAuth 2.1 Resource Server via mcpauth. Inventory write operations explicitly rejected (RETO 2). LangGraph agent integrated via langchain-mcp-adapters. 9/9 acceptance criteria. | FastMCP, mcpauth, langchain-mcp-adapters, Streamable HTTP | ✅ Complete |
 
 ---
 
@@ -50,6 +51,9 @@ services/                   # Backend services
 ├── nightly/                #   Nightly export job — background process
 └── job_runner.py           #   State machine for job orchestration
 
+mcps/                       # MCP Server (port 9100) — FastMCP + OAuth 2.1
+                            #   10 tools (incidents + inventory) protected via mcpauth
+
 data/                       # Data layer
 ├── raw/                    #   Raw data (CSV)
 ├── process/                #   Processed data, TinyDB databases
@@ -63,7 +67,7 @@ scripts/                    # CLI tools: sales forecast, model evaluation, night
 tests/                      # Test suites: pipelines, nightly, agent, RAG, evaluation
 ```
 
-**Backend architecture:** Most APIs use TinyDB for auth and operational data. Inventory and reporting use Supabase PostgreSQL. A standalone auth server avoids SQLModel/Python 3.14 incompatibility.
+**Backend architecture:** Most APIs use TinyDB for auth and operational data. Inventory and reporting use Supabase PostgreSQL. A standalone auth server avoids SQLModel/Python 3.14 incompatibility. The MCP Server (`mcps/`) exposes incident and inventory tools via Model Context Protocol with OAuth 2.1 protection.
 
 **Docker:** Services communicate via Docker Compose under `healthcore-net`. See [`docker-compose.yml`](./docker-compose.yml).
 
@@ -95,6 +99,9 @@ uv run python services/telemetry/server_standalone.py
 
 # RAG standalone server (port 8000 — avoids SQLModel)
 uv run python services/api/routes/rag_standalone.py
+
+# MCP Server (port 9100) — OAuth-protected tools
+MCP_SKIP_AUTH=1 uv run uvicorn mcps.server:app --host 0.0.0.0 --port 9100
 ```
 
 ### Run Frontends
@@ -146,6 +153,20 @@ The support agent is implemented as a LangGraph `StateGraph` with **10 nodes** a
 
 ---
 
+## MCP Server — OAuth-Protected Tools — Key Details
+
+Model Context Protocol server exposing internal tools as MCP resources, protected with **OAuth 2.1 Resource Server** via **mcpauth**. Designed for the LangGraph agent to consume via `langchain-mcp-adapters`.
+
+- **10 tools:** Incidents (5 — CRUD + summary) and Inventory (5 — 2 read + 3 explicit write rejection).
+- **OAuth enforcement:** `SelectiveBearerASGI` wrapper — public routes (`/.well-known/`, `/health`) bypass auth; `/mcp` requires Bearer JWT.
+- **Scopes:** Minimum privilege — `incidents.read`, `incidents.write`, `inventory.read`, `inventory.write`.
+- **Write rejection (RETO 2):** `create_product`, `update_product`, `delete_product` exist and are discoverable but return `{"error": "read_only", "success": false, "code": "INVENTORY_READ_ONLY"}`.
+- **LangGraph integration:** Agent migrated from direct HTTP to MCP Client via `langchain-mcp-adapters` (`load_mcp_tools()`). Nodes are `async def` with `await tool.ainvoke()`.
+- **Transport:** Streamable HTTP (`stateless_http=True`). DNS rebinding protection disabled for tunnel compatibility.
+- **Docs:** [`mcp-server.md`](./mcp-server.md), [`mcps/README.md`](./mcps/README.md).
+
+---
+
 ## 📊 Sales Forecast Model — Key Details
 
 XGBoost regression trained on 84 months (2016–2023), tested on 24 unseen months (2024–2025). No data leakage. Walk-forward validation.
@@ -179,6 +200,7 @@ Retrieval-Augmented Generation over 4 HealthCore policy documents. Embedded with
 | [`background-processes.md`](./background-processes.md) | Background job architecture |
 | [`message-queues-asyns-task.md`](./message-queues-asyns-task.md) | Asynchronous Task Queue — Redis + Celery |
 | [`docs/ARCHITECTURE_PROPOSAL.md`](./docs/ARCHITECTURE_PROPOSAL.md) | Overall architecture proposal |
+| [`mcp-server.md`](./mcp-server.md) | MCP Server — OAuth-protected tools, architecture, setup |
 | [`memory-bank/`](./memory-bank/) | Development progress, active context, system patterns |
 
 ---

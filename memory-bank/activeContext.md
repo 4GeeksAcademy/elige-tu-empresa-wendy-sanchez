@@ -576,3 +576,56 @@ Se realizó una optimización integral de caching en toda la aplicación (fronte
 - Website público (uis/website) como aplicación Next.js independiente.
 - Scripts de análisis de datos (scripts/analyze.py, seed_incidents.py).
 - Estructuras preparadas para escalado: agents/, skills/, workflows/, docs/, infra/.
+
+---
+
+## MCP Server — HealthCore MCP OAuth Tools (2026-12)
+
+### Estado actual
+- **Completado**: Servidor MCP con FastMCP v1 + mcpauth Resource Server + SelectiveBearerASGI.
+- **Completado**: 10 tools MCP (5 incidents + 5 inventory) con scopes, descripciones claras y schemas.
+- **Completado**: Rechazo explícito de escritura en inventario (RETO 2) — `create_product`, `update_product`, `delete_product` devuelven `INVENTORY_READ_ONLY`.
+- **Completado**: OAuth 2.1 funcional — JWKS (producción), token fijo (dev), skip (testing).
+- **Completado**: Bug corregido en `config.py` — lógica de scopes invertida (`if os.getenv("MCP_SKIP_AUTH")` → `if not`).
+- **Completado**: `update_incident_status` usa endpoint de ciclo de vida específico (`PATCH /api/incidents/{id}/status`).
+- **Completado**: Logging por invocación con `_serialize_result()` — formato `"Tool OK | tool=... | success=true"`.
+- **Completado**: Códigos de error diferenciados (HTTP 401 missing_auth_header, invalid_token; HTTP 403 missing_required_scopes; HTTP 500 server_error).
+- **Completado**: Integración LangGraph con langchain-mcp-adapters — `services/agent/tools/mcp_client.py` con cache, 6 funciones async.
+- **Completado**: Migración del grafo a async — nodos `async def`, `load_mcp_tools(session=session)`, `await tool.ainvoke()`.
+- **Completado**: DNS Rebinding fix — `TransportSecuritySettings(enable_dns_rebinding_protection=False)`.
+- **Completado**: MCP Playground conectado exitosamente — `tools/list` (10 tools), `tools/call` (rechazo escritura), CORS preflight (204).
+- **Completado**: Documentación en `mcp-server.md` — arquitectura, setup, tools, OAuth flow, migración, testing.
+- **Completado**: Archivos legacy deprecados con `DeprecationWarning` (`services/agent/tools/incidents.py`, `inventory.py`).
+
+### Bugs encontrados y corregidos
+1. **Scopes invertidos** (`mcps/config.py`): `if os.getenv("MCP_SKIP_AUTH")` en lugar de `if not os.getenv("MCP_SKIP_AUTH")`. En producción (sin `MCP_SKIP_AUTH`), `required_scopes` quedaba vacío y el middleware aceptaba cualquier request sin token. Corregido.
+2. **DNS Rebinding** (`mcps/server.py`): FastMCP activa protección anti-DNS rebinding para localhost por defecto, lo que rechaza Host headers de túneles (localtunnel). Corregido con `TransportSecuritySettings(enable_dns_rebinding_protection=False)`.
+3. **CORS preflight** (`mcps/server.py`): FastMCP no respondía OPTIONS correctamente. Corregido asegurando que SelectiveBearerASGI pase requests OPTIONS sin intervención del middleware Bearer.
+
+### Acceptance criteria (9/9)
+- AC-1: Paquete `mcps/` existe con `__init__.py`, `server.py`, `auth.py`, `config.py`, `tools.py` ✅
+- AC-2: OAuth enforcement funcional (SelectiveBearerASGI + mcpauth bearer middleware) ✅
+- AC-3: `update_incident_status` usa endpoint de ciclo de vida (`PATCH /api/incidents/{id}/status`) ✅
+- AC-4: Inventory read-only con rechazo explícito (3 tools con error `INVENTORY_READ_ONLY`) ✅
+- AC-5: Clear descriptions y argument schemas en todas las tools ✅
+- AC-6: Códigos de error diferenciados por escenario (401/403/500 + error code string) ✅
+- AC-7: Log per invocation con tool name y success/failure ✅
+- AC-8: Agent usa MCP Client con langchain-mcp-adapters (no HTTP directo) ✅
+- AC-9: MCP Playground / Public URL funcional (10 tools listables, write rejection, CORS) ✅
+
+### Archivos clave
+- `mcps/server.py` — FastMCP app composition
+- `mcps/auth.py` — OAuth middleware, SelectiveBearerASGI
+- `mcps/config.py` — Config, McpMode, compute_required_scopes
+- `mcps/tools.py` — 10 tools MCP
+- `services/agent/tools/mcp_client.py` — MCP Client con langchain-mcp-adapters
+- `docs/mcp-server.md` — Documentación completa
+- `services/agent/graph.py` — Grafo migrado a async con MCP Client
+
+### Documentación
+- `mcp-server.md` — Documentación técnica completa del MCP Server
+- `mcps/README.md` / `mcps/README.es.md` — Documentación del paquete
+
+### URL pública (Playground)
+- `https://congenial-pancake-gxq77rxwr56q3v7x4-9100.app.github.dev/mcp`
+- Verificada con `tools/list` → 10 tools, `tools/call` → write rejection, CORS preflight → 204

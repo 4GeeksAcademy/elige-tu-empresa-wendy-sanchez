@@ -29,6 +29,7 @@
 | 11 | **Base de Conocimiento RAG** — Generación Aumentada por Recuperación sobre documentos de políticas de HealthCore | Qdrant, pplx-embed-v1, DeepSeek-v4, FastAPI | ✅ Completado |
 | 12 | **Agente de Soporte LangGraph** — Grafo de decisión que envuelve el pipeline RAG con estado explícito, checkpointing, trazabilidad y endpoint HTTP | LangGraph 1.2.22, MemorySaver, httpx | ✅ Completado |
 | 13 | **Agente LangGraph — Tools Externas** — Añadidas herramientas de consulta en tiempo real a incidencias e inventario. Enrutamiento automático entre RAG, tools o ambos mediante clasificación regex (sin LLM). Timeout 5s, fallback honesto. 32 tests. | LangGraph, httpx, regex | ✅ Completado |
+| 14 | **Servidor MCP — Tools Protegidas con OAuth** — Servidor Model Context Protocol que expone Incidencias (5 tools) e Inventario (5 tools) como herramientas MCP, protegidas con OAuth 2.1 Resource Server vía mcpauth. Operaciones de escritura en inventario explícitamente rechazadas (RETO 2). Agente LangGraph integrado vía langchain-mcp-adapters. 9/9 criterios de aceptación. | FastMCP, mcpauth, langchain-mcp-adapters, Streamable HTTP | ✅ Completado |
 
 ---
 
@@ -50,6 +51,9 @@ services/                   # Servicios backend
 ├── nightly/                #   Job nocturno de exportación — proceso en segundo plano
 └── job_runner.py           #   Máquina de estados para orquestación de trabajos
 
+mcps/                       # Servidor MCP (puerto 9100) — FastMCP + OAuth 2.1
+                            #   10 tools (incidencias + inventario) protegidas vía mcpauth
+
 data/                       # Capa de datos
 ├── raw/                    #   Datos crudos (CSV)
 ├── process/                #   Datos procesados, bases TinyDB
@@ -63,7 +67,7 @@ scripts/                    # Herramientas CLI: pronóstico ventas, evaluación 
 tests/                      # Suites de tests: pipelines, nightly, agente, RAG, evaluación
 ```
 
-**Arquitectura backend:** La mayoría de las APIs usan TinyDB para auth y datos operativos. Inventario y reporting usan Supabase PostgreSQL. Un servidor auth standalone evita la incompatibilidad SQLModel/Python 3.14.
+**Arquitectura backend:** La mayoría de las APIs usan TinyDB para auth y datos operativos. Inventario y reporting usan Supabase PostgreSQL. Un servidor auth standalone evita la incompatibilidad SQLModel/Python 3.14. El servidor MCP (`mcps/`) expone herramientas de incidencias e inventario mediante Model Context Protocol con protección OAuth 2.1.
 
 **Docker:** Los servicios se comunican mediante Docker Compose bajo la red `healthcore-net`. Ver [`docker-compose.yml`](./docker-compose.yml).
 
@@ -95,6 +99,9 @@ uv run python services/telemetry/server_standalone.py
 
 # Servidor RAG standalone (puerto 8000 — evita SQLModel)
 uv run python services/api/routes/rag_standalone.py
+
+# Servidor MCP (puerto 9100) — tools protegidas con OAuth
+MCP_SKIP_AUTH=1 uv run uvicorn mcps.server:app --host 0.0.0.0 --port 9100
 ```
 
 ### Ejecutar Frontends
@@ -146,7 +153,21 @@ El agente de soporte está implementado como un `StateGraph` de LangGraph con **
 
 ---
 
-## 📊 Modelo de Pronóstico de Ventas — Detalles Clave
+## Servidor MCP — Tools Protegidas con OAuth — Detalles Clave
+
+Servidor Model Context Protocol que expone herramientas internas como recursos MCP, protegidas con **OAuth 2.1 Resource Server** vía **mcpauth**. Diseñado para que el agente LangGraph las consuma mediante `langchain-mcp-adapters`.
+
+- **10 tools:** Incidencias (5 — CRUD + resumen) e Inventario (5 — 2 lectura + 3 rechazo explícito de escritura).
+- **OAuth enforcement:** Wrapper `SelectiveBearerASGI` — rutas públicas (`/.well-known/`, `/health`) sin auth; `/mcp` requiere Bearer JWT.
+- **Scopes:** Mínimo privilegio — `incidents.read`, `incidents.write`, `inventory.read`, `inventory.write`.
+- **Rechazo de escritura (RETO 2):** `create_product`, `update_product`, `delete_product` existen y son descubribles pero devuelven `{"error": "read_only", "success": false, "code": "INVENTORY_READ_ONLY"}`.
+- **Integración LangGraph:** Agente migrado de HTTP directo a MCP Client vía `langchain-mcp-adapters` (`load_mcp_tools()`). Nodos son `async def` con `await tool.ainvoke()`.
+- **Transporte:** Streamable HTTP (`stateless_http=True`). Protección anti-DNS rebinding deshabilitada para compatibilidad con túneles.
+- **Documentación:** [`mcp-server.md`](./mcp-server.md), [`mcps/README.es.md`](./mcps/README.es.md).
+
+---
+
+## � Modelo de Pronóstico de Ventas — Detalles Clave
 
 Regresión XGBoost entrenada con 84 meses (2016–2023), probada en 24 meses no vistos (2024–2025). Sin fuga de datos. Validación walk-forward.
 
@@ -179,6 +200,7 @@ Generación Aumentada por Recuperación sobre 4 documentos de políticas de Heal
 | [`background-processes.md`](./background-processes.md) | Arquitectura del proceso en segundo plano |
 | [`message-queues-asyns-task.md`](./message-queues-asyns-task.md) | Cola de Tareas Asíncronas — Redis + Celery |
 | [`docs/ARCHITECTURE_PROPOSAL.md`](./docs/ARCHITECTURE_PROPOSAL.md) | Propuesta de arquitectura general |
+| [`mcp-server.md`](./mcp-server.md) | Servidor MCP — tools protegidas con OAuth, arquitectura, configuración |
 | [`memory-bank/`](./memory-bank/) | Progreso del desarrollo, contexto activo, patrones del sistema |
 
 ---

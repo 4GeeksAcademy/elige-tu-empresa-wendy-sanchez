@@ -438,3 +438,28 @@ Monorepo de aprendizaje orientado a hitos, con separación por dominios:
 - **MSE** en USD² es correcta pero incomprensible; se documenta con una analogía (promedio de errores al cuadrado) y se acompaña de RMSE, que vuelve a la unidad original.
 - **PSI necesita contexto antes de alarmar**: en una serie con crecimiento sostenido, el PSI de nivel mide el crecimiento. Se reporta el PSI de nivel junto al PSI de crecimiento ajustado (sobre el log del crecimiento interanual) y se explica cuál usar para qué decisión.
 - **Se demuestra que las métricas son de prueba, no de entrenamiento**: train MSE = 51,5 M vs. test MSE = 24.754,8 M y train R² = 0,9996 vs. test R² = 0,8044. La diferencia es la prueba de que no hay autoengaño.
+
+### 53) Patrón MCP Server — SelectiveBearerASGI (wrapper ASGI sin anidar Starlette)
+- **Problema**: Anidar FastMCP dentro de `Starlette(routes=[Mount("/mcp", mcp_app)])` rompe el lifespan del session manager de FastMCP (las conexiones a servicios externos se abren y cierran incorrectamente).
+- **Solución**: `SelectiveBearerASGI` — wrapper ASGI puro que inspecciona `scope["path"]` y bifurca entre la app pública (rutas `/.well-known/`, `/health`) y la app protegida (middleware Bearer + FastMCP). Preserva el ciclo de vida original.
+- **Implementación**: clase Python con `__call__(self, scope, receive, send)` que decide en cada request qué sub-app invocar. No usa Starlette mounts ni anidamiento de ASGI apps.
+
+### 54) Patrón MCP Server — mcpauth Resource Server con metadatos RFC 9728
+- **mcpauth se configura en modo Resource Server** (no Authorization Server): `MCPAuth(server=AuthServerConfig)`, sin endpoints de emisión de tokens.
+- **Metadatos RFC 9728**: `/.well-known/oauth-protected-resource` público lista `authorization_servers`, `scopes_supported`, `bearer_methods_supported`. El cliente MCP descubre el AS antes de autenticarse.
+- **Validación dual**: si `MCP_JWKS_URI` está configurado → validación asimétrica (RS256/ES256) contra JWKS del AS; si no → token fijo de desarrollo (`_verify_dev_token()`). Esto permite desarrollo local sin IDP.
+
+### 55) Patrón MCP Server — rechazo explícito de escritura (RETO 2)
+- **No basta con no implementar la tool**: si el agente pide `create_product` y recibe "tool not found", puede reintentar o fallar silenciosamente. El RETO 2 exige que la tool exista, sea descubrible, y devuelva un error controlado con código, mensaje y `success: false`.
+- **Implementación**: `create_product`, `update_product`, `delete_product` están registradas con `@mcp.tool()` y aparecen en `tools/list`. Su implementación devuelve `{"error": "read_only", "success": false, "code": "INVENTORY_READ_ONLY", "message": "..."}`.
+- **Diferenciación de errores**: cada tool de escritura tiene su propio mensaje (`"create_product is not allowed: inventory is read-only"`, etc.) y código (`INVENTORY_READ_ONLY`), pero todas comparten la misma semántica de rechazo.
+
+### 56) Patrón MCP Server — langchain-mcp-adapters para integración LangGraph
+- **Carga diferida y cache**: `_get_tool(tool_name)` usa `load_mcp_tools(session=session)` una sola vez y cachea el resultado en `_tools_cache` (dict global). Las herramientas se cargan como `BaseTool` de LangChain en la primera invocación.
+- **Cada función pública del MCP Client** (`query_incident_by_id`, `query_products_list`, etc.) normaliza argumentos, invoca `tool.ainvoke(arguments)`, parsea el resultado y lo retorna en el mismo formato que las tools HTTP originales. Esto permite migrar sin cambiar los nodos del grafo más allá de hacerlos async.
+- **Timeout**: el cliente MCP hereda el timeout de `ClientSession` (por defecto 60s). No se configura timeout adicional porque las tools del servidor MCP ya tienen timeouts internos de 5s para las llamadas HTTP a los servicios backend.
+
+### 57) Patrón MCP Server — archivos legacy deprecados con DeprecationWarning
+- **Las tools HTTP directas originales** (`services/agent/tools/incidents.py`, `inventory.py`) se marcan como DEPRECATED pero no se eliminan. El `__init__.py` se actualiza para reflejar la nueva arquitectura MCP Client.
+- **Motivo**: no romper imports de otros módulos que pudieran referenciarlos, y permitir rollback rápido si el MCP Server falla en producción.
+- **Mecanismo**: `warnings.warn("DEPRECATED: ...", DeprecationWarning, stacklevel=2)` en cada función. El agente LangGraph ya no importa estos módulos.

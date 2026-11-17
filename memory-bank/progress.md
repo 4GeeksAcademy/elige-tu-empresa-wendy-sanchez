@@ -336,3 +336,57 @@
 12. **Pronóstico de ventas — automatizar la reejecución**: encadenar `scripts/train_sales_forecast.py` al proceso nocturno o a un cron mensual para que la banda y las métricas se refresquen con los datos nuevos, y versionar `metrics.json` para detectar degradación entre ejecuciones.
 13. **Pronóstico de ventas — incorporar variables exógenas**: altas de clínica, campañas de captación y cambios de tarifa explicarían parte del error residual que hoy queda en la banda.
 14. **Pronóstico de ventas — comparar contra un baseline**: un modelo sencillo (media móvil o regresión lineal con estacionalidad) como referencia haría el informe defendible también en la dirección contraria ("¿de verdad necesitamos XGBoost?").
+
+### MCP Server — HealthCore MCP OAuth Tools (2026-12) — Completado
+- **Completado**: Servidor MCP con FastMCP v1 (stateless_http=True), mcpauth Resource Server, SelectiveBearerASGI.
+- **Completado**: 10 tools MCP — Incidencias (5: get_incident, list_incidents, create_incident, update_incident_status vía PATCH /status, get_incident_summary) + Inventario (5: 2 lectura + 3 rechazo explícito de escritura con `INVENTORY_READ_ONLY`).
+- **Completado**: OAuth 2.1 con 4 scopes de mínimo privilegio (`incidents.read`, `incidents.write`, `inventory.read`, `inventory.write`). Soporte JWKS (producción), token fijo (dev), skip (testing).
+- **Completado**: `mcps/config.py` con `McpMode` enum, `compute_required_scopes()`, bug corregido (lógica de scopes invertida).
+- **Completado**: `SelectiveBearerASGI` wrapper ASGI que preserva lifespan de FastMCP — rutas públicas (`/.well-known/`, `/health`) y protegidas (`/mcp`) separadas.
+- **Completado**: `update_incident_status` usa endpoint de ciclo de vida específico (`PATCH /api/incidents/{id}/status`), no PATCH genérico.
+- **Completado**: Logging por invocación — formato `"Tool OK | tool=... | success=true"` / `"Tool ERROR | tool=... | success=false | error=..."`.
+- **Completado**: Códigos de error diferenciados: 401 missing_auth_header, 401 invalid_token, 403 missing_required_scopes, 500 server_error.
+- **Completado**: Integración LangGraph — migración de HTTP directo a MCP Client vía `langchain-mcp-adapters` (`load_mcp_tools()`). Nodos convertidos a `async def` con `await tool.ainvoke()`.
+- **Completado**: `services/agent/tools/mcp_client.py` — módulo MCP Client con cache de tools (`_tools_cache`), 6 funciones async que envuelven tools MCP.
+- **Completado**: DNS Rebinding fix — `TransportSecuritySettings(enable_dns_rebinding_protection=False)` para permitir túneles (Codespaces, localtunnel).
+- **Completado**: CORS preflight — OPTIONS requests pasan sin middleware Bearer.
+- **Completado**: MCP Playground conectado — `tools/list` (10 tools), `tools/call` (write rejection: `{"error": "read_only", "success": false}`), CORS preflight (204 con `access-control-allow-origin: *`).
+- **Completado**: Documentación en `mcp-server.md` (~550 líneas) — arquitectura, setup, tools, OAuth flow, migración del agente, testing.
+- **Completado**: Archivos legacy deprecados con `DeprecationWarning` (incidents.py, inventory.py).
+- **Completado**: 9/9 acceptance criteria verificados contra código fuente + Playground.
+- **Completado**: README.md y README.es.md revisados — ya contienen información completa, no requieren cambios.
+- **Branch**: `feature/mcp-oauth-tools`.
+
+### Bugs encontrados y corregidos durante el desarrollo
+
+| Bug | Archivo | Síntoma | Causa | Fix |
+|-----|---------|---------|-------|-----|
+| Scopes invertidos | `mcps/config.py` | En producción, `required_scopes` vacío → middleware aceptaba requests sin token | `if os.getenv("MCP_SKIP_AUTH"):` en lugar de `if not os.getenv("MCP_SKIP_AUTH"):` | Invertir condición |
+| DNS Rebinding | `mcps/server.py` | Localtunnel/Codespaces rechazados con 400 Bad Request | FastMCP activa protección anti-DNS rebinding para localhost por defecto | `transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False)` |
+| CORS preflight | `mcps/server.py` | `tools/call` desde Playground fallaba con error CORS | FastMCP no respondía OPTIONS; el middleware Bearer interceptaba y rechazaba | SelectiveBearerASGI pasa OPTIONS sin middleware Bearer |
+
+### Archivos creados/modificados
+- `mcps/__init__.py` — Paquete
+- `mcps/server.py` — FastMCP app + ASGI composition
+- `mcps/auth.py` — OAuth middleware + SelectiveBearerASGI
+- `mcps/config.py` — Config + McpMode
+- `mcps/tools.py` — 10 tools MCP
+- `mcps/README.md` + `mcps/README.es.md` — Documentación del paquete
+- `services/agent/tools/mcp_client.py` — MCP Client (nuevo)
+- `services/agent/tools/incidents.py` — DEPRECATED (actualizado)
+- `services/agent/tools/inventory.py` — DEPRECATED (actualizado)
+- `services/agent/tools/__init__.py` — Actualizado
+- `services/agent/graph.py` — Migrado a async con MCP Client
+- `docs/mcp-server.md` — Documentación completa (~550 líneas)
+- `tests/pipelines/test_agent_graph.py` — Tests actualizados con patches async
+
+### Acceptance criteria (9/9)
+- AC-1 ✅ Paquete `mcps/` existe (`__init__.py`, `server.py`, `auth.py`, `config.py`, `tools.py`)
+- AC-2 ✅ OAuth enforcement (SelectiveBearerASGI + mcpauth bearer middleware)
+- AC-3 ✅ `update_incident_status` usa `PATCH /api/incidents/{id}/status`
+- AC-4 ✅ Inventory read-only con rechazo explícito (3 tools: `INVENTORY_READ_ONLY`)
+- AC-5 ✅ Descripciones y schemas claros en todas las tools
+- AC-6 ✅ Códigos de error diferenciados (401/403/500 + error code string)
+- AC-7 ✅ Log per invocation (tool name + success/failure)
+- AC-8 ✅ Agent usa MCP Client con langchain-mcp-adapters
+- AC-9 ✅ MCP Playground / Public URL funcional (10 tools, write rejection, CORS)
