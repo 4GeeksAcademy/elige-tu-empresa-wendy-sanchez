@@ -289,7 +289,7 @@ El proxy de Next.js reenviaba al puerto 8000, donde el proceso viejo no tenía l
    kill <backoffice_pid> && cd uis/backoffice && npm run dev
    ```
 
-**Verificación:** POST a `http://localhost:3401/api/telemetry/events` devuelve `{"received":1}` con código 200. El navegador ya no muestra errores 422 en la consola de red. Los eventos de telemetría fluyen correctamente.
+**Verificación:** POST a `http://localhost:3001/api/telemetry/events` devuelve `{"received":1}` con código 200. El navegador ya no muestra errores 422 en la consola de red. Los eventos de telemetría fluyen correctamente.
 
 **Lección:** Al desarrollar en Codespaces, un backend iniciado temprano en la sesión puede quedar ejecutando código antiguo aunque los archivos en disco hayan cambiado. Es necesario reiniciar el proceso explícitamente — el `--reload` de uvicorn ayuda pero solo si el proceso se inició con esa bandera desde el principio. Siempre verificar OpenAPI `/docs` para confirmar que las rutas esperadas están registradas.
 

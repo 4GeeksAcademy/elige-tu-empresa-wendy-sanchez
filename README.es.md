@@ -100,9 +100,9 @@ uv run python services/api/routes/rag_standalone.py
 ### Ejecutar Frontends
 
 ```bash
-cd uis/backoffice && npm run dev      # Backoffice (puerto 3401)
-cd uis/website && npm run dev          # Sitio web (puerto 3402)
-cd uis/talent-pipeline-tracker && npm run dev  # Tracker (puerto 3403)
+cd uis/backoffice && npm run dev      # Backoffice (puerto 3001)
+cd uis/website && npm run dev          # Sitio web (puerto 3000)
+cd uis/talent-pipeline-tracker && npm run dev  # Tracker (puerto 3000 por defecto)
 ```
 
 ### Ejecutar Tests

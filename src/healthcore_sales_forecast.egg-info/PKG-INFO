@@ -1,0 +1,15 @@
+Metadata-Version: 2.4
+Name: healthcore-sales-forecast
+Version: 0.1.0
+Requires-Python: >=3.14
+Requires-Dist: fastapi>=0.162.4
+Requires-Dist: langgraph>=1.2.22
+Requires-Dist: matplotlib>=3.11.2
+Requires-Dist: openai>=3.49.0
+Requires-Dist: pandas>=3.1.0
+Requires-Dist: pytest>=9.2.0
+Requires-Dist: python-dotenv>=1.2.4
+Requires-Dist: qdrant-client>=1.20.0
+Requires-Dist: scikit-learn>=1.9.1
+Requires-Dist: uvicorn>=0.54.0
+Requires-Dist: xgboost>=3.4.1

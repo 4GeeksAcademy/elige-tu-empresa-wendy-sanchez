@@ -193,7 +193,7 @@
 
 ### Telemetría: corrección de 422 en producción (2026-10-06)
 - El backend de puerto 8000 (PID 42927) se levantó a las 18:01 con código desactualizado que no tenía las rutas correctas de telemetría. Se reinició con `uvicorn --reload` para usar el código completo con ambas rutas y validación correcta.
-- El proxy de Next.js en backoffice (3401) se reinició para conectar con el backend fresco.
+- El proxy de Next.js en backoffice (3001) se reinició para conectar con el backend fresco.
 - Verificado: eventos reales del navegador responden 200 OK en lugar de 422. Tanto fetch como sendBeacon funcionan correctamente.
 
 ### Telemetría: conectividad de navegador (2026-10-06)
